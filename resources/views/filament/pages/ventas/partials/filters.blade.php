@@ -1,0 +1,26 @@
+<x-filament::section
+    collapsible
+    :collapsed="$hasSearched && blank($resultError)"
+    class="opm-query-section"
+    x-on:sales-results-ready.window="isCollapsed = true"
+>
+    <x-slot name="heading">Filtros</x-slot>
+
+    <form wire:submit="search" class="space-y-4">
+        {{ $this->form }}
+
+        <x-filament::fieldset label="Fecha" class="opm-filter-date">
+            @include('filament.pages.ventas.partials.date-range-picker')
+        </x-filament::fieldset>
+
+        @if ($resultError && ! $hasSearched)
+            <p class="text-sm font-medium text-danger-600 dark:text-danger-400">{{ $resultError }}</p>
+        @endif
+
+        <div class="opm-form-actions">
+            <x-filament::button type="submit" icon="heroicon-m-magnifying-glass" wire:loading.attr="disabled" wire:target="search">
+                Consultar
+            </x-filament::button>
+        </div>
+    </form>
+</x-filament::section>
