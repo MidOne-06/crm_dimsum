@@ -106,32 +106,38 @@
                     </div>
 
                     @if (! empty($items))
-                        <table class="w-full text-sm">
-                            <thead>
-                                <tr class="border-b border-gray-200 text-left text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                                    <th class="py-2">Ítem</th>
-                                    <th class="py-2">Código</th>
-                                    <th class="py-2 w-32">Cantidad</th>
-                                    <th class="py-2 w-12"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach ($items as $index => $entry)
-                                    <tr class="border-b border-gray-100 dark:border-gray-800">
-                                        <td class="py-2 text-gray-950 dark:text-white">{{ $entry['item']['item_descripcion'] }}</td>
-                                        <td class="py-2 text-gray-500 dark:text-gray-400">{{ $entry['item']['item_codigo'] }}</td>
-                                        <td class="py-2">
-                                            <x-filament::input type="number" step="0.01" min="0.01" wire:model="items.{{ $index }}.cantidad" />
-                                        </td>
-                                        <td class="py-2">
-                                            <x-filament::icon-button icon="heroicon-o-trash" color="danger" wire:click="quitarItem({{ $index }})" />
-                                        </td>
+                        <div class="fi-ta-content overflow-x-auto">
+                            <table class="fi-ta-table w-full text-start">
+                                <thead>
+                                    <tr>
+                                        <th class="fi-ta-header-cell"><span class="fi-ta-header-cell-label">Ítem</span></th>
+                                        <th class="fi-ta-header-cell"><span class="fi-ta-header-cell-label">Código</span></th>
+                                        <th class="fi-ta-header-cell w-32"><span class="fi-ta-header-cell-label">Cantidad</span></th>
+                                        <th class="fi-ta-header-cell w-12"></th>
                                     </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    @foreach ($items as $index => $entry)
+                                        <tr class="fi-ta-row">
+                                            <td class="fi-ta-cell"><div class="px-3 py-3 text-sm font-medium text-gray-950 dark:text-white">{{ $entry['item']['item_descripcion'] }}</div></td>
+                                            <td class="fi-ta-cell"><div class="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">{{ $entry['item']['item_codigo'] }}</div></td>
+                                            <td class="fi-ta-cell">
+                                                <div class="px-3 py-3">
+                                                    <x-filament::input type="number" step="0.01" min="0.01" wire:model="items.{{ $index }}.cantidad" />
+                                                </div>
+                                            </td>
+                                            <td class="fi-ta-cell">
+                                                <div class="px-3 py-3">
+                                                    <x-filament::icon-button icon="heroicon-o-trash" color="danger" wire:click="quitarItem({{ $index }})" />
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
                     @else
-                        <p class="text-sm text-gray-500 dark:text-gray-400">Aún no agregas ítems.</p>
+                        <x-filament::empty-state icon="heroicon-o-shopping-cart" heading="Aún no agregas ítems." />
                     @endif
                 </div>
             </x-filament::section>
