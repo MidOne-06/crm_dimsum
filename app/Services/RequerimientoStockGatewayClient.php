@@ -66,6 +66,31 @@ class RequerimientoStockGatewayClient
         return $this->get('/api/lista', $query);
     }
 
+    /** @return array{total: int, rows: array<int, array<string, mixed>>} */
+    public function plantillas(string $localId, int $pagina = 1, int $registros = 25): array
+    {
+        return $this->get('/api/plantillas', [
+            'local_id' => $localId,
+            'pagina' => $pagina,
+            'registros' => $registros,
+        ]);
+    }
+
+    /** @return array<string, mixed> */
+    public function importarPlantilla(string $templateId, bool $incluirCantidadesCero = false): array
+    {
+        $response = Http::baseUrl($this->baseUrl)->timeout(120)->post('/api/plantillas/importar', [
+            'templateId' => $templateId,
+            'incluirCantidadesCero' => $incluirCantidadesCero,
+        ]);
+        $body = $response->json();
+        if ($response->failed()) {
+            throw new RuntimeException($body['error'] ?? 'No se pudo importar la plantilla.');
+        }
+
+        return is_array($body) ? $body : [];
+    }
+
     /**
      * @param  array<int, array{item: array<string, mixed>, cantidad: float|int}>  $items
      */

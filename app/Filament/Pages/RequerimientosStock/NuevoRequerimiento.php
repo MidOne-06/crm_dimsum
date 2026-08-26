@@ -79,6 +79,9 @@ class NuevoRequerimiento extends Page
 
     public ?string $saveError = null;
 
+    /** Código de la plantilla que precargó el formulario, si corresponde. */
+    public ?string $plantillaImportada = null;
+
     public function mount(): void
     {
         try {
@@ -95,6 +98,7 @@ class NuevoRequerimiento extends Page
         $this->fechaMinima = $this->fechaMinimaAbastecimiento();
         $this->fecha = $this->fechaSugeridaAbastecimiento();
         $this->refreshAlmacenes();
+        $this->aplicarPlantillaImportada();
     }
 
     public function updatedLocalOrigenId(): void
@@ -176,8 +180,8 @@ class NuevoRequerimiento extends Page
             return;
         }
 
-        if (! $this->localAllowedForUser($this->localOrigenId)) {
-            $this->saveError = 'No tienes acceso al local de origen seleccionado.';
+        if (! $this->localAllowedForUser($this->localOrigenId) || ! $this->localAllowedForUser($this->localDestinoId)) {
+            $this->saveError = 'No tienes acceso al local de origen o destino seleccionado.';
 
             return;
         }
@@ -245,6 +249,31 @@ class NuevoRequerimiento extends Page
     private function gateway(): RequerimientoStockGatewayClient
     {
         return app(RequerimientoStockGatewayClient::class);
+    }
+
+    private function aplicarPlantillaImportada(): void
+    {
+        $plantilla = session()->pull('requerimientos-stock.plantilla-importada');
+        if (! is_array($plantilla)) return;
+
+        $origen = (string) ($plantilla['localOrigenId'] ?? '');
+        $destino = (string) ($plantilla['localDestinoId'] ?? '');
+        if ($origen === '' || ! $this->localAllowedForUser($origen) || ! $this->localAllowedForUser($destino)) {
+            $this->loadError = 'La plantilla seleccionada no pertenece a un local disponible para tu usuario.';
+            return;
+        }
+
+        $this->localOrigenId = $origen;
+        $this->refreshAlmacenes();
+        $this->localDestinoId = $destino;
+        $this->encargado = trim((string) ($plantilla['encargado'] ?? '')) ?: $this->encargado;
+        $this->receptor = (string) ($plantilla['receptor'] ?? '');
+        $this->observacion = (string) ($plantilla['observacion'] ?? '');
+        $this->items = array_values(array_filter(
+            $plantilla['items'] ?? [],
+            fn (mixed $entry): bool => is_array($entry) && ! empty($entry['item']['item_id']),
+        ));
+        $this->plantillaImportada = (string) ($plantilla['id'] ?? '');
     }
 
     private function fechaMinimaAbastecimiento(): string

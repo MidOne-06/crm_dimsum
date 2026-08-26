@@ -115,8 +115,8 @@ class ListaRequerimientos extends Page
                 'registros' => $this->pageSize,
                 'fecha_inicio' => Carbon::parse($this->fechaInicio)->toDateString(),
                 'fecha_fin' => Carbon::parse($this->fechaFin)->toDateString(),
-                'locales' => $this->restrictLocalIdsToUser($this->selectedLocals),
-                'locales_produccion' => $this->restrictLocalIdsToUser($this->selectedProductionLocals),
+                'locales' => $this->safeLocalFilter($this->selectedLocals),
+                'locales_produccion' => $this->safeLocalFilter($this->selectedProductionLocals),
                 'estado' => $this->estado,
                 'codigo' => trim($this->codigo),
                 'encargado' => trim($this->encargado),
@@ -135,6 +135,18 @@ class ListaRequerimientos extends Page
     private function gateway(): RequerimientoStockGatewayClient
     {
         return app(RequerimientoStockGatewayClient::class);
+    }
+
+    /** Evita que un payload Livewire manipulado con una lista vacía amplíe el alcance del usuario restringido. */
+    private function safeLocalFilter(array $localIds): array
+    {
+        $allowed = $this->restrictLocalIdsToUser($localIds);
+
+        if ($allowed !== [] || ! auth()->user()?->isRestrictedToLocals()) {
+            return $allowed;
+        }
+
+        return array_map(fn (array $local): string => (string) $local['id'], $this->availableLocals);
     }
 
     private function friendlyError(Throwable $exception): string

@@ -11,6 +11,12 @@
                 </x-filament::section>
             @endif
 
+            @if ($plantillaImportada)
+                <x-filament::section icon="heroicon-o-document-arrow-down" icon-color="primary">
+                    <p class="text-sm font-medium">Plantilla #{{ $plantillaImportada }} importada. Revisa las cantidades y el día de abastecimiento antes de guardar.</p>
+                </x-filament::section>
+            @endif
+
             <x-filament::section heading="Datos del requerimiento">
                 <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     <x-filament::input.wrapper label="Local origen">
