@@ -13,7 +13,6 @@ use Dompdf\Dompdf;
 use Dompdf\Options as DompdfOptions;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
-use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Schema;
@@ -92,6 +91,8 @@ class ReporteRequerimientos extends Page implements HasTable
         $this->data['dateStart'] = $anclaFin->copy()->subDays(30)->toDateString();
         $this->data['dateEnd'] = $anclaFin->toDateString();
         $this->sincronizacionReporteId = RequerimientoStockSincronizacion::query()->latest('id')->value('id');
+
+        $this->autoSincronizar();
     }
 
     public function form(Schema $schema): Schema
@@ -143,6 +144,7 @@ class ReporteRequerimientos extends Page implements HasTable
     public function search(): void
     {
         $this->resetPage();
+        $this->autoSincronizar();
     }
 
     /** Ancla para que el usuario entienda por qué un rango reciente puede salir vacío: este módulo no se sincroniza solo. */
@@ -153,31 +155,51 @@ class ReporteRequerimientos extends Page implements HasTable
         return $fecha ? Carbon::parse($fecha)->format('d/m/Y H:i') : null;
     }
 
-    public function sincronizarFiltro(): void
+    /**
+     * Sincroniza el filtro actual contra Restaurant de forma implícita --
+     * cada vez que se abre o se consulta el reporte, no por un botón manual.
+     * Antes cada clic en "Sincronizar filtro" podía apilar corridas
+     * concurrentes (y con ellas, filas de sincronización y barras de
+     * progreso confusas en pantalla) si varios usuarios lo presionaban a la
+     * vez o el mismo usuario reaplicaba filtros varias veces seguidas. Dos
+     * guardas lo resuelven sin exponer nada al usuario:
+     *  - si ya hay una corrida pendiente/en_progreso (de cualquier filtro),
+     *    no se lanza otra -- solo una corriendo a la vez para todo el módulo.
+     *  - si el MISMO filtro ya se sincronizó hace menos de 5 minutos, se
+     *    reutiliza ese resultado en vez de volver a pedirle lo mismo a
+     *    Restaurant (evita machacar el ERP si el usuario solo está
+     *    reordenando/paginando la tabla).
+     */
+    private function autoSincronizar(): void
     {
         if (! auth()->user()?->hasPermission('requerimientos-stock.reporte.sincronizar')) {
-            Notification::make()->title('No tienes permiso para sincronizar el reporte.')->danger()->send();
-
             return;
         }
 
         if (RequerimientoStockSincronizacion::query()->whereIn('estado', ['pendiente', 'en_progreso'])->exists()) {
-            Notification::make()->title('Ya hay una sincronización en curso')->body('Puedes seguir usando el reporte mientras Restaurant actualiza el respaldo local.')->warning()->send();
+            return;
+        }
+
+        // Comparación en PHP, no en SQL: el cast a jsonb no garantiza el
+        // mismo orden de claves que json_encode() al comparar como texto, y
+        // el volumen aquí (últimas corridas completadas) es mínimo.
+        $filtros = $this->remoteFilters();
+        $reciente = RequerimientoStockSincronizacion::query()
+            ->whereIn('estado', ['completado', 'completado_con_errores'])
+            ->where('completado_en', '>=', now()->subMinutes(5))
+            ->latest('id')->limit(10)->get(['filtros'])
+            ->contains(fn (RequerimientoStockSincronizacion $run): bool => $run->filtros == $filtros);
+        if ($reciente) {
             return;
         }
 
         $run = RequerimientoStockSincronizacion::create([
-            'filtros' => $this->remoteFilters(),
+            'filtros' => $filtros,
             'estado' => 'pendiente',
             'iniciado_por' => auth()->id(),
         ]);
         Process::path(base_path())->start(['php', 'artisan', 'requerimientos-stock:sincronizar-reporte', '--sync-id='.$run->id]);
         $this->sincronizacionReporteId = $run->id;
-
-        Notification::make()
-            ->title('Sincronización iniciada en segundo plano')
-            ->body('El reporte permanece disponible; la matriz se actualizará al finalizar Restaurant.')
-            ->success()->send();
     }
 
     public function sincronizacionReporteActual(): ?RequerimientoStockSincronizacion
