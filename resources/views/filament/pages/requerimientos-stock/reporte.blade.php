@@ -9,12 +9,21 @@
 
                 <x-filament::fieldset label="Rango de fecha">
                     @include('filament.components.date-range-picker', [
-                        'start' => $data['dateStart'] ?? now()->startOfMonth()->toDateString(),
+                        'start' => $data['dateStart'] ?? now()->subDays(30)->toDateString(),
                         'end' => $data['dateEnd'] ?? now()->toDateString(),
                         'preset' => $activeDatePreset,
                         'syncMethod' => 'syncDateRange',
                     ])
                 </x-filament::fieldset>
+
+                @php($ultimaFecha = $this->ultimaFechaConDatos())
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                    @if($ultimaFecha)
+                        Histórico local disponible hasta el <strong>{{ $ultimaFecha }}</strong>. Este módulo no se actualiza solo -- si el rango elegido queda después de esa fecha, presiona "Sincronizar filtro" antes de esperar resultados.
+                    @else
+                        Aún no hay histórico local sincronizado. Presiona "Sincronizar filtro" para traer datos de Restaurant.
+                    @endif
+                </p>
 
                 <div class="flex flex-wrap justify-end gap-3">
                     @if (auth()->user()?->hasPermission('requerimientos-stock.reporte.sincronizar'))

@@ -6,20 +6,61 @@ use App\Models\RequerimientoStockSincronizacion;
 use App\Services\RequerimientoStockGatewayClient;
 use App\Services\RequerimientoStockHistoricoService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 class SincronizarReporteRequerimientos extends Command
 {
-    protected $signature = 'requerimientos-stock:sincronizar-reporte {--sync-id=}';
+    // --desde/--hasta/--locales solo aplican cuando NO se pasa --sync-id: sin
+    // esto, el módulo de requerimientos no tenía forma de programarse (a
+    // diferencia de guías/salidas/stock actual) -- dependía por completo de
+    // que un usuario abriera el reporte y presionara "Sincronizar filtro" a
+    // mano, así que el reporte podía quedar días sin datos frescos sin que
+    // nadie lo notara.
+    protected $signature = 'requerimientos-stock:sincronizar-reporte {--sync-id=} {--desde=} {--hasta=} {--locales=*}';
 
     protected $description = 'Sincroniza en segundo plano el reporte de requerimientos desde Restaurant.';
 
     public function handle(RequerimientoStockGatewayClient $gateway, RequerimientoStockHistoricoService $historico): int
     {
-        $run = RequerimientoStockSincronizacion::find((int) $this->option('sync-id'));
-        if (! $run || $run->estado !== 'pendiente') {
+        if (filled($this->option('sync-id'))) {
+            $run = RequerimientoStockSincronizacion::find((int) $this->option('sync-id'));
+            if (! $run || $run->estado !== 'pendiente') {
+                return self::SUCCESS;
+            }
+
+            return $this->sincronizar($run, $gateway, $historico);
+        }
+
+        // Modo "crear y correr" (uso desde el scheduler): una sola fila,
+        // protegida contra solapes igual que los otros 3 módulos.
+        $lock = Cache::lock('requerimientos-stock:sync', 14400);
+        if (! $lock->get()) {
+            $this->info('Ya hay una sincronización de Requerimientos de Stock en curso.');
+
             return self::SUCCESS;
         }
+
+        try {
+            $locales = array_values(array_filter((array) $this->option('locales')));
+            $run = RequerimientoStockSincronizacion::create([
+                'filtros' => [
+                    'fecha_inicio' => (string) ($this->option('desde') ?: now()->subDays(3)->toDateString()),
+                    'fecha_fin' => (string) ($this->option('hasta') ?: now()->toDateString()),
+                    'locales' => $locales, 'locales_produccion' => [],
+                    'estado' => '-1', 'codigo' => '', 'encargado' => '', 'por_fecha' => '0', 'items' => [],
+                ],
+                'estado' => 'pendiente',
+            ]);
+
+            return $this->sincronizar($run, $gateway, $historico);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function sincronizar(RequerimientoStockSincronizacion $run, RequerimientoStockGatewayClient $gateway, RequerimientoStockHistoricoService $historico): int
+    {
 
         $filters = (array) $run->filtros;
         $page = 1;

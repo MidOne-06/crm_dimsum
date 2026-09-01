@@ -29,7 +29,6 @@ use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
@@ -81,8 +80,17 @@ class ReporteRequerimientos extends Page implements HasTable
             'selectedLocals' => [],
             'selectedProducts' => [],
         ]);
-        $this->data['dateStart'] = now()->startOfMonth()->toDateString();
-        $this->data['dateEnd'] = now()->toDateString();
+        // "Mes en curso" como default hacía que el reporte abriera vacío en
+        // cuanto no hubiera datos sincronizados para el día de hoy (este
+        // módulo no tiene sincronización automática -- depende de que un
+        // usuario presione "Sincronizar filtro" a mano). Se usa la fecha más
+        // reciente que SÍ tenemos guardada como ancla, con 30 días hacia
+        // atrás, para que el primer vistazo casi siempre muestre algo real
+        // en vez de un "Sin registros" engañoso.
+        $ultimaFechaConDatos = RequerimientoStockHistorico::query()->max('fecha_registro');
+        $anclaFin = $ultimaFechaConDatos ? Carbon::parse($ultimaFechaConDatos)->min(now()) : now();
+        $this->data['dateStart'] = $anclaFin->copy()->subDays(30)->toDateString();
+        $this->data['dateEnd'] = $anclaFin->toDateString();
         $this->sincronizacionReporteId = RequerimientoStockSincronizacion::query()->latest('id')->value('id');
     }
 
@@ -135,6 +143,14 @@ class ReporteRequerimientos extends Page implements HasTable
     public function search(): void
     {
         $this->resetPage();
+    }
+
+    /** Ancla para que el usuario entienda por qué un rango reciente puede salir vacío: este módulo no se sincroniza solo. */
+    public function ultimaFechaConDatos(): ?string
+    {
+        $fecha = RequerimientoStockHistorico::query()->max('fecha_registro');
+
+        return $fecha ? Carbon::parse($fecha)->format('d/m/Y H:i') : null;
     }
 
     public function sincronizarFiltro(): void
@@ -250,7 +266,7 @@ class ReporteRequerimientos extends Page implements HasTable
         }, $filename, ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
     }
 
-    public function exportarPdf(): Response
+    public function exportarPdf(): StreamedResponse
     {
         abort_unless(auth()->user()?->hasPermission('requerimientos-stock.reporte.exportar'), 403);
         $options = new DompdfOptions();
@@ -264,10 +280,18 @@ class ReporteRequerimientos extends Page implements HasTable
         ])->render());
         $pdf->render();
 
-        return response($pdf->output(), 200, [
-            'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'attachment; filename="reporte-requerimientos-'.now()->format('Y-m-d_His').'.pdf"',
-        ]);
+        $filename = 'reporte-requerimientos-'.now()->format('Y-m-d_His').'.pdf';
+
+        // Un Response binario devuelto directo desde una acción wire:click
+        // hace que Livewire intente serializar el PDF completo como parte
+        // del payload JSON de la respuesta AJAX -- y json_encode truena con
+        // "Malformed UTF-8 characters" al toparse con bytes binarios (el PDF
+        // no es texto). streamDownload() es la forma que Livewire reconoce
+        // como descarga de archivo y NO intenta meter en el JSON; es el
+        // mismo patrón que ya usa exportarExcel() más abajo, que sí funciona.
+        return response()->streamDownload(function () use ($pdf): void {
+            echo $pdf->output();
+        }, $filename, ['Content-Type' => 'application/pdf']);
     }
 
     public function table(Table $table): Table
