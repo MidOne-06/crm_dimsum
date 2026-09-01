@@ -19,7 +19,6 @@ use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Process;
 use Throwable;
 
 
@@ -120,17 +119,18 @@ class ExtraccionGuiasInternas extends Page implements HasTable
             return;
         }
 
+        // OJO: aquí NO se lanza Process::start(). Se comprobó empíricamente
+        // (sleep de prueba, en el worker web Y por consola dentro del propio
+        // contenedor) que un hijo forkeado con Process::start() no sobrevive
+        // en este contenedor bajo NINGÚN padre -- no es un problema de
+        // PHP-FPM específicamente. El arranque real lo hace
+        // extracciones:despachar-pendientes (programado cada minuto), que
+        // usa BackgroundArtisan -- el mecanismo de `&` de shell que sí se
+        // comprobó que sobrevive. Esta acción solo encola.
         $run = app(GuiasInternasHistoricoService::class)->iniciar($start, $end, $locals, auth()->id());
-        $args = ['php', 'artisan', 'guias-internas:sincronizar', '--sync-id='.$run->id];
-        foreach ($locals as $local) $args[] = '--locales='.$local;
-        $invocado = Process::path(base_path())->start($args);
-        // El propio comando también se autorregistra (getmypid()) al arrancar --
-        // esto es solo el primer valor, por si el usuario cancela antes de que
-        // el comando llegue a esa línea.
-        $run->update(['proceso_pid' => $invocado->id()]);
         $this->extraccionActualId = $run->id;
-        $this->esperandoExtraccion = false;
-        Notification::make()->title('Extracción iniciada')->success()->send();
+        $this->esperandoExtraccion = true;
+        Notification::make()->title('Extracción encolada')->body('Arranca en menos de un minuto.')->success()->send();
     }
 
     public function refreshExtraccion(): void

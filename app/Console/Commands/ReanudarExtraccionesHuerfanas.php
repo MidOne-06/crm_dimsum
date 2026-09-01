@@ -6,8 +6,8 @@ use App\Models\GuiaInternaSincronizacion;
 use App\Models\RequerimientoStockSincronizacion;
 use App\Models\SalidaStockSincronizacion;
 use App\Models\StockCuadreSoporte;
+use App\Services\BackgroundArtisan;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Process;
 
 /**
  * Autocura corridas de sincronización histórica que quedaron huérfanas: el
@@ -22,6 +22,12 @@ use Illuminate\Support\Facades\Process;
  * locked_at -- no hay forma barata de saber "¿el proceso sigue vivo de
  * verdad?" desde Laravel, así que se asume que si no avanzó en N minutos,
  * ya no hay nadie trabajándola.
+ *
+ * El relanzamiento usa BackgroundArtisan (no Process::start() directo): se
+ * comprobó empíricamente que Process::start() no sobrevive en este
+ * contenedor, así que hasta este fix los "relanzada sync-id=X" que
+ * imprimía este comando no arrancaban nada de verdad -- ver
+ * App\Services\BackgroundArtisan para el detalle de la prueba.
  */
 class ReanudarExtraccionesHuerfanas extends Command
 {
@@ -53,9 +59,9 @@ class ReanudarExtraccionesHuerfanas extends Command
 
         foreach ($huerfanas as $run) {
             $locales = array_values(array_filter((array) ($run->filtros['locales'] ?? [])));
-            $args = ['php', 'artisan', 'guias-internas:sincronizar', '--sync-id='.$run->id];
+            $args = ['guias-internas:sincronizar', '--sync-id='.$run->id];
             foreach ($locales as $local) $args[] = '--locales='.$local;
-            Process::path(base_path())->start($args);
+            BackgroundArtisan::start($args);
             $this->line("guias-internas: relanzada sync-id={$run->id}");
         }
 
@@ -70,7 +76,7 @@ class ReanudarExtraccionesHuerfanas extends Command
             ->get();
 
         foreach ($huerfanas as $run) {
-            Process::path(base_path())->start(['php', 'artisan', 'salidas-stock:sincronizar', '--sync-id='.$run->id]);
+            BackgroundArtisan::start(['salidas-stock:sincronizar', '--sync-id='.$run->id]);
             $this->line("salidas-stock: relanzada sync-id={$run->id}");
         }
 
@@ -85,7 +91,7 @@ class ReanudarExtraccionesHuerfanas extends Command
             ->get();
 
         foreach ($huerfanas as $run) {
-            Process::path(base_path())->start(['php', 'artisan', 'stock-actual:sincronizar', '--directo', '--sync-id='.$run->id]);
+            BackgroundArtisan::start(['stock-actual:sincronizar', '--directo', '--sync-id='.$run->id]);
             $this->line("stock-actual: relanzada sync-id={$run->id}");
         }
 
@@ -106,7 +112,7 @@ class ReanudarExtraccionesHuerfanas extends Command
             if ($run->estado === 'en_progreso') {
                 $run->update(['estado' => 'pendiente']);
             }
-            Process::path(base_path())->start(['php', 'artisan', 'requerimientos-stock:sincronizar-reporte', '--sync-id='.$run->id]);
+            BackgroundArtisan::start(['requerimientos-stock:sincronizar-reporte', '--sync-id='.$run->id]);
             $this->line("requerimientos-stock: relanzada sync-id={$run->id}");
         }
 

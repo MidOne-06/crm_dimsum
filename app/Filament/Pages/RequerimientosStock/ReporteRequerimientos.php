@@ -5,9 +5,7 @@ namespace App\Filament\Pages\RequerimientosStock;
 use App\Filament\Concerns\ScopesLocalsToUser;
 use App\Models\RequerimientoStockHistorico;
 use App\Models\RequerimientoStockHistoricoDetalle;
-use App\Models\RequerimientoStockSincronizacion;
 use App\Services\RequerimientoStockGatewayClient;
-use App\Services\RequerimientoStockHistoricoService;
 use Carbon\Carbon;
 use Dompdf\Dompdf;
 use Dompdf\Options as DompdfOptions;
@@ -21,7 +19,6 @@ use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\Process;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
@@ -53,8 +50,6 @@ class ReporteRequerimientos extends Page implements HasTable
     public array $data = [];
 
     public string $activeDatePreset = 'month';
-
-    public ?int $sincronizacionReporteId = null;
 
     public static function canAccess(): bool
     {
@@ -90,9 +85,6 @@ class ReporteRequerimientos extends Page implements HasTable
         $anclaFin = $ultimaFechaConDatos ? Carbon::parse($ultimaFechaConDatos)->min(now()) : now();
         $this->data['dateStart'] = $anclaFin->copy()->subDays(30)->toDateString();
         $this->data['dateEnd'] = $anclaFin->toDateString();
-        $this->sincronizacionReporteId = RequerimientoStockSincronizacion::query()->latest('id')->value('id');
-
-        $this->autoSincronizar();
     }
 
     public function form(Schema $schema): Schema
@@ -144,75 +136,22 @@ class ReporteRequerimientos extends Page implements HasTable
     public function search(): void
     {
         $this->resetPage();
-        $this->autoSincronizar();
     }
 
-    /** Ancla para que el usuario entienda por qué un rango reciente puede salir vacío: este módulo no se sincroniza solo. */
+    /**
+     * Este reporte es de SOLO LECTURA sobre la copia local -- ya no
+     * sincroniza nada por sí mismo. La sincronización vive en su propio
+     * submódulo (ExtraccionRequerimientos), igual que Guías internas separa
+     * "Extracción" de sus páginas de consulta. Esto evita el problema que
+     * tenía la versión anterior: un fork lanzado desde el worker web que se
+     * quedaba pegado en 'pendiente'/0% sin que el usuario pudiera hacer
+     * nada al respecto desde esta pantalla.
+     */
     public function ultimaFechaConDatos(): ?string
     {
         $fecha = RequerimientoStockHistorico::query()->max('fecha_registro');
 
         return $fecha ? Carbon::parse($fecha)->format('d/m/Y H:i') : null;
-    }
-
-    /**
-     * Sincroniza el filtro actual contra Restaurant de forma implícita --
-     * cada vez que se abre o se consulta el reporte, no por un botón manual.
-     * Antes cada clic en "Sincronizar filtro" podía apilar corridas
-     * concurrentes (y con ellas, filas de sincronización y barras de
-     * progreso confusas en pantalla) si varios usuarios lo presionaban a la
-     * vez o el mismo usuario reaplicaba filtros varias veces seguidas. Dos
-     * guardas lo resuelven sin exponer nada al usuario:
-     *  - si ya hay una corrida pendiente/en_progreso (de cualquier filtro),
-     *    no se lanza otra -- solo una corriendo a la vez para todo el módulo.
-     *  - si el MISMO filtro ya se sincronizó hace menos de 5 minutos, se
-     *    reutiliza ese resultado en vez de volver a pedirle lo mismo a
-     *    Restaurant (evita machacar el ERP si el usuario solo está
-     *    reordenando/paginando la tabla).
-     */
-    private function autoSincronizar(): void
-    {
-        if (! auth()->user()?->hasPermission('requerimientos-stock.reporte.sincronizar')) {
-            return;
-        }
-
-        if (RequerimientoStockSincronizacion::query()->whereIn('estado', ['pendiente', 'en_progreso'])->exists()) {
-            return;
-        }
-
-        // Comparación en PHP, no en SQL: el cast a jsonb no garantiza el
-        // mismo orden de claves que json_encode() al comparar como texto, y
-        // el volumen aquí (últimas corridas completadas) es mínimo.
-        $filtros = $this->remoteFilters();
-        $reciente = RequerimientoStockSincronizacion::query()
-            ->whereIn('estado', ['completado', 'completado_con_errores'])
-            ->where('completado_en', '>=', now()->subMinutes(5))
-            ->latest('id')->limit(10)->get(['filtros'])
-            ->contains(fn (RequerimientoStockSincronizacion $run): bool => $run->filtros == $filtros);
-        if ($reciente) {
-            return;
-        }
-
-        $run = RequerimientoStockSincronizacion::create([
-            'filtros' => $filtros,
-            'estado' => 'pendiente',
-            'iniciado_por' => auth()->id(),
-        ]);
-        Process::path(base_path())->start(['php', 'artisan', 'requerimientos-stock:sincronizar-reporte', '--sync-id='.$run->id]);
-        $this->sincronizacionReporteId = $run->id;
-    }
-
-    public function sincronizacionReporteActual(): ?RequerimientoStockSincronizacion
-    {
-        return $this->sincronizacionReporteId ? RequerimientoStockSincronizacion::find($this->sincronizacionReporteId) : null;
-    }
-
-    public function refreshSincronizacionReporte(): void
-    {
-        $run = $this->sincronizacionReporteActual();
-        if ($run && ! in_array($run->estado, ['pendiente', 'en_progreso'], true)) {
-            $this->resetPage();
-        }
     }
 
     public function exportarExcel(): StreamedResponse
@@ -461,22 +400,6 @@ class ReporteRequerimientos extends Page implements HasTable
         $metric = ['solicitada' => 'Solicitada', 'despachada' => 'Despachada', 'preparada' => 'Preparada'][$this->data['metric'] ?? 'solicitada'];
 
         return "Fecha de {$dateLabel}: {$this->dateStart()} al {$this->dateEnd()} | Cantidad: {$metric}";
-    }
-
-    /** @return array<string, mixed> */
-    protected function remoteFilters(): array
-    {
-        $selected = (array) ($this->data['selectedLocals'] ?? []);
-        $locals = in_array(self::ALL_LOCALES_OPTION, $selected, true)
-            ? array_keys($this->localOptions)
-            : $this->restrictLocalIdsToUser(array_values(array_filter($selected, fn ($value): bool => filled($value))));
-
-        return [
-            'fecha_inicio' => $this->dateStart(), 'fecha_fin' => $this->dateEnd(),
-            'locales' => $locals, 'locales_produccion' => [],
-            'estado' => '-1', 'codigo' => trim((string) ($this->data['codigo'] ?? '')),
-            'encargado' => '', 'por_fecha' => ($this->data['fechaTipo'] ?? 'registro') === 'abastecimiento' ? '1' : '0', 'items' => [],
-        ];
     }
 
     private function gateway(): RequerimientoStockGatewayClient { return app(RequerimientoStockGatewayClient::class); }
