@@ -45,8 +45,19 @@ class StockActualHistoricoService
         $cuadres = 0;
         $detalles = 0;
         $errores = [];
+        $paginasFallidas = [];
         for ($pagina = 1; $pagina <= $pages; $pagina++) {
-            $result = $pagina === 1 ? $first : $gateway->cuadres(array_merge($base, ['pagina' => $pagina, 'registros' => 50]));
+            try {
+                $result = $pagina === 1 ? $first : $gateway->cuadres(array_merge($base, ['pagina' => $pagina, 'registros' => 50]));
+            } catch (\Throwable $exception) {
+                // Página irrecuperable tras los reintentos del gateway: se
+                // registra el hueco y se sigue con el resto de páginas en
+                // vez de perder toda la corrida por una sola.
+                $paginasFallidas[] = $pagina;
+                $errores[] = "Página {$pagina}: {$exception->getMessage()}";
+                $soporte->update(['paginas_procesadas' => $pagina]);
+                continue;
+            }
             foreach (($result['rows'] ?? []) as $fila) {
                 $id = (string) ($fila['cuadremanual_id'] ?? '');
                 if ($id === '') continue;
@@ -68,6 +79,7 @@ class StockActualHistoricoService
             $soporte->update(['paginas_procesadas' => $pagina, 'cuadres_guardados' => $cuadres, 'detalles_guardados' => $detalles]);
         }
 
+        if ($paginasFallidas !== []) $errores[] = 'Páginas no leídas (se reintentarán en la próxima sincronización): '.implode(',', $paginasFallidas).'.';
         $soporte->update(['estado' => $errores === [] ? 'completado' : 'completado_con_errores', 'mensaje_error' => $errores === [] ? null : implode("\n", $errores), 'completado_at' => now()]);
     }
 

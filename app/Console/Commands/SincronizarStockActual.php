@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Cache;
 
 class SincronizarStockActual extends Command
 {
-    protected $signature = 'stock-actual:sincronizar {--desde=2020-01-01} {--hasta=} {--directo : Ejecuta en este proceso, sin requerir worker}';
+    protected $signature = 'stock-actual:sincronizar {--desde=2020-01-01} {--hasta=} {--directo : Ejecuta en este proceso, sin requerir worker} {--sync-id= : Reintenta una corrida existente (huérfana/fallida) en vez de crear una nueva}';
     protected $description = 'Sincroniza todos los cuadres y detalles de Restaurant a la copia local.';
 
     public function handle(StockActualHistoricoService $service): int
@@ -21,12 +21,14 @@ class SincronizarStockActual extends Command
         }
 
         try {
-        $soporte = $service->iniciar([
-            'locales' => '', 'estado' => '-1', 'tipo' => '-1',
-            'fechaInicio' => (string) $this->option('desde'),
-            'fechaFin' => (string) ($this->option('hasta') ?: now()->toDateString()),
-            'itemIdList' => '', 'itemTipoList' => '',
-        ]);
+        $soporte = filled($this->option('sync-id'))
+            ? \App\Models\StockCuadreSoporte::query()->findOrFail((int) $this->option('sync-id'))
+            : $service->iniciar([
+                'locales' => '', 'estado' => '-1', 'tipo' => '-1',
+                'fechaInicio' => (string) $this->option('desde'),
+                'fechaFin' => (string) ($this->option('hasta') ?: now()->toDateString()),
+                'itemIdList' => '', 'itemTipoList' => '',
+            ]);
 
         if ($this->option('directo')) {
             try {

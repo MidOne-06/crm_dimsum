@@ -35,6 +35,11 @@
                     @if($extraccion)
                     <x-filament::section>
                         <x-slot name="heading">Extracción #{{ $extraccion->id }} <span class="crm-status">{{ ucfirst(str_replace('_',' ',$extraccion->estado)) }}</span></x-slot>
+                        @if(in_array($extraccion->estado,['pendiente','en_progreso'],true))
+                            <x-slot name="headerEnd">
+                                <x-filament::button color="danger" icon="heroicon-m-stop-circle" size="sm" wire:click="cancelarExtraccion" wire:confirm="¿Detener la extracción #{{ $extraccion->id }}? El avance guardado hasta ahora se conserva y se puede reanudar después.">Detener</x-filament::button>
+                            </x-slot>
+                        @endif
                         @php($progreso = $extraccion->paginas_total > 0 ? min(100, round(($extraccion->paginas_procesadas / $extraccion->paginas_total) * 100)) : 0)
                         <div class="mb-3"><div class="h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-white/10"><div class="h-full rounded-full bg-primary-600 transition-all" style="width:{{ $progreso }}%"></div></div><p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ $progreso }}% · {{ $extraccion->paginas_procesadas }} de {{ $extraccion->paginas_total ?: '—' }} páginas procesadas</p></div>
                         <div class="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4"><div><span class="block text-gray-500 dark:text-gray-400">Cabeceras</span><strong class="text-gray-950 dark:text-white">{{ $extraccion->cabeceras_guardadas }}</strong></div><div><span class="block text-gray-500 dark:text-gray-400">Detalles</span><strong class="text-gray-950 dark:text-white">{{ $extraccion->detalles_guardados }}</strong></div><div><span class="block text-gray-500 dark:text-gray-400">Eliminadas</span><strong class="text-gray-950 dark:text-white">{{ $extraccion->cabeceras_eliminadas }}</strong></div><div><span class="block text-gray-500 dark:text-gray-400">Fallidas</span><strong class="text-danger-600 dark:text-danger-400">{{ $extraccion->errores }}</strong></div></div>

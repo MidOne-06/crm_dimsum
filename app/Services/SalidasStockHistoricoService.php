@@ -33,9 +33,20 @@ class SalidasStockHistoricoService
             $saved = $details = $failed = 0;
             $seen = [];
             $errors = [];
+            $paginasFallidas = [];
 
             for ($page = 1; $page <= $pages; $page++) {
-                $result = $page === 1 ? $first : $gateway->salidas(['pagina' => $page, 'registros' => 50, 'fecha_inicio' => $desde, 'fecha_fin' => $hasta]);
+                try {
+                    $result = $page === 1 ? $first : $gateway->salidas(['pagina' => $page, 'registros' => 50, 'fecha_inicio' => $desde, 'fecha_fin' => $hasta]);
+                } catch (\Throwable $exception) {
+                    // Página irrecuperable tras los reintentos del gateway:
+                    // se registra el hueco y se continúa con el resto en vez
+                    // de perder toda la corrida por una sola página.
+                    $paginasFallidas[] = $page;
+                    $errors[] = "Página {$page}: {$exception->getMessage()}";
+                    $soporte->update(['paginas_procesadas' => $page, 'errores' => ++$failed]);
+                    continue;
+                }
                 foreach ($result['rows'] ?? [] as $row) {
                     $restaurantId = (string) ($row['id'] ?? '');
                     if ($restaurantId === '') continue;
@@ -53,14 +64,18 @@ class SalidasStockHistoricoService
                 $soporte->update(['paginas_procesadas' => $page, 'cabeceras_guardadas' => $saved, 'detalles_guardados' => $details, 'errores' => $failed]);
             }
 
-            $deleted = $this->reconciliarCabeceras($desde, $hasta, $seen);
+            // Reconciliar solo es seguro si se leyeron todas las páginas --
+            // con huecos, $seen está incompleto y se borrarían salidas
+            // válidas que cayeron en una página no leída esta vez.
+            $deleted = $paginasFallidas === [] ? $this->reconciliarCabeceras($desde, $hasta, $seen) : 0;
+            if ($paginasFallidas !== []) $errors[] = 'Reconciliación omitida: páginas sin leer '.implode(',', $paginasFallidas).' (no se eliminó nada para evitar falsos positivos).';
             $soporte->update([
-                'estado' => $failed === 0 ? 'completado' : 'completado_con_errores',
+                'estado' => $errors === [] ? 'completado' : 'completado_con_errores',
                 'cabeceras_guardadas' => $saved, 'detalles_guardados' => $details,
                 'cabeceras_eliminadas' => $deleted, 'errores' => $failed,
                 'mensaje_error' => $errors === [] ? null : implode("\n", $errors), 'completado_en' => now(),
             ]);
-            return compact('pages', 'saved', 'details', 'failed', 'deleted') + ['sincronizacion_id' => $soporte->id];
+            return compact('pages', 'saved', 'details', 'failed', 'deleted') + ['sincronizacion_id' => $soporte->id, 'paginas_fallidas' => $paginasFallidas];
         } catch (\Throwable $exception) {
             $soporte->update(['estado' => 'fallido', 'mensaje_error' => $exception->getMessage(), 'completado_en' => now()]);
             throw $exception;

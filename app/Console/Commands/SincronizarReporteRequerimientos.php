@@ -30,10 +30,25 @@ class SincronizarReporteRequerimientos extends Command
         $errors = [];
 
         $run->update(['estado' => 'en_progreso', 'iniciado_en' => now(), 'mensaje_error' => null]);
+        $paginasFallidas = [];
 
         try {
             do {
-                $result = $gateway->lista($filters + ['pagina' => $page, 'registros' => 100]);
+                try {
+                    $result = $gateway->lista($filters + ['pagina' => $page, 'registros' => 100]);
+                } catch (Throwable $exception) {
+                    // Página irrecuperable tras los reintentos del gateway
+                    // (ver RequerimientoStockGatewayClient::get): se registra
+                    // el hueco y se para aquí -- a diferencia de guías/salidas,
+                    // aquí no conocemos $total todavía si falla la página 1,
+                    // y si falla una intermedia no hay forma de saber cuántas
+                    // páginas más habría sin ella. Queda 'completado_con_errores'
+                    // y una re-sincronización posterior retoma desde el total
+                    // ya conocido.
+                    $paginasFallidas[] = $page;
+                    $errors[] = "Página {$page}: {$exception->getMessage()}";
+                    break;
+                }
                 $total = (int) ($result['total'] ?? 0);
                 $run->update(['total_registros' => $total]);
 
@@ -66,11 +81,11 @@ class SincronizarReporteRequerimientos extends Command
             } while (($page - 1) * 100 < ($run->total_registros ?? 0));
 
             $run->update([
-                'estado' => $failed === 0 ? 'completado' : 'completado_con_errores',
+                'estado' => ($failed === 0 && $paginasFallidas === []) ? 'completado' : 'completado_con_errores',
                 'registros_procesados' => $processed,
                 'cabeceras_guardadas' => $saved,
                 'detalles_guardados' => $details,
-                'errores' => $failed,
+                'errores' => $failed + count($paginasFallidas),
                 'mensaje_error' => $errors === [] ? null : implode("\n", array_slice($errors, 0, 20)),
                 'completado_en' => now(),
             ]);

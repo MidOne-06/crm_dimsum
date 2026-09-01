@@ -158,15 +158,19 @@ class RequerimientoStockGatewayClient
 
     private function get(string $path, array $query = []): array
     {
-        $response = Http::baseUrl($this->baseUrl)->timeout(120)->get($path, $query);
+        // Reintenta ante caídas transitorias del gateway antes de propagar el
+        // error -- una extracción masiva no debe morir por un solo timeout.
+        return retry(3, function () use ($path, $query): array {
+            $response = Http::baseUrl($this->baseUrl)->timeout(120)->get($path, $query);
 
-        $body = $response->json();
+            $body = $response->json();
 
-        if ($response->failed()) {
-            throw new RuntimeException($body['error'] ?? 'No se pudo consultar el servicio de stock.');
-        }
+            if ($response->failed()) {
+                throw new RuntimeException($body['error'] ?? 'No se pudo consultar el servicio de stock.');
+            }
 
-        return is_array($body) ? $body : [];
+            return is_array($body) ? $body : [];
+        }, 2000);
     }
 
     private function post(string $path, array $body): array

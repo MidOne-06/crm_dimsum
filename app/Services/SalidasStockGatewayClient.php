@@ -22,9 +22,13 @@ class SalidasStockGatewayClient
         return is_array($body) ? $body : [];
     }
     private function get(string $path, array $query = []): array {
-        $response = Http::baseUrl($this->baseUrl)->timeout(60)->get($path, $query);
-        $body = $response->json();
-        if ($response->failed()) throw new RuntimeException($body['error'] ?? 'No se pudo consultar Salidas de Stock.');
-        return is_array($body) ? $body : [];
+        // Reintenta ante caídas transitorias del gateway antes de propagar el
+        // error -- una extracción masiva no debe morir por un solo timeout.
+        return retry(3, function () use ($path, $query): array {
+            $response = Http::baseUrl($this->baseUrl)->timeout(60)->get($path, $query);
+            $body = $response->json();
+            if ($response->failed()) throw new RuntimeException($body['error'] ?? 'No se pudo consultar Salidas de Stock.');
+            return is_array($body) ? $body : [];
+        }, 2000);
     }
 }

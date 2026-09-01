@@ -44,11 +44,16 @@ class GuiasInternasGatewayClient
 
     private function get(string $path, array $query = []): array
     {
-        $response = Http::baseUrl($this->baseUrl)->timeout(90)->get($path, $query);
-        $body = $response->json();
-        if ($response->failed()) throw new RuntimeException($body['error'] ?? 'No se pudo consultar Guías internas.');
+        // Reintenta ante caídas transitorias del gateway (timeout, conexión
+        // rechazada, 5xx) para que un blip de red no tumbe una extracción
+        // masiva de decenas de páginas -- ver GuiasInternasHistoricoService.
+        return retry(3, function () use ($path, $query): array {
+            $response = Http::baseUrl($this->baseUrl)->timeout(90)->get($path, $query);
+            $body = $response->json();
+            if ($response->failed()) throw new RuntimeException($body['error'] ?? 'No se pudo consultar Guías internas.');
 
-        return is_array($body) ? $body : [];
+            return is_array($body) ? $body : [];
+        }, 2000);
     }
 
     private function post(string $path, array $payload): array

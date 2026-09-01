@@ -22,10 +22,25 @@ class GuiasInternasHistoricoService
         if ($locales !== []) $filters['locales'] = implode(',', $locales);
         $sync->update(['estado' => 'en_progreso', 'iniciado_en' => now(), 'mensaje_error' => null]);
         try {
-            $first = $gateway->guias($filters); $pages = max(1, (int) ceil(((int) ($first['total'] ?? 0)) / 50)); $sync->update(['paginas_total' => $pages]);
-            $saved = $details = $failed = 0; $seen = $errors = [];
+            // Solo la página 1 es indispensable: sin ella no sabemos cuántas
+            // páginas hay. El cliente ya reintenta 3 veces ante fallas
+            // transitorias (ver GuiasInternasGatewayClient::get); si aun así
+            // falla, no hay forma de continuar.
+            $first = $gateway->guias($filters); $total = (int) ($first['total'] ?? 0); $pages = max(1, (int) ceil($total / 50)); $sync->update(['paginas_total' => $pages]);
+            $saved = $details = $failed = 0; $seen = $errors = []; $paginasFallidas = [];
             for ($page = 1; $page <= $pages; $page++) {
-                $result = $page === 1 ? $first : $gateway->guias([...$filters, 'pagina' => $page]);
+                try {
+                    $result = $page === 1 ? $first : $gateway->guias([...$filters, 'pagina' => $page]);
+                } catch (\Throwable $e) {
+                    // Una página irrecuperable (tras los reintentos del
+                    // gateway) no debe tumbar las 58 páginas restantes: se
+                    // registra como hueco explícito y se sigue. La corrida
+                    // termina en 'completado_con_errores', nunca en silencio.
+                    $paginasFallidas[] = $page;
+                    $errors[] = "Página {$page}: {$e->getMessage()}";
+                    $sync->update(['paginas_procesadas' => $page, 'errores' => ++$failed]);
+                    continue;
+                }
                 foreach ($result['rows'] ?? [] as $row) {
                     $id = (string) ($row['id'] ?? ''); if ($id === '') continue; $seen[] = $id;
                     try { $detail = $gateway->detalle($id); $this->guardar($sync, $row, $detail); $saved++; $details += count($detail['items'] ?? []); }
@@ -33,9 +48,14 @@ class GuiasInternasHistoricoService
                 }
                 $sync->update(['paginas_procesadas' => $page, 'cabeceras_guardadas' => $saved, 'detalles_guardados' => $details, 'errores' => $failed]);
             }
-            $deleted = $this->reconciliar($desde, $hasta, $seen, $locales);
-            $sync->update(['estado' => $failed === 0 ? 'completado' : 'completado_con_errores', 'cabeceras_guardadas' => $saved, 'detalles_guardados' => $details, 'cabeceras_eliminadas' => $deleted, 'errores' => $failed, 'mensaje_error' => $errors === [] ? null : implode("\n", $errors), 'completado_en' => now()]);
-            return compact('pages', 'saved', 'details', 'failed', 'deleted') + ['sincronizacion_id' => $sync->id];
+            // Reconciliar (borrar lo que ya no existe en Restaurant) solo es
+            // seguro si TODAS las páginas se leyeron: con páginas fallidas,
+            // $seen está incompleto y borraríamos guías válidas que cayeron
+            // en una página que no pudimos leer esta vez.
+            $deleted = $paginasFallidas === [] ? $this->reconciliar($desde, $hasta, $seen, $locales) : 0;
+            if ($paginasFallidas !== []) $errors[] = 'Reconciliación omitida: páginas sin leer '.implode(',', $paginasFallidas).' (no se eliminó nada para evitar falsos positivos).';
+            $sync->update(['estado' => $errors === [] ? 'completado' : 'completado_con_errores', 'cabeceras_guardadas' => $saved, 'detalles_guardados' => $details, 'cabeceras_eliminadas' => $deleted, 'errores' => $failed, 'mensaje_error' => $errors === [] ? null : implode("\n", $errors), 'completado_en' => now()]);
+            return compact('pages', 'saved', 'details', 'failed', 'deleted') + ['sincronizacion_id' => $sync->id, 'paginas_fallidas' => $paginasFallidas];
         } catch (\Throwable $e) { $sync->update(['estado' => 'fallido', 'mensaje_error' => $e->getMessage(), 'completado_en' => now()]); throw $e; }
     }
 

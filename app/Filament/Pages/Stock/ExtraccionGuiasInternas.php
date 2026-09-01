@@ -22,6 +22,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Process;
 use Throwable;
 
+
 class ExtraccionGuiasInternas extends Page implements HasTable
 {
     use InteractsWithTable;
@@ -122,7 +123,11 @@ class ExtraccionGuiasInternas extends Page implements HasTable
         $run = app(GuiasInternasHistoricoService::class)->iniciar($start, $end, $locals, auth()->id());
         $args = ['php', 'artisan', 'guias-internas:sincronizar', '--sync-id='.$run->id];
         foreach ($locals as $local) $args[] = '--locales='.$local;
-        Process::path(base_path())->start($args);
+        $invocado = Process::path(base_path())->start($args);
+        // El propio comando también se autorregistra (getmypid()) al arrancar --
+        // esto es solo el primer valor, por si el usuario cancela antes de que
+        // el comando llegue a esa línea.
+        $run->update(['proceso_pid' => $invocado->id()]);
         $this->extraccionActualId = $run->id;
         $this->esperandoExtraccion = false;
         Notification::make()->title('Extracción iniciada')->success()->send();
@@ -133,6 +138,66 @@ class ExtraccionGuiasInternas extends Page implements HasTable
         $actual = $this->extraccionActual();
         if ($actual && ! in_array($actual->estado, ['pendiente', 'en_progreso'], true)) {
             $this->esperandoExtraccion = false;
+        }
+    }
+
+    /**
+     * Detiene una extracción en curso. Antes de esto, la única forma de
+     * cancelar una corrida atascada era acceso directo a consola/servidor
+     * para matar el proceso y editar la fila a mano.
+     */
+    public function cancelarExtraccion(): void
+    {
+        if (! auth()->user()?->hasPermission('guias-internas.sincronizar')) {
+            Notification::make()->title('No tienes permiso para cancelar la extracción.')->danger()->send();
+
+            return;
+        }
+
+        $actual = $this->extraccionActual();
+        if (! $actual || ! in_array($actual->estado, ['pendiente', 'en_progreso'], true)) {
+            return;
+        }
+
+        $matado = $this->matarProceso($actual->proceso_pid);
+
+        $actual->update([
+            'estado' => 'cancelado',
+            'mensaje_error' => sprintf(
+                'Cancelado manualmente desde la UI por %s. Avance conservado: %d/%d páginas, %d cabeceras. Reanudable con --sync-id=%d.',
+                auth()->user()?->name ?? 'admin',
+                $actual->paginas_procesadas,
+                $actual->paginas_total ?: 0,
+                $actual->cabeceras_guardadas,
+                $actual->id,
+            ),
+            'completado_en' => now(),
+        ]);
+
+        $this->esperandoExtraccion = false;
+        Notification::make()
+            ->title('Extracción cancelada')
+            ->body($matado ? 'El proceso se detuvo correctamente.' : 'Se marcó como cancelada; el proceso ya no estaba activo o corre en otro servidor.')
+            ->warning()->send();
+    }
+
+    /** Mata el proceso OS por PID. Soporta Linux (contenedor de producción) y Windows (desarrollo local). */
+    private function matarProceso(?int $pid): bool
+    {
+        if (! $pid) return false;
+
+        try {
+            if (function_exists('posix_kill')) {
+                if (! posix_kill($pid, 0)) return false; // ya no existe
+                return posix_kill($pid, 9);
+            }
+
+            // Windows: no hay posix_*, se usa taskkill. Código 0 = éxito.
+            exec('taskkill /F /PID '.escapeshellarg((string) $pid).' 2>&1', $salida, $codigo);
+
+            return $codigo === 0;
+        } catch (Throwable) {
+            return false;
         }
     }
 
