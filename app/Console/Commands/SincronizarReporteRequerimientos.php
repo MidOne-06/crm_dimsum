@@ -70,7 +70,11 @@ class SincronizarReporteRequerimientos extends Command
         $failed = 0;
         $errors = [];
 
-        $run->update(['estado' => 'en_progreso', 'iniciado_en' => now(), 'mensaje_error' => null]);
+        // Se autorregistra el PID sin importar quién lo haya lanzado (el
+        // despachador programado, el watchdog de huérfanas, o consola
+        // manual) -- así "Detener" en la UI siempre puede matar el proceso
+        // real, igual que en guías internas.
+        $run->update(['estado' => 'en_progreso', 'iniciado_en' => now(), 'mensaje_error' => null, 'proceso_pid' => getmypid()]);
         $paginasFallidas = [];
 
         try {
