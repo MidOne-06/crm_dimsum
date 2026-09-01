@@ -111,12 +111,11 @@ class LocalTaperCapacidadResource extends Resource
             ->all();
     }
 
+    /** Sin rutas 'create'/'edit': se manejan en modal sobre la lista. */
     public static function getPages(): array
     {
         return [
             'index' => Pages\ListLocalTaperCapacidades::route('/'),
-            'create' => Pages\CreateLocalTaperCapacidad::route('/create'),
-            'edit' => Pages\EditLocalTaperCapacidad::route('/{record}/edit'),
         ];
     }
 }

@@ -141,12 +141,11 @@ class ProductoTaperResource extends Resource
         return $row ? trim("{$row->cod_interno} · {$row->item_nombre}", ' ·') : null;
     }
 
+    /** Sin rutas 'create'/'edit': se manejan en modal sobre la lista. */
     public static function getPages(): array
     {
         return [
             'index' => Pages\ListProductoTapers::route('/'),
-            'create' => Pages\CreateProductoTaper::route('/create'),
-            'edit' => Pages\EditProductoTaper::route('/{record}/edit'),
         ];
     }
 }

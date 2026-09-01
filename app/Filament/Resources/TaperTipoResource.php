@@ -79,12 +79,15 @@ class TaperTipoResource extends Resource
             ]);
     }
 
+    /**
+     * Sin rutas 'create'/'edit': crear y editar se hacen en un modal sobre
+     * la propia lista, no en una página aparte -- catálogo chico, no
+     * justifica una navegación completa.
+     */
     public static function getPages(): array
     {
         return [
             'index' => Pages\ListTaperTipos::route('/'),
-            'create' => Pages\CreateTaperTipo::route('/create'),
-            'edit' => Pages\EditTaperTipo::route('/{record}/edit'),
         ];
     }
 }
