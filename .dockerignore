@@ -9,6 +9,7 @@
 vendor
 node_modules
 outputs
+.tmp
 storage/app/opm_batch
 storage/logs
 storage/framework/cache

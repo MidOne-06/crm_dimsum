@@ -50,14 +50,6 @@ return new class extends Migration
                 ['name' => 'Gestionar usuarios', 'slug' => 'users.manage', 'module' => 'Seguridad'],
                 ['name' => 'Gestionar roles', 'slug' => 'roles.manage', 'module' => 'Seguridad'],
                 ['name' => 'Gestionar permisos', 'slug' => 'permissions.manage', 'module' => 'Seguridad'],
-                ['name' => 'Ver parámetros', 'slug' => 'parameters.view', 'module' => 'OPM'],
-                ['name' => 'Gestionar parámetros', 'slug' => 'parameters.manage', 'module' => 'OPM'],
-                ['name' => 'Ver productos', 'slug' => 'products.view', 'module' => 'OPM'],
-                ['name' => 'Ver precios', 'slug' => 'prices.view', 'module' => 'OPM'],
-                ['name' => 'Ver catálogos', 'slug' => 'catalogs.view', 'module' => 'OPM'],
-                ['name' => 'Validar DIGEMID', 'slug' => 'digemid.validate', 'module' => 'DIGEMID'],
-                ['name' => 'Extraer producto DIGEMID', 'slug' => 'digemid.extract', 'module' => 'DIGEMID'],
-                ['name' => 'Configurar proxy', 'slug' => 'proxy.manage', 'module' => 'DIGEMID'],
             ],
         ));
 
@@ -70,21 +62,20 @@ return new class extends Migration
         $roleIds = DB::table('roles')->pluck('id', 'slug');
         $permissionIds = DB::table('permissions')->pluck('id', 'slug');
         $allPermissions = $permissionIds->values()->all();
-        $operatorPermissions = collect([
-            'parameters.view', 'parameters.manage', 'products.view', 'prices.view', 'catalogs.view', 'digemid.validate', 'digemid.extract',
-        ])->map(fn (string $slug) => $permissionIds[$slug])->all();
-        $readerPermissions = collect(['parameters.view', 'products.view', 'prices.view', 'catalogs.view'])
-            ->map(fn (string $slug) => $permissionIds[$slug])->all();
+        $operatorPermissions = [];
+        $readerPermissions = [];
 
         foreach ([
             $roleIds['superadministrador'] => $allPermissions,
             $roleIds['operador'] => $operatorPermissions,
             $roleIds['consulta'] => $readerPermissions,
         ] as $roleId => $assignedPermissions) {
-            DB::table('permission_role')->insert(array_map(
-                fn (int $permissionId): array => ['role_id' => $roleId, 'permission_id' => $permissionId],
-                $assignedPermissions,
-            ));
+            if ($assignedPermissions !== []) {
+                DB::table('permission_role')->insert(array_map(
+                    fn (int $permissionId): array => ['role_id' => $roleId, 'permission_id' => $permissionId],
+                    $assignedPermissions,
+                ));
+            }
         }
     }
 

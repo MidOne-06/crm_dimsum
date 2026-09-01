@@ -64,7 +64,7 @@ class StockGatewayClient
 
     private function get(string $path, array $query = []): array
     {
-        $response = Http::baseUrl($this->baseUrl)->timeout(120)->get($path, $query);
+        $response = Http::baseUrl($this->baseUrl)->timeout(60)->get($path, $query);
 
         $body = $response->json();
 

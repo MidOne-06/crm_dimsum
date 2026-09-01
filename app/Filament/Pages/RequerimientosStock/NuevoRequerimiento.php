@@ -4,42 +4,36 @@ namespace App\Filament\Pages\RequerimientosStock;
 
 use App\Filament\Concerns\ScopesLocalsToUser;
 use App\Services\RequerimientoStockGatewayClient;
+use Filament\Actions\Action;
+use Filament\Forms\Components\DateTimePicker;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Set;
+use Filament\Schemas\Schema;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-/**
- * Nuevo Requerimiento de Stock: replica el flujo de Restaurant.pe Logística
- * (almacen/requerimientos-de-stock/nuevo). Escribe en el ERP -- a diferencia
- * de Kardex/Stock (solo lectura), aquí "Guardar" crea un movimiento real.
- */
 class NuevoRequerimiento extends Page
 {
     use ScopesLocalsToUser;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-clipboard-document-check';
-
     protected static ?string $navigationLabel = 'Nuevo requerimiento';
-
-    protected static ?string $title = 'Nuevo Requerimiento de Stock';
-
+    protected static ?string $title = 'Nuevo requerimiento de stock';
     protected static string|\UnitEnum|null $navigationGroup = 'Requerimientos de Stock';
-
     protected static ?int $navigationSort = 10;
-
     protected static ?string $slug = 'requerimientos-stock/nuevo';
-
     protected string $view = 'filament.pages.requerimientos-stock.nuevo';
 
-    public static function canAccess(): bool
-    {
-        return (bool) auth()->user()?->hasPermission('requerimientos-stock.crear');
-    }
-
     public bool $gatewayUnavailable = false;
-
     public ?string $loadError = null;
 
     /** @var array<int, array{id: string, name: string}> */
@@ -48,39 +42,19 @@ class NuevoRequerimiento extends Page
     /** @var array<int, array{id: string, nombre: string}> */
     public array $almacenOptions = [];
 
-    public string $localOrigenId = '';
+    /** @var array<string, mixed> */
+    public ?array $data = [];
 
-    public string $almacenOrigenId = '';
-
-    public string $localDestinoId = '';
-
-    public string $encargado = '';
-
-    public string $receptor = '';
-
-    public string $observacion = '';
-
-    public string $fecha = '';
-
-    /** Fecha mínima que Restaurant.pe admite para el abastecimiento. */
-    public string $fechaMinima = '';
-
-    public bool $esSolicitudCompra = false;
-
-    public string $searchQuery = '';
-
-    /** @var array<int, array<string, mixed>> */
-    public array $searchResults = [];
-
-    /** @var array<int, array{item: array<string, mixed>, cantidad: float}> */
-    public array $items = [];
+    /** @var array<string, array<string, mixed>> Registros devueltos por Restaurant para el Select buscable. */
+    public array $itemLookup = [];
 
     public bool $isSaving = false;
-
     public ?string $saveError = null;
 
-    /** Código de la plantilla que precargó el formulario, si corresponde. */
-    public ?string $plantillaImportada = null;
+    public static function canAccess(): bool
+    {
+        return (bool) auth()->user()?->hasPermission('requerimientos-stock.crear');
+    }
 
     public function mount(): void
     {
@@ -93,107 +67,244 @@ class NuevoRequerimiento extends Page
             return;
         }
 
-        $this->localOrigenId = $this->availableLocals[0]['id'] ?? '';
-        $this->encargado = trim((string) (auth()->user()?->name ?? ''));
-        $this->fechaMinima = $this->fechaMinimaAbastecimiento();
-        $this->fecha = $this->fechaSugeridaAbastecimiento();
-        $this->refreshAlmacenes();
+        $localId = (string) ($this->availableLocals[0]['id'] ?? '');
+        $this->refreshAlmacenes($localId);
+
+        $this->form->fill([
+            'local_origen_id' => $localId,
+            'almacen_origen_id' => (string) ($this->almacenOptions[0]['id'] ?? ''),
+            'local_destino_id' => '',
+            'encargado' => trim((string) (auth()->user()?->name ?? '')),
+            'receptor' => '',
+            'observacion' => '',
+            'fecha' => now()->addDay()->setTime(9, 0)->format('Y-m-d H:i:s'),
+            'items' => [],
+        ]);
+
         $this->aplicarPlantillaImportada();
     }
 
-    public function updatedLocalOrigenId(): void
+    public function form(Schema $schema): Schema
     {
-        $this->refreshAlmacenes();
+        return $schema
+            ->components([
+                Section::make('Datos del requerimiento')
+                    ->schema([
+                        Grid::make(['default' => 1, 'md' => 2, 'xl' => 3])
+                            ->schema([
+                                Select::make('local_origen_id')
+                                    ->label('Local origen')
+                                    ->native(false)
+                                    ->searchable()
+                                    ->options(fn (): array => collect($this->availableLocals)->pluck('name', 'id')->all())
+                                    ->live()
+                                    ->required()
+                                    ->afterStateUpdated(function (?string $state, Set $set): void {
+                                        $this->refreshAlmacenes($state ?? '');
+                                        $set('almacen_origen_id', $this->almacenOptions[0]['id'] ?? '');
+                                    }),
+                                Select::make('almacen_origen_id')
+                                    ->label('Almacén')
+                                    ->native(false)
+                                    ->searchable()
+                                    ->options(fn (): array => collect($this->almacenOptions)->pluck('nombre', 'id')->all())
+                                    ->required(),
+                                Select::make('local_destino_id')
+                                    ->label('Local destino')
+                                    ->native(false)
+                                    ->searchable()
+                                    ->options(fn (): array => collect($this->availableLocals)->pluck('name', 'id')->all())
+                                    ->required(),
+                                TextInput::make('encargado')->label('Encargado')->required()->maxLength(100),
+                                TextInput::make('receptor')->label('Receptor')->maxLength(100),
+                                DateTimePicker::make('fecha')
+                                    ->label('Abastecimiento')
+                                    ->native(false)
+                                    ->seconds(false)
+                                    ->minDate(now()->addDay()->startOfDay())
+                                    ->required(),
+                            ]),
+                        Textarea::make('observacion')->label('Observación')->rows(2)->maxLength(500),
+                    ]),
+                Section::make('Ítems')
+                    ->schema([
+                        Repeater::make('items')
+                            ->label('')
+                            ->addActionLabel('Agregar ítem')
+                            ->defaultItems(0)
+                            ->reorderable(false)
+                            ->schema([
+                                Select::make('item_key')
+                                    ->label('Ítem')
+                                    ->native(false)
+                                    ->searchable()
+                                    ->optionsLimit(10)
+                                    ->getSearchResultsUsing(fn (string $search): array => $this->itemSearchResults($search))
+                                    ->getOptionLabelsUsing(fn (array $values): array => $this->itemLabels($values))
+                                    ->required()
+                                    ->live()
+                                    ->afterStateUpdated(function (?string $state, Set $set): void {
+                                        $set('item', $this->itemForKey($state));
+                                    })
+                                    ->columnSpan(['default' => 1, 'xl' => 2]),
+                                TextInput::make('cantidad')
+                                    ->label('Cantidad')
+                                    ->numeric()
+                                    ->minValue(0.01)
+                                    ->default(1)
+                                    ->required(),
+                                Hidden::make('item')->dehydrated(),
+                            ])
+                            ->columns(['default' => 1, 'xl' => 3])
+                            ->itemLabel(fn (array $state): string => $this->itemLabel((string) ($state['item_key'] ?? ''))),
+                    ]),
+            ])
+            ->statePath('data');
     }
 
-    protected function refreshAlmacenes(): void
+    protected function getHeaderActions(): array
     {
-        if ($this->localOrigenId === '') {
+        return [
+            Action::make('guardar')
+                ->label('Guardar')
+                ->icon('heroicon-o-check')
+                ->action(fn () => $this->guardar()),
+            Action::make('solicitud_compra')
+                ->label('Solicitud de compra')
+                ->icon('heroicon-o-document-plus')
+                ->color('gray')
+                ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('requerimientos-stock.solicitud-compra'))
+                ->requiresConfirmation()
+                ->action(fn () => $this->guardar(comoSolicitudCompra: true)),
+        ];
+    }
+
+    /** Actualiza catálogos remotos sin reemplazar el formulario editado. */
+    public function refrescarDatosRestaurant(): void
+    {
+        try {
+            $locals = $this->scopeLocalsToUser($this->gateway()->locals());
+            $localId = (string) ($this->data['local_origen_id'] ?? '');
+            $validIds = collect($locals)->pluck('id')->map(fn (mixed $id): string => (string) $id)->all();
+
+            $this->availableLocals = $locals;
+            if ($localId !== '' && in_array($localId, $validIds, true)) {
+                $this->refreshAlmacenes($localId, preserveSelected: true);
+            }
+            $this->loadError = null;
+        } catch (Throwable $exception) {
+            $this->loadError = $this->friendlyError($exception);
+        }
+    }
+
+    protected function refreshAlmacenes(string $localId, bool $preserveSelected = false): void
+    {
+        if ($localId === '') {
             $this->almacenOptions = [];
-            $this->almacenOrigenId = '';
 
             return;
         }
 
         try {
-            $this->almacenOptions = $this->gateway()->almacenes($this->localOrigenId);
+            $this->almacenOptions = $this->gateway()->almacenes($localId);
+            if (! $preserveSelected) {
+                $this->data['almacen_origen_id'] = (string) ($this->almacenOptions[0]['id'] ?? '');
+            }
         } catch (Throwable $exception) {
             $this->almacenOptions = [];
             $this->loadError = $this->friendlyError($exception);
         }
-
-        $this->almacenOrigenId = $this->almacenOptions[0]['id'] ?? '';
     }
 
-    public function updatedSearchQuery(): void
+    /** @return array<string, string> */
+    public function itemSearchResults(string $search): array
     {
-        $query = trim($this->searchQuery);
-
-        if (mb_strlen($query) < 3) {
-            $this->searchResults = [];
-
-            return;
+        if (mb_strlen(trim($search)) < 3) {
+            return [];
         }
 
         try {
-            $this->searchResults = $this->gateway()->searchItems($query);
+            $items = $this->gateway()->searchItems(trim($search));
+            foreach ($items as $item) {
+                if (is_array($item) && ($key = $this->itemKey($item)) !== '') {
+                    $this->itemLookup[$key] = $item;
+                }
+            }
+
+            return collect($items)->mapWithKeys(fn (array $item): array => [$this->itemKey($item) => $this->itemDisplay($item)])->all();
         } catch (Throwable $exception) {
-            $this->searchResults = [];
             $this->loadError = $this->friendlyError($exception);
+
+            return [];
         }
     }
 
-    public function agregarItem(int $index): void
+    /** @param array<int, string> $values @return array<string, string> */
+    public function itemLabels(array $values): array
     {
-        $item = $this->searchResults[$index] ?? null;
-
-        if (! $item) {
-            return;
+        $keys = array_values(array_filter($values));
+        if ($keys === []) {
+            return [];
         }
 
-        $itemId = (string) $item['item_id'];
-
-        foreach ($this->items as $existing) {
-            if ((string) ($existing['item']['item_id'] ?? '') === $itemId) {
-                return;
+        $labels = [];
+        foreach ($this->data['items'] ?? [] as $entry) {
+            $item = $entry['item'] ?? [];
+            if (is_array($item) && ($key = $this->itemKey($item)) !== '' && in_array($key, $keys, true)) {
+                $labels[$key] = $this->itemDisplay($item);
             }
         }
 
-        $this->items[] = ['item' => $item, 'cantidad' => 1];
-        $this->searchQuery = '';
-        $this->searchResults = [];
+        return $labels;
     }
 
-    public function quitarItem(int $index): void
+    /** @return array<string, mixed> */
+    public function itemForKey(?string $key): array
     {
-        unset($this->items[$index]);
-        $this->items = array_values($this->items);
+        if (! $key) {
+            return [];
+        }
+
+        return $this->itemLookup[$key] ?? [];
     }
 
     public function guardar(bool $comoSolicitudCompra = false): void
     {
         $this->saveError = null;
 
-        if ($this->localOrigenId === '' || $this->almacenOrigenId === '' || $this->localDestinoId === '') {
-            $this->saveError = 'Selecciona local origen, almacén y local destino.';
-
-            return;
-        }
-
-        if (! $this->localAllowedForUser($this->localOrigenId) || ! $this->localAllowedForUser($this->localDestinoId)) {
-            $this->saveError = 'No tienes acceso al local de origen o destino seleccionado.';
-
-            return;
-        }
-
-        if (trim($this->encargado) === '') {
-            $this->saveError = 'Indica el encargado.';
+        $permission = $comoSolicitudCompra ? 'requerimientos-stock.solicitud-compra' : 'requerimientos-stock.crear';
+        if (! auth()->user()?->hasPermission($permission)) {
+            $this->saveError = 'No tienes permiso para registrar esta operación.';
 
             return;
         }
 
         try {
-            $fechaSeleccionada = Carbon::parse($this->fecha, config('app.timezone'));
+            $state = $this->form->getState();
+        } catch (Throwable) {
+            $this->saveError = 'Completa los campos obligatorios.';
+
+            return;
+        }
+
+        $localOrigenId = (string) ($state['local_origen_id'] ?? '');
+        $almacenOrigenId = (string) ($state['almacen_origen_id'] ?? '');
+        $localDestinoId = (string) ($state['local_destino_id'] ?? '');
+
+        if ($localOrigenId === '' || $almacenOrigenId === '' || $localDestinoId === '') {
+            $this->saveError = 'Completa local origen, almacén y local destino.';
+
+            return;
+        }
+
+        if (! $this->localAllowedForUser($localOrigenId) || ! $this->localAllowedForUser($localDestinoId)) {
+            $this->saveError = 'No tienes acceso al local seleccionado.';
+
+            return;
+        }
+
+        try {
+            $fechaSeleccionada = Carbon::parse((string) ($state['fecha'] ?? ''), config('app.timezone'));
         } catch (Throwable) {
             $this->saveError = 'Selecciona una fecha de abastecimiento válida.';
 
@@ -201,13 +312,19 @@ class NuevoRequerimiento extends Page
         }
 
         if ($fechaSeleccionada->lt(now()->startOfDay()->addDay())) {
-            $this->saveError = 'El día de abastecimiento debe ser, como mínimo, mañana. Selecciónalo en el calendario.';
+            $this->saveError = 'El abastecimiento debe programarse desde mañana.';
 
             return;
         }
 
-        if (empty($this->items)) {
-            $this->saveError = 'Agrega al menos un ítem al requerimiento.';
+        $items = collect($state['items'] ?? [])
+            ->filter(fn (array $entry): bool => is_array($entry['item'] ?? null) && ! empty($entry['item']['item_id']) && (float) ($entry['cantidad'] ?? 0) > 0)
+            ->map(fn (array $entry): array => ['item' => $entry['item'], 'cantidad' => (float) $entry['cantidad']])
+            ->values()
+            ->all();
+
+        if ($items === []) {
+            $this->saveError = 'Agrega al menos un ítem.';
 
             return;
         }
@@ -216,14 +333,14 @@ class NuevoRequerimiento extends Page
 
         try {
             $this->gateway()->guardar(
-                localOrigenId: $this->localOrigenId,
-                almacenOrigenId: $this->almacenOrigenId,
-                localDestinoId: $this->localDestinoId,
-                encargado: $this->encargado,
-                fecha: str_replace('T', ' ', $this->fecha).':00',
-                items: $this->items,
-                receptor: $this->receptor,
-                observacion: $this->observacion,
+                localOrigenId: $localOrigenId,
+                almacenOrigenId: $almacenOrigenId,
+                localDestinoId: $localDestinoId,
+                encargado: trim((string) $state['encargado']),
+                fecha: $fechaSeleccionada->format('Y-m-d H:i:s'),
+                items: $items,
+                receptor: trim((string) ($state['receptor'] ?? '')),
+                observacion: trim((string) ($state['observacion'] ?? '')),
                 esSolicitudCompra: $comoSolicitudCompra,
             );
         } catch (Throwable $exception) {
@@ -234,16 +351,73 @@ class NuevoRequerimiento extends Page
             $this->isSaving = false;
         }
 
-        Notification::make()
-            ->title($comoSolicitudCompra ? 'Solicitud de compra guardada.' : 'Requerimiento guardado.')
-            ->success()
-            ->send();
+        Notification::make()->title($comoSolicitudCompra ? 'Solicitud de compra guardada' : 'Requerimiento guardado')->success()->send();
 
-        $this->items = [];
-        $this->receptor = '';
-        $this->observacion = '';
-        $this->fechaMinima = $this->fechaMinimaAbastecimiento();
-        $this->fecha = $this->fechaSugeridaAbastecimiento();
+        $this->data['items'] = [];
+        $this->data['receptor'] = '';
+        $this->data['observacion'] = '';
+        $this->data['fecha'] = now()->addDay()->setTime(9, 0)->format('Y-m-d H:i:s');
+    }
+
+    private function aplicarPlantillaImportada(): void
+    {
+        $plantilla = session()->pull('requerimientos-stock.plantilla-importada');
+        if (! is_array($plantilla)) {
+            return;
+        }
+
+        $origen = (string) ($plantilla['localOrigenId'] ?? '');
+        $destino = (string) ($plantilla['localDestinoId'] ?? '');
+        if ($origen === '' || ! $this->localAllowedForUser($origen) || ! $this->localAllowedForUser($destino)) {
+            $this->loadError = 'La plantilla no está disponible para tu usuario.';
+
+            return;
+        }
+
+        $this->refreshAlmacenes($origen);
+        $this->data = array_replace($this->data ?? [], [
+            'local_origen_id' => $origen,
+            'almacen_origen_id' => (string) ($this->almacenOptions[0]['id'] ?? ''),
+            'local_destino_id' => $destino,
+            'encargado' => trim((string) ($plantilla['encargado'] ?? '')) ?: ($this->data['encargado'] ?? ''),
+            'receptor' => (string) ($plantilla['receptor'] ?? ''),
+            'observacion' => (string) ($plantilla['observacion'] ?? ''),
+            'items' => collect($plantilla['items'] ?? [])
+                ->filter(fn (mixed $entry): bool => is_array($entry) && is_array($entry['item'] ?? null) && ! empty($entry['item']['item_id']))
+                ->map(fn (array $entry): array => [
+                    'item_key' => $this->itemKey($entry['item']),
+                    'item' => $entry['item'],
+                    'cantidad' => (float) ($entry['cantidad'] ?? 1),
+                ])
+                ->values()
+                ->all(),
+        ]);
+    }
+
+    /** @param array<string, mixed> $item */
+    private function itemKey(array $item): string
+    {
+        $id = (string) ($item['item_id'] ?? '');
+        $type = (string) ($item['item_tipo'] ?? '');
+
+        return $id === '' ? '' : $id.'|'.$type;
+    }
+
+    /** @param array<string, mixed> $item */
+    private function itemDisplay(array $item): string
+    {
+        return trim((string) ($item['item_codigo'] ?? '')).' · '.trim((string) ($item['item_descripcion'] ?? ''));
+    }
+
+    private function itemLabel(string $key): string
+    {
+        foreach ($this->data['items'] ?? [] as $entry) {
+            if (($entry['item_key'] ?? '') === $key && is_array($entry['item'] ?? null)) {
+                return $this->itemDisplay($entry['item']);
+            }
+        }
+
+        return 'Ítem';
     }
 
     private function gateway(): RequerimientoStockGatewayClient
@@ -251,47 +425,12 @@ class NuevoRequerimiento extends Page
         return app(RequerimientoStockGatewayClient::class);
     }
 
-    private function aplicarPlantillaImportada(): void
-    {
-        $plantilla = session()->pull('requerimientos-stock.plantilla-importada');
-        if (! is_array($plantilla)) return;
-
-        $origen = (string) ($plantilla['localOrigenId'] ?? '');
-        $destino = (string) ($plantilla['localDestinoId'] ?? '');
-        if ($origen === '' || ! $this->localAllowedForUser($origen) || ! $this->localAllowedForUser($destino)) {
-            $this->loadError = 'La plantilla seleccionada no pertenece a un local disponible para tu usuario.';
-            return;
-        }
-
-        $this->localOrigenId = $origen;
-        $this->refreshAlmacenes();
-        $this->localDestinoId = $destino;
-        $this->encargado = trim((string) ($plantilla['encargado'] ?? '')) ?: $this->encargado;
-        $this->receptor = (string) ($plantilla['receptor'] ?? '');
-        $this->observacion = (string) ($plantilla['observacion'] ?? '');
-        $this->items = array_values(array_filter(
-            $plantilla['items'] ?? [],
-            fn (mixed $entry): bool => is_array($entry) && ! empty($entry['item']['item_id']),
-        ));
-        $this->plantillaImportada = (string) ($plantilla['id'] ?? '');
-    }
-
-    private function fechaMinimaAbastecimiento(): string
-    {
-        return now()->addDay()->startOfDay()->format('Y-m-d\TH:i');
-    }
-
-    private function fechaSugeridaAbastecimiento(): string
-    {
-        return now()->addDay()->setTime(9, 0)->format('Y-m-d\TH:i');
-    }
-
     private function friendlyError(Throwable $exception): string
     {
         Log::error('[RequerimientosStock] '.$exception->getMessage(), ['exception' => $exception]);
 
         if (str_contains($exception->getMessage(), 'cURL error 7') || str_contains($exception->getMessage(), 'Connection refused')) {
-            return 'No se pudo conectar con el gateway de Stock (D:\DS-TI\API-TI). Verifica que esté corriendo con "npm start" en el puerto configurado.';
+            return 'No se pudo conectar con Restaurant.';
         }
 
         return $exception->getMessage();

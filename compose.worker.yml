@@ -4,11 +4,11 @@
 #
 # Layout esperado en el servidor (dos repos clonados como hermanos):
 #   crm-dimsum/
-#     opm-digemid/   <- github.com/MidOne-06/crm_dimsum (este compose vive aquí)
+#     crm-dimsum/   <- github.com/MidOne-06/crm_dimsum (este compose vive aquí)
 #     api-ti/        <- github.com/MidOne-06/api-ti
 #
 # Uso:
-#   cd crm-dimsum/opm-digemid
+#   cd crm-dimsum
 #   docker compose -f compose.worker.yml up -d --build
 name: crm-dimsum-worker
 
@@ -29,7 +29,7 @@ services:
     build:
       context: .
       target: application
-    image: opm-digemid:local
+    image: crm-dimsum:local
     restart: unless-stopped
     env_file:
       - .env.worker
@@ -42,7 +42,7 @@ services:
       STOCK_GATEWAY_URL: http://gateway:3000
     # Kardex usa reportes XLSX completos; concede margen al timeout de 720s
     # del job y mantenlo por debajo del retry_after de la cola (780s).
-    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=ventas-pages,ventas-details,default", "--sleep=1", "--tries=4", "--timeout=720", "--max-time=3600"]
+    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=ventas-pages,ventas-details,kardex,default", "--sleep=1", "--tries=4", "--timeout=720", "--max-time=3600"]
     deploy:
       replicas: ${WORKER_REPLICAS:-6}
     depends_on:
@@ -51,7 +51,7 @@ services:
       - backend
 
   scheduler:
-    image: opm-digemid:local
+    image: crm-dimsum:local
     restart: unless-stopped
     env_file:
       - .env.worker

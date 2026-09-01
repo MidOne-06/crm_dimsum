@@ -43,7 +43,24 @@ class ProcesarLocalKardexJob implements ShouldQueue
             return;
         }
 
-        $claimed = KardexExtraccionLocal::whereKey($local->id)->where('estado', 'pendiente')->update(['estado' => 'en_progreso']);
+        // Si un worker se corta, Laravel reentrega el job luego de
+        // retry_after. Permitimos recuperar solamente una marca realmente
+        // vencida; así nunca se duplican dos descargas activas del mismo local.
+        $claimed = KardexExtraccionLocal::query()
+            ->whereKey($local->id)
+            ->where(function ($query): void {
+                $query->where('estado', 'pendiente')
+                    ->orWhere(function ($stale): void {
+                        $stale->where('estado', 'en_progreso')
+                            ->where('procesando_at', '<', now()->subMinutes(13));
+                    });
+            })
+            ->update([
+                'estado' => 'en_progreso',
+                'intentos' => DB::raw('intentos + 1'),
+                'procesando_at' => now(),
+                'mensaje_error' => null,
+            ]);
         if (! $claimed) {
             return;
         }
@@ -69,14 +86,24 @@ class ProcesarLocalKardexJob implements ShouldQueue
             $filas = $this->parsear($reporte['content'], $local->local_id, $local->local_nombre, $local->id);
             $guardadas = $this->reemplazar($local->local_id, $filtros['fechaInicio'], $filtros['fechaFin'], $filas);
 
-            $local->update(['estado' => 'completado', 'movimientos_guardados' => $guardadas]);
-            $extraccion->increment('locales_procesados');
-            $extraccion->increment('movimientos_guardados', $guardadas);
+            $local->update([
+                'estado' => 'completado',
+                'movimientos_guardados' => $guardadas,
+                'mensaje_error' => null,
+                'procesando_at' => null,
+                'completado_at' => now(),
+            ]);
             KardexExtraccion::finalizarSiListo($extraccion->id);
         } catch (Throwable $exception) {
-            $local->update(['estado' => 'fallido', 'mensaje_error' => $exception->getMessage()]);
-            $extraccion->increment('locales_fallidos');
-            KardexExtraccion::finalizarSiListo($extraccion->id);
+            // No marcar como fallido antes del último intento: anteriormente
+            // el reintento de Laravel encontraba "fallido", no lo reclamaba
+            // y la extracción quedaba congelada. failed() marca el fallo
+            // definitivo después de agotar los tres intentos.
+            $local->update([
+                'estado' => 'pendiente',
+                'mensaje_error' => $exception->getMessage(),
+                'procesando_at' => null,
+            ]);
 
             throw $exception;
         }
@@ -91,9 +118,16 @@ class ProcesarLocalKardexJob implements ShouldQueue
         $spreadsheet = null;
 
         try {
-            $spreadsheet = IOFactory::load($tmpFile);
+            $reader = IOFactory::createReaderForFile($tmpFile);
+            $reader->setReadDataOnly(true);
+            $reader->setReadEmptyCells(false);
+            $spreadsheet = $reader->load($tmpFile);
             $sheet = $spreadsheet->getActiveSheet();
             $highestRow = $sheet->getHighestRow();
+
+            if ($highestRow < 1 || trim((string) $sheet->getCell([5, 1])->getFormattedValue()) === '') {
+                throw new \RuntimeException('El archivo de Kardex no contiene la cabecera esperada de fecha.');
+            }
 
             $filas = [];
             $now = now();
@@ -176,11 +210,15 @@ class ProcesarLocalKardexJob implements ShouldQueue
             return null;
         }
 
-        try {
-            return Carbon::createFromFormat('d-m-Y', $raw)->startOfDay();
-        } catch (Throwable) {
-            return null;
+        foreach (['d-m-Y', 'd/m/Y', 'Y-m-d'] as $format) {
+            try {
+                return Carbon::createFromFormat($format, $raw)->startOfDay();
+            } catch (Throwable) {
+                // Intentar el siguiente formato usado por Restaurant/Excel.
+            }
         }
+
+        return null;
     }
 
     /** @param array<int, array<string, mixed>> $filas */
@@ -205,6 +243,8 @@ class ProcesarLocalKardexJob implements ShouldQueue
         KardexExtraccionLocal::whereKey($this->extraccionLocalId)->update([
             'estado' => 'fallido',
             'mensaje_error' => $exception?->getMessage() ?? 'No se pudo procesar el local.',
+            'procesando_at' => null,
+            'completado_at' => now(),
         ]);
 
         $extraccion = KardexExtraccion::find($this->extraccionId);

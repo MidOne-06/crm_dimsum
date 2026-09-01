@@ -11,6 +11,10 @@ use App\Services\SalesGatewayClient;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Select;
 use Filament\Pages\Page;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Concerns\InteractsWithTable;
+use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Table;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -21,9 +25,10 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Database\QueryException;
 use Throwable;
 
-class ExtraccionVentas extends Page
+class ExtraccionVentas extends Page implements HasTable
 {
     use ScopesLocalsToUser;
+    use InteractsWithTable;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-circle-stack';
 
@@ -222,6 +227,29 @@ class ExtraccionVentas extends Page
     public function historial(): Collection
     {
         return VentaExtraccion::query()->latest('id')->limit(20)->get();
+    }
+
+    public function table(Table $table): Table
+    {
+        return $table
+            ->query(VentaExtraccion::query()->latest('id'))
+            ->columns([
+                TextColumn::make('id')->label('Cód.')->sortable(),
+                TextColumn::make('rango')->label('Rango')
+                    ->state(fn (VentaExtraccion $record): string => ($record->filtros['fechaInicio'] ?? '—').' al '.($record->filtros['fechaFin'] ?? '—'))
+                    ->wrap(),
+                TextColumn::make('estado')->label('Estado')
+                    ->formatStateUsing(fn (?string $state): string => ucfirst(str_replace('_', ' ', (string) $state)))
+                    ->badge(),
+                TextColumn::make('ventas_procesadas')->label('Procesadas')->numeric()->alignEnd(),
+                TextColumn::make('ventas_guardadas')->label('Guardadas')->numeric()->alignEnd(),
+                TextColumn::make('ventas_fallidas')->label('Fallidas')->numeric()->alignEnd()->color(fn (int|string|null $state): string => ((int) $state) > 0 ? 'danger' : 'gray'),
+                TextColumn::make('duracion')->label('Duración')->state(fn (VentaExtraccion $record): string => $record->duracion ?? '—'),
+                TextColumn::make('iniciado_at')->label('Iniciado')->dateTime('d/m/Y H:i')->sortable(),
+            ])
+            ->paginated([10, 25, 50, 100])
+            ->defaultPaginationPageOption(10)
+            ->emptyStateHeading('Sin extracciones registradas.');
     }
 
     /** @return array{ventas: int, corridas: int, fallidas: int, coveragePercent: int} */

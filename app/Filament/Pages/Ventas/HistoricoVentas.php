@@ -4,19 +4,22 @@ namespace App\Filament\Pages\Ventas;
 
 use App\Filament\Concerns\ScopesLocalsToUser;
 use App\Models\Venta;
+use Filament\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Select;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
-use Livewire\WithPagination;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Concerns\InteractsWithTable;
+use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Table;
 
-class HistoricoVentas extends Page
+class HistoricoVentas extends Page implements HasTable
 {
-    use WithPagination;
+    use InteractsWithTable;
     use ScopesLocalsToUser;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-archive-box';
@@ -127,7 +130,7 @@ class HistoricoVentas extends Page
     public function search(): void
     {
         $this->hasSearched = true;
-        $this->resetPage();
+        $this->resetTable();
     }
 
     public function openDetail(string $id): void
@@ -151,9 +154,30 @@ class HistoricoVentas extends Page
         return $this->detailId ? Venta::with('detalles')->find($this->detailId) : null;
     }
 
-    public function rows(): LengthAwarePaginator
+    public function table(Table $table): Table
     {
-        return $this->query()->paginate(20);
+        return $table
+            ->query($this->query())
+            ->columns([
+                TextColumn::make('venta_id')->label('Cód.')->weight('medium')->sortable(),
+                TextColumn::make('venta_fecha')->label('Fecha')->dateTime('d/m/Y H:i')->sortable(),
+                TextColumn::make('local')->label('Local')->searchable()->wrap(),
+                TextColumn::make('cliente')->label('Cliente')->searchable()->wrap()->toggleable(),
+                TextColumn::make('comprobante')->label('Comprobante')->state(fn (Venta $record): string => trim(($record->comprobante_tipo ?? '').' '.($record->comprobante_serie ?? '').'-'.($record->comprobante_numero ?? ''), ' -') ?: '—')->toggleable(),
+                TextColumn::make('subtotal')->label('Subtotal')->numeric(2)->alignEnd()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('impuestos')->label('Impuestos')->numeric(2)->alignEnd()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('total')->label('Total')->numeric(2)->alignEnd()->sortable(),
+                TextColumn::make('forma_pago')->label('Pago')->toggleable(),
+                TextColumn::make('estado')->label('Estado')->badge(),
+            ])
+            ->recordActions([
+                Action::make('ver')->label('Ver')->icon('heroicon-o-eye')
+                    ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('ventas.historico.ver-detalle'))
+                    ->action(fn (Venta $record): mixed => $this->openDetail((string) $record->venta_id)),
+            ])
+            ->paginated([10, 25, 50, 100])
+            ->defaultPaginationPageOption(10)
+            ->emptyStateHeading('No hay ventas guardadas para los filtros seleccionados.');
     }
 
     protected function query(): Builder

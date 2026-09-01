@@ -16,7 +16,18 @@ class KardexExtraccionLocal extends Model
         'estado',
         'movimientos_guardados',
         'mensaje_error',
+        'intentos',
+        'procesando_at',
+        'completado_at',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'procesando_at' => 'datetime',
+            'completado_at' => 'datetime',
+        ];
+    }
 
     public function extraccion(): BelongsTo
     {

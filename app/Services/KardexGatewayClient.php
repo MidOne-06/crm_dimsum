@@ -63,8 +63,16 @@ class KardexGatewayClient
             throw new RuntimeException($body['error'] ?? 'No se pudo generar el reporte de kardex.');
         }
 
+        $content = $response->body();
+
+        // El gateway debe entregar un XLSX real. Una respuesta HTML de login,
+        // de error o vacía no puede llegar al reemplazo atómico del detalle.
+        if (strlen($content) < 512 || ! str_starts_with($content, "PK\x03\x04")) {
+            throw new RuntimeException('Restaurant devolvió un archivo de Kardex inválido; no se modificó el detalle local.');
+        }
+
         return [
-            'content' => $response->body(),
+            'content' => $content,
             'contentType' => $response->header('Content-Type') ?: 'application/octet-stream',
         ];
     }

@@ -124,7 +124,7 @@ trait InteractsWithStockFilters
                             ->gridDirection('row'),
                     ]),
                 Grid::make(['default' => 1, 'md' => 2])
-                    ->extraAttributes(['class' => 'opm-filter-select-grid'])
+                    ->extraAttributes(['class' => 'crm-filter-select-grid'])
                     ->schema([
                         Select::make('estado')
                             ->label('Estado')
@@ -149,7 +149,7 @@ trait InteractsWithStockFilters
         Log::error('[Stock] '.$exception->getMessage(), ['exception' => $exception]);
 
         if (str_contains($exception->getMessage(), 'cURL error 7') || str_contains($exception->getMessage(), 'Connection refused')) {
-            return 'No se pudo conectar con el gateway de Stock (D:\DS-TI\API-TI). Verifica que esté corriendo con "npm start" en el puerto configurado.';
+            return 'No se pudo conectar con el servicio de Stock.';
         }
 
         return $exception->getMessage();
@@ -352,17 +352,25 @@ trait InteractsWithStockFilters
     /** @return array<int, array<string, mixed>> */
     protected function filteredReportMaster(): array
     {
-        return array_values(array_filter($this->reportMasterRows, function (array $row): bool {
-            if ($this->reportFilterLocal !== '' && ($row['local'] ?? '') !== $this->reportFilterLocal) {
+        $tableFilters = property_exists($this, 'tableFilters')
+            ? ($this->tableFilters['resultados'] ?? [])
+            : [];
+        $local = (string) ($tableFilters['local'] ?? $this->reportFilterLocal);
+        $almacen = (string) ($tableFilters['almacen'] ?? $this->reportFilterAlmacen);
+        $item = (string) ($tableFilters['item'] ?? $this->reportFilterItem);
+        $tipo = (string) ($tableFilters['tipo'] ?? $this->reportFilterTipo);
+
+        return array_values(array_filter($this->reportMasterRows, function (array $row) use ($local, $almacen, $item, $tipo): bool {
+            if ($local !== '' && ($row['local'] ?? '') !== $local) {
                 return false;
             }
-            if ($this->reportFilterAlmacen !== '' && ($row['almacen'] ?? '') !== $this->reportFilterAlmacen) {
+            if ($almacen !== '' && ($row['almacen'] ?? '') !== $almacen) {
                 return false;
             }
-            if ($this->reportFilterItem !== '' && ($row['item'] ?? '') !== $this->reportFilterItem) {
+            if ($item !== '' && ($row['item'] ?? '') !== $item) {
                 return false;
             }
-            if ($this->reportFilterTipo !== '' && ($row['tipo'] ?? '') !== $this->reportFilterTipo) {
+            if ($tipo !== '' && ($row['tipo'] ?? '') !== $tipo) {
                 return false;
             }
 

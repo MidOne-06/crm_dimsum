@@ -1,11 +1,11 @@
-name: opm-digemid
+name: crm-dimsum
 
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
     env_file:
-      - ${ENV_FILE:-.env.docker.local}
+      - ${ENV_FILE:-.env.docker}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -16,14 +16,27 @@ services:
     networks:
       - backend
 
+  # Gateway que mantiene la sesión con Restaurant.pe y expone las APIs de
+  # requerimientos. Vive en la misma red Docker para no depender del puerto
+  # 3000 del host Windows (que puede no estar levantado tras un reinicio).
+  gateway:
+    build:
+      context: ${STOCK_GATEWAY_PATH:-../../API-TI}
+    image: crm-dimsum-gateway:local
+    restart: unless-stopped
+    env_file:
+      - ${STOCK_GATEWAY_PATH:-../../API-TI}/.env
+    networks:
+      - backend
+
   app:
     build:
       context: .
       target: application
-    image: opm-digemid:local
+    image: crm-dimsum:local
     restart: unless-stopped
     env_file:
-      - ${ENV_FILE:-.env.docker.local}
+      - ${ENV_FILE:-.env.docker}
     environment:
       DB_HOST: db
       DB_PORT: 5432
@@ -31,15 +44,17 @@ services:
       PG_PORT: 5432
       NODE_EXECUTABLE: node
       RUN_MIGRATIONS: "true"
+      STOCK_GATEWAY_URL: http://gateway:3000
     volumes:
       - app_storage:/var/www/html/storage
       - public_assets:/var/www/html/public
-      - ${OPM_CATALOG_HOST_PATH:-./data/catalogo}:/data/catalogo
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
+      gateway:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "php -r 'exit((extension_loaded(\"pdo_pgsql\") && file_exists(\"public/index.php\")) ? 0 : 1);'"]
       interval: 10s
@@ -64,10 +79,10 @@ services:
       - backend
 
   worker:
-    image: opm-digemid:local
+    image: crm-dimsum:local
     restart: unless-stopped
     env_file:
-      - ${ENV_FILE:-.env.docker.local}
+      - ${ENV_FILE:-.env.docker}
     environment:
       DB_HOST: db
       DB_PORT: 5432
@@ -77,14 +92,14 @@ services:
       RUN_MIGRATIONS: "false"
       RUN_AS_WWW_DATA: "true"
       DB_QUEUE_RETRY_AFTER: "780"
+      STOCK_GATEWAY_URL: http://gateway:3000
     # Kardex usa reportes XLSX completos; concede margen al timeout de 600 s
     # del job y mantenlo por debajo del retry_after de la cola.
-    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=ventas-pages,ventas-details,default", "--sleep=1", "--tries=4", "--timeout=720", "--max-time=3600"]
+    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=ventas-pages,ventas-details,stock-actual,default", "--sleep=1", "--tries=4", "--timeout=720", "--max-time=3600"]
     deploy:
-      replicas: ${VENTAS_WORKER_REPLICAS:-20}
+      replicas: ${VENTAS_WORKER_REPLICAS:-0}
     volumes:
       - app_storage:/var/www/html/storage
-      - ${OPM_CATALOG_HOST_PATH:-./data/catalogo}:/data/catalogo:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -92,14 +107,49 @@ services:
         condition: service_healthy
       app:
         condition: service_healthy
+      gateway:
+        condition: service_started
+    networks:
+      - backend
+
+  # Kardex no comparte workers con ventas: el gateway de Restaurant conserva
+  # una sesión de navegador y debe recibir una descarga a la vez. Mantener una
+  # sola réplica hace el proceso estable para los 37 locales.
+  kardex-worker:
+    image: crm-dimsum:local
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE:-.env.docker}
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      PG_HOST: db
+      PG_PORT: 5432
+      NODE_EXECUTABLE: node
+      RUN_MIGRATIONS: "false"
+      RUN_AS_WWW_DATA: "true"
+      DB_QUEUE_RETRY_AFTER: "780"
+      STOCK_GATEWAY_URL: http://gateway:3000
+    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=kardex", "--sleep=1", "--tries=3", "--timeout=720", "--max-time=3600"]
+    volumes:
+      - app_storage:/var/www/html/storage
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+      gateway:
+        condition: service_started
     networks:
       - backend
 
   scheduler:
-    image: opm-digemid:local
+    image: crm-dimsum:local
     restart: unless-stopped
     env_file:
-      - ${ENV_FILE:-.env.docker.local}
+      - ${ENV_FILE:-.env.docker}
     environment:
       DB_HOST: db
       DB_PORT: 5432
@@ -107,22 +157,32 @@ services:
       PG_PORT: 5432
       RUN_MIGRATIONS: "false"
       RUN_AS_WWW_DATA: "true"
+      STOCK_GATEWAY_URL: http://gateway:3000
     command: ["php", "artisan", "schedule:work"]
     volumes:
       - app_storage:/var/www/html/storage
-      - ${OPM_CATALOG_HOST_PATH:-./data/catalogo}:/data/catalogo
     depends_on:
       db:
         condition: service_healthy
       app:
         condition: service_healthy
+      gateway:
+        condition: service_started
     networks:
       - backend
 
 volumes:
+  # Se conservan los volúmenes existentes para no perder los datos locales,
+  # aunque el proyecto Docker ahora se identifique como crm-dimsum.
   postgres_data:
+    external: true
+    name: ${POSTGRES_VOLUME_NAME:-crm-dimsum_postgres_data}
   app_storage:
+    external: true
+    name: ${APP_STORAGE_VOLUME_NAME:-crm-dimsum_app_storage}
   public_assets:
+    external: true
+    name: ${PUBLIC_ASSETS_VOLUME_NAME:-crm-dimsum_public_assets}
 
 networks:
   backend:

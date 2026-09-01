@@ -102,7 +102,7 @@
                             @endif
                         </div>
 
-                        <div class="fi-ta-content max-h-[65vh] overflow-auto rounded-xl border border-gray-200 dark:border-white/10">
+                        <div class="fi-ta-content crm-stock-final-table max-h-[65vh] overflow-auto rounded-xl border border-gray-200 dark:border-white/10">
                             <table class="fi-ta-table w-full text-start">
                                 <thead class="sticky top-0 z-10 bg-white dark:bg-gray-900">
                                     <tr>
@@ -125,7 +125,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach ($this->filteredItemIndexes() as $index)
+                                    @foreach ($this->paginatedItemIndexes() as $index)
                                         @php($item = $items[$index])
                                         @php($almacen = $item['almacenes'][0] ?? [])
                                         @php($changed = in_array($index, $this->changedIndexes(), true))
@@ -137,17 +137,17 @@
                                                     <input type="checkbox" wire:click="toggleItemSeleccionado({{ $index }})" @checked($seleccionado) class="fi-checkbox-input rounded" />
                                                 </td>
                                             @endif
-                                            <td class="fi-ta-cell"><div class="px-3 py-1.5 text-sm text-gray-950 dark:text-white">{{ $item['item_codigo'] ?? '—' }}</div></td>
+                                            <td class="fi-ta-cell"><div class="fi-ta-cell-content px-3 py-1.5">{{ $item['item_codigo'] ?? '—' }}</div></td>
                                             <td class="fi-ta-cell">
-                                                <div class="px-3 py-1.5 text-sm text-gray-950 dark:text-white">
+                                                <div class="fi-ta-cell-content px-3 py-1.5">
                                                     {{ $item['item_descripcion'] ?? '—' }}
                                                     @if ($desdePlantilla)
                                                         <span class="ms-1 rounded-full bg-info-100 px-2 py-0.5 text-xs font-medium text-info-700 dark:bg-info-500/20 dark:text-info-300">plantilla</span>
                                                     @endif
                                                 </div>
                                             </td>
-                                            <td class="fi-ta-cell"><div class="px-3 py-1.5 text-sm text-gray-950 dark:text-white">{{ $item['categoria_descripcion'] ?? '—' }}</div></td>
-                                            <td class="fi-ta-cell"><div class="px-3 py-1.5 text-sm font-medium text-gray-950 dark:text-white">{{ number_format((float) ($almacen['cantidad2'] ?? 0), 3) }}</div></td>
+                                            <td class="fi-ta-cell"><div class="fi-ta-cell-content px-3 py-1.5">{{ $item['categoria_descripcion'] ?? '—' }}</div></td>
+                                            <td class="fi-ta-cell"><div class="fi-ta-cell-content px-3 py-1.5 font-medium">{{ number_format((float) ($almacen['cantidad2'] ?? 0), 3) }}</div></td>
                                             @if (static::canEditarValores())
                                                 <td class="fi-ta-cell">
                                                     <x-filament::input.wrapper class="max-w-24">
@@ -155,7 +155,7 @@
                                                     </x-filament::input.wrapper>
                                                 </td>
                                             @endif
-                                            <td class="fi-ta-cell"><div class="px-3 py-1.5 text-sm text-gray-950 dark:text-white">{{ number_format((float) ($almacen['costo'] ?? 0), 4) }}</div></td>
+                                            <td class="fi-ta-cell"><div class="fi-ta-cell-content px-3 py-1.5">{{ number_format((float) ($almacen['costo'] ?? 0), 4) }}</div></td>
                                             @if (static::canEditarValores())
                                                 <td class="fi-ta-cell">
                                                     <x-filament::input.wrapper class="max-w-24">
@@ -168,6 +168,19 @@
                                 </tbody>
                             </table>
                         </div>
+                        @if ($this->itemsPageCount() > 1)
+                            <div class="mt-3 flex items-center justify-between gap-3">
+                                <x-filament::button type="button" size="sm" color="gray" wire:click="previousItemsPage" :disabled="$itemsPage === 1">
+                                    Anterior
+                                </x-filament::button>
+                                <span class="text-sm text-gray-500 dark:text-gray-400">
+                                    Página {{ $itemsPage }} de {{ $this->itemsPageCount() }}
+                                </span>
+                                <x-filament::button type="button" size="sm" color="gray" wire:click="nextItemsPage" :disabled="$itemsPage === $this->itemsPageCount()">
+                                    Siguiente
+                                </x-filament::button>
+                            </div>
+                        @endif
                     @else
                         <x-filament::empty-state icon="heroicon-o-funnel" heading="Ningún ítem coincide con el filtro de categoría." />
                     @endif
@@ -181,10 +194,7 @@
     <x-filament::modal id="confirm-guardar-cuadre" width="lg">
         <x-slot name="heading">Confirmar cuadre de stock</x-slot>
 
-        <p class="text-sm text-gray-700 dark:text-gray-200">
-            Vas a guardar <strong>{{ count($this->changedIndexes()) }} ítem(s)</strong> con cambios como un cuadre manual real en Logística Dim Sum.
-            Esta acción <strong>no se puede deshacer</strong> — quedará registrada en el ERP igual que si la hicieras desde Restaurant.pe.
-        </p>
+        <p class="text-sm text-gray-700 dark:text-gray-200">Guardar {{ count($this->changedIndexes()) }} ítem(s) en Logística.</p>
 
         <div class="mt-4 max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-white/10">
             <table class="fi-ta-table w-full text-start text-sm">
@@ -220,9 +230,7 @@
     <x-filament::modal id="guardar-plantilla" width="md">
         <x-slot name="heading">Guardar como plantilla</x-slot>
 
-        <p class="text-sm text-gray-700 dark:text-gray-200">
-            Se guardarán los <strong>{{ count($itemsSeleccionados) }} ítem(s) marcado(s)</strong> con sus cantidades actuales como una plantilla reutilizable en Logística. Esto <strong>no crea un cuadre ni afecta el stock real</strong>.
-        </p>
+        <p class="text-sm text-gray-700 dark:text-gray-200">Guardar plantilla con {{ count($itemsSeleccionados) }} ítem(s).</p>
 
         <label class="mt-4 block text-sm font-medium text-gray-950 dark:text-white">
             Nombre de la plantilla

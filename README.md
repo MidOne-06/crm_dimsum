@@ -1,21 +1,21 @@
-# OPM DIGEMID
+# CRM DIMSUM
 
 ## Ejecución con Docker
 
 La topología Docker separa responsabilidades y persiste solo lo necesario:
 
 - `web`: Nginx expuesto al navegador.
-- `app`: PHP-FPM/Laravel y ejecución de los batches OPM iniciados desde el panel.
+- `app`: PHP-FPM/Laravel y ejecución de las sincronizaciones iniciadas desde el panel.
 - `worker`: cola de Laravel para exportaciones Excel y tareas asíncronas.
 - `scheduler`: proceso de programación Laravel.
 - `db`: PostgreSQL 16 con volumen persistente.
 
-Los datos PostgreSQL, los archivos de exportación, los logs y los batches se conservan en volúmenes Docker. El catálogo DIGEMID se monta en modo solo lectura desde el host.
+Los datos PostgreSQL, los archivos de exportación y los logs se conservan en volúmenes Docker.
 
 ### Primer arranque
 
-1. Copie `.env.docker.example` como `.env.docker` y complete los secretos: `APP_KEY`, `DB_PASSWORD`, `DATAIMPULSE_USER`, `DATAIMPULSE_PASSWORD`, `FILAMENT_ADMIN_EMAILS` y la ruta de `OPM_CATALOG_INDEX`.
-2. Ajuste `OPM_CATALOG_HOST_PATH` al directorio local que contiene el catálogo. Dentro del contenedor se verá en `/data/catalogo`.
+1. Copie `.env.docker.example` como `.env.docker` y complete los secretos requeridos, incluida la ruta del índice de catálogo.
+2. Ajuste la ruta del catálogo local. Dentro del contenedor se verá en `/data/catalogo`.
 3. Genere una clave si aún no cuenta con ella:
 
    ```powershell

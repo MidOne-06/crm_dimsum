@@ -1,9 +1,10 @@
 <x-filament-panels::page>
-    <form wire:submit="save" class="opm-settings-form mx-auto max-w-4xl space-y-6">
+    <form wire:submit="save" class="crm-settings-form crm-branding-form mx-auto max-w-6xl space-y-4">
         {{ $this->form }}
 
-        <div class="opm-form-actions">
-            <x-filament::button type="submit" icon="heroicon-o-check" size="lg">
+        <div class="crm-form-actions crm-branding-form__actions">
+            <span class="crm-query-hint">Los cambios se aplican al guardar.</span>
+            <x-filament::button type="submit" icon="heroicon-o-check" size="md">
                 Guardar cambios
             </x-filament::button>
         </div>

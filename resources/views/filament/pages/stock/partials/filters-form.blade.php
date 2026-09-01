@@ -4,21 +4,21 @@
     </x-filament::section>
 @else
     <x-filament::section
-        class="opm-query-section"
+        class="crm-query-section"
         heading="Filtros"
         collapsible
         :collapsed="$hasSearched && blank($resultError)"
         x-on:stock-results-ready.window="isCollapsed = true"
     >
 
-        <form wire:submit.prevent="search" class="opm-filter-form space-y-4">
+        <form wire:submit.prevent="search" class="crm-filter-form space-y-4">
             {{ $this->form }}
 
-            <x-filament::fieldset label="Fecha" class="opm-filter-date">
+            <x-filament::fieldset label="Fecha" class="crm-filter-date">
                 @include('filament.pages.stock.partials.date-range-picker')
             </x-filament::fieldset>
 
-            <x-filament::fieldset label="Contiene insumo/producto (máx. 5)" class="opm-filter-item">
+            <x-filament::fieldset label="Contiene insumo/producto (máx. 5)" class="crm-filter-item">
                 <x-filament::input.wrapper suffix-icon="heroicon-o-magnifying-glass">
                     <x-filament::input
                         type="search"
@@ -57,7 +57,7 @@
                 @endif
             </x-filament::fieldset>
 
-            <div class="opm-query-actions">
+            <div class="crm-query-actions">
                 <x-filament::button type="submit" icon="heroicon-o-magnifying-glass" :disabled="$isLoading">
                     {{ $isLoading ? 'Buscando…' : 'Buscar' }}
                 </x-filament::button>

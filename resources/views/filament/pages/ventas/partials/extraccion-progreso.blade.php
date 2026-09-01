@@ -5,7 +5,7 @@
     <x-filament::section>
         <x-slot name="heading">
             Extracción #{{ $extraccion->id }}
-            <span class="opm-status">{{ ucfirst(str_replace('_', ' ', $extraccion->estado)) }}</span>
+            <span class="crm-status">{{ ucfirst(str_replace('_', ' ', $extraccion->estado)) }}</span>
         </x-slot>
 
         @if ($extraccion->estado === 'en_progreso' || $extraccion->estado === 'completado')

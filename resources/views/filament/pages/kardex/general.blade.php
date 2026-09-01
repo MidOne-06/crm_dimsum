@@ -11,14 +11,7 @@
                         {{ $this->form }}
 
                         <x-filament::fieldset label="Fecha">
-                            <div class="grid gap-4 sm:grid-cols-2">
-                                <x-filament::input.wrapper>
-                                    <x-filament::input type="date" wire:model="fechaInicio" />
-                                </x-filament::input.wrapper>
-                                <x-filament::input.wrapper>
-                                    <x-filament::input type="date" wire:model="fechaFin" />
-                                </x-filament::input.wrapper>
-                            </div>
+                            @include('filament.pages.stock.partials.date-range-picker')
                         </x-filament::fieldset>
 
                         <div class="grid gap-3 sm:grid-cols-2">

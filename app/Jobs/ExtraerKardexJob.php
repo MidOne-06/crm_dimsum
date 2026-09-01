@@ -39,7 +39,7 @@ class ExtraerKardexJob implements ShouldQueue
                 ->where('extraccion_id', $extraccion->id)
                 ->where('estado', 'pendiente')
                 ->pluck('id')
-                ->each(fn (int $id) => ProcesarLocalKardexJob::dispatch($extraccion->id, $id));
+                ->each(fn (int $id) => ProcesarLocalKardexJob::dispatch($extraccion->id, $id)->onQueue('kardex'));
 
             return;
         }
@@ -82,7 +82,7 @@ class ExtraerKardexJob implements ShouldQueue
             ->where('extraccion_id', $extraccion->id)
             ->where('estado', 'pendiente')
             ->pluck('id')
-            ->each(fn (int $id) => ProcesarLocalKardexJob::dispatch($extraccion->id, $id));
+            ->each(fn (int $id) => ProcesarLocalKardexJob::dispatch($extraccion->id, $id)->onQueue('kardex'));
     }
 
     /**
@@ -98,10 +98,29 @@ class ExtraerKardexJob implements ShouldQueue
             return;
         }
 
+        $ahora = now();
+
+        // Evita dejar cabeceras "en progreso" y detalles pendientes si el
+        // job planificador muere antes de enviar todos los trabajos por local.
+        $extraccion->locales()->whereIn('estado', ['pendiente', 'en_progreso'])->update([
+            'estado' => 'fallido',
+            'mensaje_error' => $exception?->getMessage() ?? 'El planificador de la extracción se detuvo.',
+            'completado_at' => $ahora,
+        ]);
+
+        $totales = $extraccion->locales()
+            ->selectRaw("count(*) filter (where estado = 'completado') as procesados")
+            ->selectRaw("count(*) filter (where estado = 'fallido') as fallidos")
+            ->selectRaw('coalesce(sum(movimientos_guardados), 0) as movimientos')
+            ->first();
+
         $extraccion->update([
             'estado' => 'fallido',
             'mensaje_error' => $exception?->getMessage() ?? 'El worker se detuvo antes de terminar la extracción.',
-            'completado_at' => now(),
+            'locales_procesados' => (int) ($totales->procesados ?? 0),
+            'locales_fallidos' => (int) ($totales->fallidos ?? 0),
+            'movimientos_guardados' => (int) ($totales->movimientos ?? 0),
+            'completado_at' => $ahora,
         ]);
     }
 }

@@ -4,6 +4,8 @@ namespace App\Providers\Filament;
 
 use App\Filament\Pages\EditProfile;
 use App\Filament\Pages\Login;
+use App\Filament\Pages\Stock\NuevaSalidaStock;
+use App\Http\Middleware\RedirectTerminalToNewStockExit;
 use App\Models\BrandingSetting;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -31,9 +33,17 @@ class AdminPanelProvider extends PanelProvider
             ->path('admin')
             ->login(Login::class)
             ->profile(EditProfile::class, isSimple: false)
+            ->homeUrl(function (): ?string {
+                $user = auth()->user();
+
+                return $user?->roles()->where('slug', 'terminal')->exists()
+                    ? NuevaSalidaStock::getUrl()
+                    : null;
+            })
             ->brandName(fn (): string => BrandingSetting::current()->brand_name)
             ->brandLogo(fn (): string => BrandingSetting::current()->logoUrl())
-            ->brandLogoHeight('2.25rem')
+            ->brandLogoHeight(fn (): string => BrandingSetting::current()->logoHeight())
+            ->favicon(fn (): string => BrandingSetting::current()->faviconUrl())
             ->sidebarCollapsibleOnDesktop()
             // El modo claro, oscuro y "según el sistema" lo controla Filament.
             ->darkMode()
@@ -41,8 +51,8 @@ class AdminPanelProvider extends PanelProvider
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->databaseNotifications()
             ->databaseNotificationsPolling('10s')
-            ->colors([
-                'primary' => Color::Amber,
+            ->colors(fn (): array => [
+                'primary' => Color::hex(BrandingSetting::current()->primaryColor()),
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
@@ -66,6 +76,7 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
+                RedirectTerminalToNewStockExit::class,
             ]);
     }
 }

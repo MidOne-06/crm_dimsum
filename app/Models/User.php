@@ -28,6 +28,7 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
         'avatar_path',
         'password',
         'is_active',
+        'local_scope',
     ];
 
     /**
@@ -70,10 +71,9 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
     }
 
     /**
-     * true si este usuario debe verse limitado a sus locales asignados. Un
-     * superadministrador (o el bypass de entorno local/tests) nunca queda
-     * restringido, aunque tenga locales asignados -- así se le puede asignar
-     * un local "de referencia" sin perder acceso al resto.
+     * true si el usuario eligió locales específicos. La elección "todos" se
+     * guarda explícitamente en local_scope, evitando que una lista vacía se
+     * interprete de forma ambigua durante la creación o edición.
      */
     public function isRestrictedToLocals(): bool
     {
@@ -81,7 +81,7 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
             return false;
         }
 
-        return $this->locals()->exists();
+        return $this->local_scope === 'selected';
     }
 
     /** @return array<int, string> vacío = sin restricción (ve todos los locales) */

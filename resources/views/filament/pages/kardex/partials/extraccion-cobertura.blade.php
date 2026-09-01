@@ -9,13 +9,15 @@
 
 <x-filament::section>
     <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-            <span class="font-medium">Local</span>
-            <select wire:model.live="coverageLocalId" class="fi-select-input rounded-lg border-gray-300 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white">
-                @foreach ($availableLocals as $local)
-                    <option value="{{ $local['id'] }}">{{ $local['name'] }}</option>
-                @endforeach
-            </select>
+        <label class="w-full sm:w-72">
+            <span class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">Local</span>
+            <x-filament::input.wrapper>
+                <x-filament::input.select wire:model.live="coverageLocalId">
+                    @foreach ($availableLocals as $local)
+                        <option value="{{ $local['id'] }}">{{ $local['name'] }}</option>
+                    @endforeach
+                </x-filament::input.select>
+            </x-filament::input.wrapper>
         </label>
 
         <div class="flex items-center gap-2">

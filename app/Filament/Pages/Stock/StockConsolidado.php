@@ -3,7 +3,16 @@
 namespace App\Filament\Pages\Stock;
 
 use App\Filament\Concerns\InteractsWithStockFilters;
+use Filament\Actions\Action;
 use Filament\Pages\Page;
+use Filament\Forms\Components\Select;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Concerns\InteractsWithTable;
+use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Enums\FiltersLayout;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Table;
+use Illuminate\Pagination\LengthAwarePaginator;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
@@ -13,9 +22,10 @@ use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
-class StockConsolidado extends Page
+class StockConsolidado extends Page implements HasTable
 {
     use InteractsWithStockFilters;
+    use InteractsWithTable;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-archive-box';
 
@@ -37,14 +47,64 @@ class StockConsolidado extends Page
     public function search(): void
     {
         $this->loadStockReport();
+        $this->resetTable();
     }
 
-    /** @return array{rows: array<int, array<string, mixed>>, page: int, pages: int, total: int} */
-    public function summaryPage(): array
+    public function table(Table $table): Table
     {
-        $summary = $this->consolidateByLocalItem($this->filteredReportMaster());
+        return $table
+            ->records(fn (int $page, int $recordsPerPage): LengthAwarePaginator => $this->tableRecords($page, $recordsPerPage))
+            ->columns([
+                TextColumn::make('itemCodigo')->label('Código')->searchable()->toggleable(),
+                TextColumn::make('local')->label('Local')->searchable()->sortable()->wrap(),
+                TextColumn::make('item')->label('Ítem')->searchable()->sortable()->wrap(),
+                TextColumn::make('almacenes')->label('Almacenes')->numeric()->alignEnd()->sortable(),
+                TextColumn::make('stockActual')->label('Stock consolidado')->numeric(3)->alignEnd()->sortable()
+                    ->suffix(fn (array $record): string => filled($record['unidad'] ?? null) ? ' '.$record['unidad'] : ''),
+            ])
+            ->filters([
+                Filter::make('resultados')
+                    ->label('Filtros')
+                    ->schema([
+                        Select::make('local')->label('Local')->native(false)->searchable()->options(fn (): array => $this->resultFilterOptions('local'))->placeholder('Todos los locales'),
+                        Select::make('almacen')->label('Almacén')->native(false)->searchable()->options(fn (): array => $this->resultFilterOptions('almacen'))->placeholder('Todos los almacenes'),
+                        Select::make('item')->label('Ítem')->native(false)->searchable()->options(fn (): array => $this->resultFilterOptions('item'))->placeholder('Todos los ítems'),
+                        Select::make('tipo')->label('Tipo')->native(false)->searchable()->options(fn (): array => $this->resultFilterOptions('tipo'))->placeholder('Todos los tipos'),
+                    ]),
+            ], layout: FiltersLayout::AboveContentCollapsible)
+            ->filtersFormColumns(['default' => 1, 'md' => 2, 'xl' => 4])
+            ->headerActions([
+                Action::make('exportarExcel')
+                    ->label('Exportar Excel')
+                    ->icon('heroicon-o-arrow-down-tray')
+                    ->color('gray')
+                    ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('stock.consolidado.exportar'))
+                    ->action(fn (): StreamedResponse => $this->exportarExcel()),
+            ])
+            ->paginated([10, 25, 50, 100])
+            ->defaultPaginationPageOption(10)
+            ->emptyStateHeading('Sin stock para los filtros seleccionados.');
+    }
 
-        return $this->paginate($summary, $this->reportPage);
+    /** @return array<string, string> */
+    public function resultFilterOptions(string $field): array
+    {
+        return collect($this->uniqueReportValues($field))
+            ->mapWithKeys(fn (string $value): array => [$value => $value])
+            ->all();
+    }
+
+    protected function tableRecords(int $page, int $recordsPerPage): LengthAwarePaginator
+    {
+        $rows = collect($this->consolidateByLocalItem($this->filteredReportMaster()));
+
+        return new LengthAwarePaginator(
+            $rows->forPage($page, $recordsPerPage)->values(),
+            $rows->count(),
+            $recordsPerPage,
+            $page,
+            ['path' => request()->url(), 'pageName' => 'stockConsolidadoPage'],
+        );
     }
 
     /**
@@ -54,6 +114,7 @@ class StockConsolidado extends Page
      */
     public function exportarExcel(): StreamedResponse
     {
+        abort_unless(auth()->user()?->hasPermission('stock.consolidado.exportar'), 403);
         $consolidado = $this->consolidateByLocalItem($this->filteredReportMaster());
 
         $locales = collect($consolidado)->pluck('local')->unique()->sort(SORT_STRING | SORT_FLAG_CASE)->values();

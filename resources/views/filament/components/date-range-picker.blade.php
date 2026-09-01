@@ -7,6 +7,7 @@
     $initialPreset = $preset;
     $initialStart = $start;
     $initialEnd = $end;
+    $isDisabled = $disabled ?? false;
 @endphp
 
 <div
@@ -18,6 +19,7 @@
         rangeEnd: @js($initialEnd),
         tempStart: @js($initialStart),
         tempEnd: @js($initialEnd),
+        disabled: @js($isDisabled),
         leftMonth: 0, leftYear: 0, rightMonth: 0, rightYear: 0,
         monthNames: ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Setiembre','Octubre','Noviembre','Diciembre'],
         weekDays: ['Lu','Ma','Mi','Ju','Vi','Sa','Do'],
@@ -46,6 +48,24 @@
             if (rm > 11) { rm = 0; ry++; }
             this.rightMonth = rm;
             this.rightYear = ry;
+            this.forceSelectValues();
+        },
+        // El <select> de año arma sus <option> a partir del propio leftYear/
+        // rightYear ([año-2 .. año+2]) -- cuando ese valor cambia, x-bind:value
+        // y el x-for que regenera las <option> se disparan en el mismo ciclo
+        // de Alpine, y a veces value se aplica ANTES de que la opción nueva
+        // exista todavía, cayendo al primer <option> del navegador en vez del
+        // año real. $nextTick espera a que Alpine termine de parchear el DOM
+        // (opciones ya regeneradas) antes de forzar el valor a mano.
+        forceSelectValues() {
+            this.$nextTick(() => {
+                this.$root.querySelectorAll('[data-picker-select]').forEach((el) => {
+                    const isLeft = el.dataset.pickerSide === 'left';
+                    el.value = el.dataset.pickerSelect === 'month'
+                        ? (isLeft ? this.leftMonth : this.rightMonth)
+                        : (isLeft ? this.leftYear : this.rightYear);
+                });
+            });
         },
         openPicker() {
             this.tempStart = this.rangeStart;
@@ -57,10 +77,12 @@
         prevMonth(side) {
             if (side === 'left') { this.leftMonth--; if (this.leftMonth < 0) { this.leftMonth = 11; this.leftYear--; } }
             else { this.rightMonth--; if (this.rightMonth < 0) { this.rightMonth = 11; this.rightYear--; } }
+            this.forceSelectValues();
         },
         nextMonth(side) {
             if (side === 'left') { this.leftMonth++; if (this.leftMonth > 11) { this.leftMonth = 0; this.leftYear++; } }
             else { this.rightMonth++; if (this.rightMonth > 11) { this.rightMonth = 0; this.rightYear++; } }
+            this.forceSelectValues();
         },
         buildDays(month, year) {
             const first = new Date(year, month, 1);
@@ -97,8 +119,8 @@
             const isEndpoint = iso === this.tempStart || iso === this.tempEnd;
             const inRange = this.tempStart && this.tempEnd && iso > this.tempStart && iso < this.tempEnd;
             if (isEndpoint) return 'bg-primary-600 font-semibold text-white';
-            if (inRange) return 'bg-primary-50 text-gray-950 dark:bg-primary-500/10 dark:text-white';
-            return 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-white/5';
+            if (inRange) return 'crm-date-picker-in-range bg-primary-50 text-gray-950';
+            return 'crm-date-picker-option text-gray-700 hover:bg-gray-100';
         },
         applyPreset(key) {
             const today = new Date();
@@ -127,15 +149,17 @@
         },
         cancelPicker() { this.open = false; },
     }"
-    class="relative opm-date-range-control"
+    x-bind:class="disabled ? 'opacity-50' : ''"
+    class="relative crm-date-range-control"
 >
-    <div x-on:click="open ? (open = false) : openPicker()">
+    <div x-on:click="disabled ? null : (open ? (open = false) : openPicker())">
         <x-filament::input.wrapper suffix-icon="heroicon-o-calendar-days">
             <x-filament::input
                 type="text"
                 readonly
+                x-bind:disabled="disabled"
                 x-bind:value="formatDisplay(rangeStart) + ' al ' + formatDisplay(rangeEnd)"
-                class="cursor-pointer"
+                x-bind:class="disabled ? 'cursor-not-allowed' : 'cursor-pointer'"
             />
         </x-filament::input.wrapper>
     </div>
@@ -145,25 +169,25 @@
         x-cloak
         x-on:click.outside="cancelPicker"
         x-transition
-        class="opm-date-picker absolute start-0 top-full z-50 mt-2 flex flex-col overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-gray-950/5 sm:flex-row dark:bg-gray-900 dark:ring-white/10"
+        class="crm-date-picker absolute start-0 top-full z-50 mt-2 flex flex-col overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-gray-950/5 sm:flex-row"
     >
-        <div class="flex shrink-0 flex-row gap-1 overflow-x-auto border-b border-gray-200 p-3 sm:w-40 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-e dark:border-white/10">
+        <div class="crm-date-picker-presets flex shrink-0 flex-row gap-1 overflow-x-auto border-b border-gray-200 p-3 sm:w-40 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-e">
             <template x-for="item in presets" :key="item.key">
                 <button
                     type="button"
                     x-on:click="applyPreset(item.key)"
                     x-text="item.label"
                     :class="preset === item.key
-                        ? 'bg-primary-50 font-medium text-primary-600 dark:bg-primary-500/10 dark:text-primary-400'
-                        : 'text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-white/5'"
+                        ? 'crm-date-picker-selected bg-primary-50 font-medium text-primary-600'
+                        : 'crm-date-picker-option text-gray-700 hover:bg-gray-50'"
                     class="whitespace-nowrap rounded-md px-3 py-2 text-start text-sm"
                 ></button>
             </template>
             <span
                 x-text="'Otra'"
                 :class="preset === 'custom'
-                    ? 'bg-primary-50 font-medium text-primary-600 dark:bg-primary-500/10 dark:text-primary-400'
-                    : 'text-gray-400 dark:text-gray-500'"
+                    ? 'crm-date-picker-selected bg-primary-50 font-medium text-primary-600'
+                    : 'crm-date-picker-muted text-gray-400'"
                 class="whitespace-nowrap rounded-md px-3 py-2 text-start text-sm"
             ></span>
         </div>
@@ -173,14 +197,16 @@
                 <template x-for="side in ['left', 'right']" :key="side">
                     <div class="w-full sm:w-60">
                         <div class="mb-2 flex items-center justify-between gap-1">
-                            <button type="button" x-on:click="prevMonth(side)" x-bind:aria-label="'Mes anterior (' + (side === 'left' ? 'calendario inicial' : 'calendario final') + ')'" class="fi-icon-btn rounded-md p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-white/5">
+                            <button type="button" x-on:click="prevMonth(side)" x-bind:aria-label="'Mes anterior (' + (side === 'left' ? 'calendario inicial' : 'calendario final') + ')'" class="crm-date-picker-option fi-icon-btn rounded-md p-1 text-gray-500 hover:bg-gray-100">
                                 <x-filament::icon icon="heroicon-o-chevron-left" class="h-4 w-4" />
                             </button>
                             <div class="flex flex-1 gap-1">
                                 <select
                                     x-bind:value="side === 'left' ? leftMonth : rightMonth"
                                     x-on:change="side === 'left' ? leftMonth = Number($event.target.value) : rightMonth = Number($event.target.value)"
-                                    class="fi-select-input block w-full rounded-md border-gray-300 py-1 text-xs dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                                    data-picker-select="month"
+                                    x-bind:data-picker-side="side"
+                                    class="crm-date-picker-select fi-select-input block w-full rounded-md border-gray-300 py-1 text-xs"
                                 >
                                     <template x-for="(name, index) in monthNames" :key="index">
                                         <option :value="index" x-text="name"></option>
@@ -189,27 +215,29 @@
                                 <select
                                     x-bind:value="side === 'left' ? leftYear : rightYear"
                                     x-on:change="side === 'left' ? leftYear = Number($event.target.value) : rightYear = Number($event.target.value)"
-                                    class="fi-select-input block rounded-md border-gray-300 py-1 text-xs dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                                    data-picker-select="year"
+                                    x-bind:data-picker-side="side"
+                                    class="crm-date-picker-select fi-select-input block rounded-md border-gray-300 py-1 text-xs"
                                 >
                                     <template x-for="y in [leftYear - 2, leftYear - 1, leftYear, leftYear + 1, leftYear + 2]" :key="y">
                                         <option :value="y" x-text="y"></option>
                                     </template>
                                 </select>
                             </div>
-                            <button type="button" x-on:click="nextMonth(side)" x-bind:aria-label="'Mes siguiente (' + (side === 'left' ? 'calendario inicial' : 'calendario final') + ')'" class="fi-icon-btn rounded-md p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-white/5">
+                            <button type="button" x-on:click="nextMonth(side)" x-bind:aria-label="'Mes siguiente (' + (side === 'left' ? 'calendario inicial' : 'calendario final') + ')'" class="crm-date-picker-option fi-icon-btn rounded-md p-1 text-gray-500 hover:bg-gray-100">
                                 <x-filament::icon icon="heroicon-o-chevron-right" class="h-4 w-4" />
                             </button>
                         </div>
                         <div class="grid grid-cols-7 gap-y-1 text-center text-xs">
                             <template x-for="d in weekDays" :key="d">
-                                <span x-text="d" class="py-1 font-medium text-gray-400 dark:text-gray-500"></span>
+                                <span x-text="d" class="crm-date-picker-muted py-1 font-medium text-gray-400"></span>
                             </template>
                             <template x-for="cell in buildDays(side === 'left' ? leftMonth : rightMonth, side === 'left' ? leftYear : rightYear)" :key="cell.iso">
                                 <button
                                     type="button"
                                     x-on:click="selectDay(cell.iso)"
                                     x-text="cell.day"
-                                    :class="cell.otherMonth ? 'text-gray-300 dark:text-gray-600' : dayClasses(cell.iso)"
+                                    :class="cell.otherMonth ? 'crm-date-picker-other-month text-gray-300' : dayClasses(cell.iso)"
                                     class="rounded-md py-1.5 text-sm"
                                 ></button>
                             </template>
@@ -218,8 +246,8 @@
                 </template>
             </div>
 
-            <div class="flex items-center justify-between gap-3 border-t border-gray-200 p-3 dark:border-white/10">
-                <span class="text-sm text-gray-500 dark:text-gray-400" x-text="formatDisplay(tempStart) + ' al ' + formatDisplay(tempEnd || tempStart)"></span>
+            <div class="crm-date-picker-footer flex items-center justify-between gap-3 border-t border-gray-200 p-3">
+                <span class="crm-date-picker-muted text-sm text-gray-500" x-text="formatDisplay(tempStart) + ' al ' + formatDisplay(tempEnd || tempStart)"></span>
                 <div class="flex gap-2">
                     <x-filament::button type="button" color="gray" size="sm" x-on:click="cancelPicker">Cancelar</x-filament::button>
                     <x-filament::button type="button" size="sm" x-on:click="apply">Aplicar</x-filament::button>

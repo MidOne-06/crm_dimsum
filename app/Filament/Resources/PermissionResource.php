@@ -14,6 +14,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
 class PermissionResource extends Resource
@@ -25,6 +26,44 @@ class PermissionResource extends Resource
     protected static ?string $pluralModelLabel = 'Permisos';
     protected static string|\UnitEnum|null $navigationGroup = 'Seguridad';
     protected static ?int $navigationSort = 92;
+
+    public static function canViewAny(): bool
+    {
+        return static::canManagePermissions();
+    }
+
+    public static function canCreate(): bool
+    {
+        return static::canManagePermissions();
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return static::canManagePermissions() && static::canManagePermissionRecord($record);
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return static::canManagePermissions() && static::canManagePermissionRecord($record);
+    }
+
+    private static function canManagePermissions(): bool
+    {
+        return (bool) auth()->user()?->hasPermission('permissions.manage');
+    }
+
+    /** No se permite alterar permisos de sistema salvo a un superadministrador. */
+    private static function canManagePermissionRecord(Model $record): bool
+    {
+        if (! $record instanceof Permission || ! $record->is_system) {
+            return true;
+        }
+
+        $actor = auth()->user();
+
+        return (bool) ($actor?->isPanelAdministrator()
+            || $actor?->roles()->where('slug', 'superadministrador')->exists());
+    }
 
     public static function form(Schema $schema): Schema
     {
@@ -41,7 +80,6 @@ class PermissionResource extends Resource
                     Select::make('module')->label('Módulo')->options([
                         'Seguridad' => 'Seguridad',
                         'Apariencia' => 'Apariencia',
-                        'DIGEMID' => 'DIGEMID',
                         'Stock Actual' => 'Stock Actual',
                     ])->native(false),
                 ])

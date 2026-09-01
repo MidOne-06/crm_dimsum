@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\UserResource\Pages;
 use App\Models\User;
 use App\Services\StockFinalGatewayClient;
+use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
@@ -13,9 +14,11 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\Rules\Password;
 use Throwable;
 
@@ -28,6 +31,51 @@ class UserResource extends Resource
     protected static ?string $pluralModelLabel = 'Usuarios';
     protected static string|\UnitEnum|null $navigationGroup = 'Seguridad';
     protected static ?int $navigationSort = 90;
+
+    /**
+     * Seguridad no debe depender únicamente de que el enlace aparezca o no
+     * en el menú. Estas comprobaciones también protegen las rutas directas y
+     * las acciones CRUD que Filament genera para el recurso.
+     */
+    public static function canViewAny(): bool
+    {
+        return static::canManageUsers();
+    }
+
+    public static function canCreate(): bool
+    {
+        return static::canManageUsers();
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return static::canManageUsers()
+            && static::canManageUserRecord($record);
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return static::canManageUsers()
+            && static::canManageUserRecord($record)
+            && ! $record->is(auth()->user());
+    }
+
+    private static function canManageUsers(): bool
+    {
+        return (bool) auth()->user()?->hasPermission('users.manage');
+    }
+
+    private static function canManageUserRecord(Model $record): bool
+    {
+        if (! $record instanceof User || ! $record->roles()->where('slug', 'superadministrador')->exists()) {
+            return true;
+        }
+
+        $actor = auth()->user();
+
+        return (bool) ($actor?->isPanelAdministrator()
+            || $actor?->roles()->where('slug', 'superadministrador')->exists());
+    }
 
     public static function form(Schema $schema): Schema
     {
@@ -72,11 +120,24 @@ class UserResource extends Resource
                 ]),
             Section::make('Locales')
                 ->schema([
+                    Select::make('local_scope')
+                        ->label('Acceso a locales')
+                        ->options([
+                            'all' => 'Todos los locales de Restaurant',
+                            'selected' => 'Locales específicos',
+                        ])
+                        ->default('all')
+                        ->native(false)
+                        ->required()
+                        ->live(),
                     Select::make('local_ids')
                         ->label('Locales asignados')
                         ->multiple()
                         ->searchable()
                         ->options(fn (): array => self::localOptions())
+                        ->visible(fn (Get $get): bool => $get('local_scope') === 'selected')
+                        ->required(fn (Get $get): bool => $get('local_scope') === 'selected')
+                        ->helperText('Selecciona uno o varios locales de Restaurant.')
                         ->dehydrated(false),
                 ]),
         ]);
@@ -108,6 +169,44 @@ class UserResource extends Resource
             ->defaultSort('name')
             ->recordTitleAttribute('name')
             ->actions([
+                Action::make('restablecerCredencialesTerminal')
+                    ->label('Credenciales')
+                    ->icon('heroicon-o-key')
+                    ->color('warning')
+                    ->tooltip('Ver y restablecer credenciales del terminal')
+                    ->visible(fn (User $record): bool => $record->roles()->where('slug', 'terminal')->exists())
+                    ->modalHeading('Credenciales de terminal')
+                    ->modalDescription('Por seguridad, las contraseñas existentes no se pueden recuperar. La contraseña mostrada se aplicará al confirmar.')
+                    ->modalSubmitActionLabel('Restablecer contraseña')
+                    ->modalCancelActionLabel('Cancelar')
+                    ->schema([
+                        TextInput::make('email')
+                            ->label('Correo')
+                            ->default(fn (User $record): string => $record->email)
+                            ->disabled()
+                            ->dehydrated(false)
+                            ->copyable(),
+                        TextInput::make('password_preview')
+                            ->label('Nueva contraseña')
+                            ->default(fn (User $record): string => static::terminalPasswordFor($record))
+                            ->password()
+                            ->revealable()
+                            ->disabled()
+                            ->dehydrated(false)
+                            ->copyable()
+                            ->helperText('Usa el icono del ojo para verla y el de copiar para entregarla al terminal.'),
+                    ])
+                    ->action(function (User $record): void {
+                        $record->forceFill([
+                            'password' => static::terminalPasswordFor($record),
+                        ])->save();
+
+                        Notification::make()
+                            ->title('Contraseña de terminal restablecida')
+                            ->body('La nueva contraseña quedó disponible en el modal para copiarla.')
+                            ->success()
+                            ->send();
+                    }),
                 EditAction::make()->iconButton()->tooltip('Editar usuario'),
                 DeleteAction::make()->iconButton()->tooltip('Eliminar usuario'),
             ])
@@ -121,5 +220,15 @@ class UserResource extends Resource
             'create' => Pages\CreateUser::route('/create'),
             'edit' => Pages\EditUser::route('/{record}/edit'),
         ];
+    }
+
+    private static function terminalPasswordFor(User $user): string
+    {
+        $localName = (string) ($user->locals()->value('local_nombre') ?? 'Terminal');
+        $base = preg_replace('/^DIM\s+SUM\s+/iu', '', trim($localName)) ?? $localName;
+        $ascii = iconv('UTF-8', 'ASCII//TRANSLIT', $base) ?: $base;
+        $words = preg_replace('/[^A-Za-z0-9]+/', ' ', $ascii) ?? $ascii;
+
+        return str_replace(' ', '', ucwords(strtolower(trim($words)))) . '#Terminal2026!';
     }
 }

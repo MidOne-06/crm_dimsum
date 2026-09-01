@@ -2,35 +2,64 @@
  * El tema de Filament aporta los estilos estructurales (layout, formularios,
  * tablas y utilidades). Estas reglas son extensiones, no un reemplazo.
  */
-@import '../../../../vendor/filament/filament/resources/css/theme.css';
+@import 'tailwindcss' source(none);
+@import '../../../../vendor/filament/filament/dist/theme.css';
+
+/* Filament alterna el tema mediante la clase `.dark` en el documento. Tailwind
+ * v4, sin esta variante, depende del esquema del sistema operativo y deja
+ * invisibles utilidades como `dark:text-warning-300` cuando el usuario cambia
+ * el tema desde el panel. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Expone las paletas semánticas que Filament define por CSS variables para
+ * que las utilidades usadas por las vistas (`text-warning-300`,
+ * `dark:text-success-400`, etc.) se generen en el bundle. */
+@theme inline {
+    --color-primary-50: var(--primary-50); --color-primary-100: var(--primary-100); --color-primary-200: var(--primary-200); --color-primary-300: var(--primary-300); --color-primary-400: var(--primary-400); --color-primary-500: var(--primary-500); --color-primary-600: var(--primary-600); --color-primary-700: var(--primary-700); --color-primary-800: var(--primary-800); --color-primary-900: var(--primary-900); --color-primary-950: var(--primary-950);
+    --color-success-50: var(--success-50); --color-success-100: var(--success-100); --color-success-200: var(--success-200); --color-success-300: var(--success-300); --color-success-400: var(--success-400); --color-success-500: var(--success-500); --color-success-600: var(--success-600); --color-success-700: var(--success-700); --color-success-800: var(--success-800); --color-success-900: var(--success-900); --color-success-950: var(--success-950);
+    --color-warning-50: var(--warning-50); --color-warning-100: var(--warning-100); --color-warning-200: var(--warning-200); --color-warning-300: var(--warning-300); --color-warning-400: var(--warning-400); --color-warning-500: var(--warning-500); --color-warning-600: var(--warning-600); --color-warning-700: var(--warning-700); --color-warning-800: var(--warning-800); --color-warning-900: var(--warning-900); --color-warning-950: var(--warning-950);
+    --color-danger-50: var(--danger-50); --color-danger-100: var(--danger-100); --color-danger-200: var(--danger-200); --color-danger-300: var(--danger-300); --color-danger-400: var(--danger-400); --color-danger-500: var(--danger-500); --color-danger-600: var(--danger-600); --color-danger-700: var(--danger-700); --color-danger-800: var(--danger-800); --color-danger-900: var(--danger-900); --color-danger-950: var(--danger-950);
+    --color-info-50: var(--info-50); --color-info-100: var(--info-100); --color-info-200: var(--info-200); --color-info-300: var(--info-300); --color-info-400: var(--info-400); --color-info-500: var(--info-500); --color-info-600: var(--info-600); --color-info-700: var(--info-700); --color-info-800: var(--info-800); --color-info-900: var(--info-900); --color-info-950: var(--info-950);
+}
 
 @source '../../../../app/Filament/**/*';
 @source '../../../../resources/views/filament/**/*';
+@source '../../../../vendor/filament/**/resources/views/**/*.blade.php';
 
-/* Tema operativo OPM: se apoya en los componentes de Filament sin reemplazar su semántica. */
+/* Tema operativo CRM DIMSUM: se apoya en los componentes de Filament sin reemplazar su semántica. */
 :root {
-    --opm-ink: #171717;
-    --opm-muted: #525252;
-    --opm-surface: #ffffff;
-    --opm-canvas: #ffffff;
-    --opm-border: #e5e5e5;
-    --opm-accent: #d97706;
-    --opm-accent-soft: #fff7e8;
-    --opm-shadow: 0 10px 28px rgba(16, 24, 40, .06);
+    --crm-ink: #171717;
+    --crm-muted: #525252;
+    --crm-surface: #ffffff;
+    --crm-canvas: #ffffff;
+    --crm-border: #e5e5e5;
+    --crm-accent: #d97706;
+    --crm-accent-soft: #fff7e8;
+    --crm-shadow: 0 10px 28px rgba(16, 24, 40, .06);
+}
+
+.dark {
+    --crm-ink: #f5f5f5;
+    --crm-muted: #a3a3a3;
+    --crm-surface: #000000;
+    --crm-canvas: #000000;
+    --crm-border: #262626;
+    --crm-accent-soft: rgba(217, 119, 6, .12);
+    --crm-shadow: none;
 }
 
 .fi-body {
-    background: var(--opm-canvas);
-    color: var(--opm-ink);
+    background: var(--crm-canvas);
+    color: var(--crm-ink);
 }
 
 .fi-sidebar {
     background: #fff;
-    border-inline-end: 1px solid var(--opm-border);
+    border-inline-end: 1px solid var(--crm-border);
 }
 
 .fi-sidebar .fi-sidebar-header {
-    border-bottom: 1px solid var(--opm-border);
+    border-bottom: 1px solid var(--crm-border);
 }
 
 .fi-sidebar .fi-sidebar-item-active > .fi-sidebar-item-button {
@@ -45,7 +74,7 @@
 
 .fi-topbar {
     background: rgba(255, 255, 255, .88);
-    border-bottom: 1px solid var(--opm-border);
+    border-bottom: 1px solid var(--crm-border);
     backdrop-filter: blur(14px);
 }
 
@@ -55,9 +84,9 @@
 
 .fi-section,
 .fi-ta-content {
-    border-color: var(--opm-border);
-    background: var(--opm-surface);
-    box-shadow: var(--opm-shadow);
+    border-color: var(--crm-border);
+    background: var(--crm-surface);
+    box-shadow: var(--crm-shadow);
 }
 
 .fi-section {
@@ -65,7 +94,7 @@
 }
 
 .fi-section-header {
-    border-bottom: 1px solid var(--opm-border);
+    border-bottom: 1px solid var(--crm-border);
 }
 
 .fi-btn {
@@ -88,7 +117,48 @@
     background: #fffbeb;
 }
 
-.opm-page-intro {
+/* La grilla editable de Carga Stock Final tiene que cambiar completa con el
+ * tema: no basta con cambiar el texto si su contenedor conserva la superficie
+ * del otro modo. */
+.crm-stock-final-table,
+.crm-stock-final-table .fi-ta-table,
+.crm-stock-final-table .fi-ta-table tbody,
+.crm-stock-final-table .fi-ta-row,
+.crm-stock-final-table .fi-ta-cell {
+    background-color: #fff;
+    color: #171717;
+}
+
+.crm-stock-final-table .fi-ta-table thead {
+    background-color: #f9fafb;
+    color: #171717;
+}
+
+.crm-stock-final-table .fi-ta-cell-content,
+.crm-stock-final-table .fi-ta-header-cell-label {
+    color: #171717 !important;
+}
+
+.dark .crm-stock-final-table,
+.dark .crm-stock-final-table .fi-ta-table,
+.dark .crm-stock-final-table .fi-ta-table tbody,
+.dark .crm-stock-final-table .fi-ta-row,
+.dark .crm-stock-final-table .fi-ta-cell {
+    background-color: #000 !important;
+    color: #f5f5f5 !important;
+}
+
+.dark .crm-stock-final-table .fi-ta-table thead {
+    background-color: #0a0a0a !important;
+    color: #f5f5f5 !important;
+}
+
+.dark .crm-stock-final-table .fi-ta-cell-content,
+.dark .crm-stock-final-table .fi-ta-header-cell-label {
+    color: #f5f5f5 !important;
+}
+
+.crm-page-intro {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -99,7 +169,7 @@
     background: #fff;
 }
 
-.opm-page-intro__eyebrow {
+.crm-page-intro__eyebrow {
     margin: 0 0 .35rem;
     color: #a15c07;
     font-size: .72rem;
@@ -108,34 +178,34 @@
     text-transform: uppercase;
 }
 
-.opm-page-intro__title {
+.crm-page-intro__title {
     margin: 0;
-    color: var(--opm-ink);
+    color: var(--crm-ink);
     font-size: 1.25rem;
     font-weight: 700;
 }
 
-.opm-page-intro__copy {
+.crm-page-intro__copy {
     max-width: 48rem;
     margin: .35rem 0 0;
-    color: var(--opm-muted);
+    color: var(--crm-muted);
     font-size: .875rem;
 }
 
-.opm-page-intro__status {
+.crm-page-intro__status {
     display: inline-flex;
     flex: none;
     align-items: center;
     gap: .45rem;
     padding: .45rem .7rem;
     border-radius: 999px;
-    background: var(--opm-accent-soft);
+    background: var(--crm-accent-soft);
     color: #92400e;
     font-size: .75rem;
     font-weight: 600;
 }
 
-.opm-page-intro__status::before {
+.crm-page-intro__status::before {
     width: .45rem;
     height: .45rem;
     border-radius: 50%;
@@ -143,119 +213,151 @@
     content: '';
 }
 
-.opm-query-section .fi-section-content {
+.crm-query-section .fi-section-content {
     padding: 1rem 1.25rem 1.25rem;
 }
 
-.opm-filter-select-grid {
+.crm-filter-select-grid {
     max-width: 52rem;
 }
 
-.opm-filter-date {
+.crm-filter-date {
     max-width: 36rem;
 }
 
-.opm-filter-item {
+.crm-filter-item {
     max-width: 42rem;
 }
 
-.opm-query-actions,
-.opm-form-actions {
+.crm-query-actions,
+.crm-form-actions {
     display: flex;
     align-items: center;
     justify-content: flex-start;
     gap: .75rem;
     padding-top: .75rem;
-    border-top: 1px solid var(--opm-border);
+    border-top: 1px solid var(--crm-border);
 }
 
-.opm-query-hint {
+.crm-query-hint {
     margin-right: auto;
-    color: var(--opm-muted);
+    color: var(--crm-muted);
     font-size: .8125rem;
 }
 
-.opm-date-range-control {
+.crm-date-range-control {
     width: 100%;
     max-width: 34rem;
 }
 
-.opm-report-filters {
+.crm-report-filters {
     max-width: 66rem;
 }
 
-.opm-date-picker {
+.crm-date-picker {
     /* No usar fi-dropdown-panel: Filament limita esa clase a 14rem. */
     width: 46rem !important;
     max-width: calc(100vw - 2rem);
 }
 
-.opm-form-actions .fi-btn {
+/* El selector de rango conserva su diseño de dos calendarios. Su modo visual
+   depende exclusivamente de la clase .dark que administra Filament, no del
+   tema del sistema operativo del navegador. */
+.dark .crm-date-picker {
+    background: #111827;
+    color: #f9fafb;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .35);
+    ring-color: rgba(255, 255, 255, .1);
+}
+
+.dark .crm-date-picker-presets,
+.dark .crm-date-picker-footer {
+    border-color: rgba(255, 255, 255, .1);
+}
+
+.dark .crm-date-picker-option { color: #e5e7eb; }
+.dark .crm-date-picker-option:hover { background: rgba(255, 255, 255, .05); }
+.dark .crm-date-picker-selected,
+.dark .crm-date-picker-in-range { background: rgba(var(--primary-500), .1); color: #fbbf24; }
+.dark .crm-date-picker-muted { color: #9ca3af; }
+.dark .crm-date-picker-other-month { color: #4b5563; }
+.dark .crm-date-picker-select { border-color: #4b5563; background: #1f2937; color: #fff; }
+
+.crm-form-actions .fi-btn {
     min-width: 10rem;
 }
 
-.opm-kpi-card {
-    position: relative;
-    overflow: hidden;
-    border-top: 3px solid var(--opm-kpi-color, #d97706);
+.crm-branding-form .fi-section-content {
+    padding: 1rem 1.25rem;
 }
 
-.opm-kpi-card::after {
+.crm-branding-form__actions {
+    justify-content: flex-end;
+    padding-top: .625rem;
+}
+
+.crm-kpi-card {
+    position: relative;
+    overflow: hidden;
+    border-top: 3px solid var(--crm-kpi-color, #d97706);
+}
+
+.crm-kpi-card::after {
     position: absolute;
     top: -2.5rem;
     right: -1.5rem;
     width: 7rem;
     height: 7rem;
     border-radius: 50%;
-    background: color-mix(in srgb, var(--opm-kpi-color, #d97706) 10%, transparent);
+    background: color-mix(in srgb, var(--crm-kpi-color, #d97706) 10%, transparent);
     content: '';
 }
 
-.opm-table-number {
+.crm-table-number {
     font-variant-numeric: tabular-nums;
     text-align: right;
     white-space: nowrap;
 }
 
-.opm-stock-table {
+.crm-stock-table {
     overflow: hidden;
-    border: 1px solid var(--opm-border);
+    border: 1px solid var(--crm-border);
     border-radius: 12px;
-    background: var(--opm-surface);
+    background: var(--crm-surface);
     box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
 }
 
-.opm-stock-table .fi-ta-content {
+.crm-stock-table .fi-ta-content {
     border: 0;
     border-radius: 0;
     box-shadow: none;
 }
 
-.opm-stock-table .fi-pagination {
+.crm-stock-table .fi-pagination {
     margin-top: 0;
     padding: .75rem 1rem;
-    border-top: 1px solid var(--opm-border);
+    border-top: 1px solid var(--crm-border);
 }
 
-.dark .opm-stock-table {
+.dark .crm-stock-table {
     border-color: #262626;
     background: #000;
     box-shadow: none;
 }
 
-.dark .opm-stock-table .fi-pagination {
+.dark .crm-stock-table .fi-pagination {
     border-color: #262626;
 }
 
-.opm-detail-modal .fi-modal-window {
+.crm-detail-modal .fi-modal-window {
     max-height: calc(100vh - 2rem);
 }
 
-.opm-detail-modal .fi-modal-content {
+.crm-detail-modal .fi-modal-content {
     overflow-x: hidden;
 }
 
-.opm-detail-summary {
+.crm-detail-summary {
     display: grid;
     flex-shrink: 0;
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -263,159 +365,159 @@
     margin-bottom: 1rem;
 }
 
-.opm-detail-summary > div {
+.crm-detail-summary > div {
     min-width: 0;
     padding: .75rem;
-    border: 1px solid var(--opm-border);
+    border: 1px solid var(--crm-border);
     border-radius: 10px;
     background: #fafafa;
 }
 
-.opm-detail-summary span,
-.opm-detail-item dt {
+.crm-detail-summary span,
+.crm-detail-item dt {
     display: block;
-    color: var(--opm-muted);
+    color: var(--crm-muted);
     font-size: .7rem;
     font-weight: 600;
     letter-spacing: .03em;
     text-transform: uppercase;
 }
 
-.opm-detail-summary strong {
+.crm-detail-summary strong {
     display: block;
     margin-top: .2rem;
     overflow-wrap: anywhere;
-    color: var(--opm-ink);
+    color: var(--crm-ink);
     font-size: .8125rem;
 }
 
-.opm-detail-list {
+.crm-detail-list {
     overflow: visible;
     flex-shrink: 0;
-    border: 1px solid var(--opm-border);
+    border: 1px solid var(--crm-border);
     border-radius: 12px;
 }
 
-.opm-detail-grid-header,
-.opm-detail-item {
+.crm-detail-grid-header,
+.crm-detail-item {
     display: grid;
     grid-template-columns: minmax(11rem, 2fr) minmax(7rem, 1.2fr) repeat(8, minmax(4.6rem, .8fr));
     align-items: center;
 }
 
-.opm-detail-grid-header {
+.crm-detail-grid-header {
     position: sticky;
     top: 0;
     z-index: 2;
     padding: .7rem 1rem;
-    border-bottom: 1px solid var(--opm-border);
+    border-bottom: 1px solid var(--crm-border);
     border-radius: 11px 11px 0 0;
     background: #fafafa;
 }
 
-.opm-detail-grid-header span {
+.crm-detail-grid-header span {
     min-width: 0;
     padding-right: .5rem;
-    color: var(--opm-muted);
+    color: var(--crm-muted);
     font-size: .68rem;
     font-weight: 700;
     line-height: 1.2;
     text-transform: uppercase;
 }
 
-.opm-detail-item {
+.crm-detail-item {
     padding: .85rem 1rem;
-    border-bottom: 1px solid var(--opm-border);
+    border-bottom: 1px solid var(--crm-border);
 }
 
-.opm-detail-item header {
+.crm-detail-item header {
     display: contents;
 }
 
-.opm-detail-item header > div {
+.crm-detail-item header > div {
     min-width: 0;
 }
 
-.opm-detail-item header strong,
-.opm-detail-item header span {
+.crm-detail-item header strong,
+.crm-detail-item header span {
     overflow-wrap: anywhere;
 }
 
-.opm-detail-item header strong {
+.crm-detail-item header strong {
     display: block;
-    color: var(--opm-ink);
+    color: var(--crm-ink);
     font-size: .875rem;
 }
 
-.opm-detail-item header span {
-    color: var(--opm-muted);
+.crm-detail-item header span {
+    color: var(--crm-muted);
     font-size: .75rem;
 }
 
-.opm-detail-item dl {
+.crm-detail-item dl {
     display: contents;
 }
 
-.opm-detail-item header > div,
-.opm-detail-item header > span,
-.opm-detail-item dl > div {
+.crm-detail-item header > div,
+.crm-detail-item header > span,
+.crm-detail-item dl > div {
     min-width: 0;
     padding-right: .5rem;
 }
 
-.opm-detail-item dt {
+.crm-detail-item dt {
     display: none;
 }
 
-.opm-detail-item dd {
+.crm-detail-item dd {
     margin-top: .15rem;
     overflow-wrap: anywhere;
-    color: var(--opm-ink);
+    color: var(--crm-ink);
     font-size: .8125rem;
     font-variant-numeric: tabular-nums;
     font-weight: 600;
 }
 
-.opm-detail-list .fi-pagination {
+.crm-detail-list .fi-pagination {
     padding: .75rem 1rem;
     background: #fafafa;
 }
 
-.dark .opm-detail-summary > div,
-.dark .opm-detail-list .fi-pagination,
-.dark .opm-detail-grid-header {
+.dark .crm-detail-summary > div,
+.dark .crm-detail-list .fi-pagination,
+.dark .crm-detail-grid-header {
     background: #0a0a0a;
 }
 
-.dark .opm-detail-summary > div,
-.dark .opm-detail-list,
-.dark .opm-detail-item {
+.dark .crm-detail-summary > div,
+.dark .crm-detail-list,
+.dark .crm-detail-item {
     border-color: #262626;
 }
 
-.dark .opm-detail-summary strong,
-.dark .opm-detail-item header strong,
-.dark .opm-detail-item dd {
+.dark .crm-detail-summary strong,
+.dark .crm-detail-item header strong,
+.dark .crm-detail-item dd {
     color: #fafafa;
 }
 
 @media (max-width: 1024px) {
-    .opm-detail-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .opm-detail-grid-header { display: none; }
-    .opm-detail-item { display: block; }
-    .opm-detail-item header {
+    .crm-detail-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .crm-detail-grid-header { display: none; }
+    .crm-detail-item { display: block; }
+    .crm-detail-item header {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
         gap: 1rem;
         margin-bottom: .75rem;
     }
-    .opm-detail-item dl { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    .opm-detail-item dl { display: grid; gap: .75rem; }
-    .opm-detail-item dt { display: block; }
+    .crm-detail-item dl { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .crm-detail-item dl { display: grid; gap: .75rem; }
+    .crm-detail-item dt { display: block; }
 }
 
-.opm-status {
+.crm-status {
     display: inline-flex;
     align-items: center;
     gap: .35rem;
@@ -427,7 +529,7 @@
     font-weight: 600;
 }
 
-.opm-status::before {
+.crm-status::before {
     width: .38rem;
     height: .38rem;
     border-radius: 50%;
@@ -435,7 +537,7 @@
     content: '';
 }
 
-.opm-dashboard-hero {
+.crm-dashboard-hero {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -446,26 +548,26 @@
     background: #fff;
 }
 
-.opm-dashboard-hero h2 {
+.crm-dashboard-hero h2 {
     margin: 0;
-    color: var(--opm-ink);
+    color: var(--crm-ink);
     font-size: 1.5rem;
     font-weight: 700;
 }
 
-.opm-dashboard-hero p:not(.opm-page-intro__eyebrow) {
+.crm-dashboard-hero p:not(.crm-page-intro__eyebrow) {
     max-width: 40rem;
     margin: .45rem 0 0;
-    color: var(--opm-muted);
+    color: var(--crm-muted);
 }
 
-.opm-dashboard-hero__actions {
+.crm-dashboard-hero__actions {
     display: flex;
     flex-wrap: wrap;
     gap: .75rem;
 }
 
-.opm-dashboard-link {
+.crm-dashboard-link {
     display: inline-flex;
     align-items: center;
     gap: .5rem;
@@ -480,8 +582,8 @@
     transition: transform .15s ease, box-shadow .15s ease;
 }
 
-.opm-dashboard-link:hover { transform: translateY(-1px); box-shadow: 0 5px 14px rgba(146, 64, 14, .13); }
-.opm-dashboard-link--primary { border-color: #d97706; background: #d97706; color: #fff; }
+.crm-dashboard-link:hover { transform: translateY(-1px); box-shadow: 0 5px 14px rgba(146, 64, 14, .13); }
+.crm-dashboard-link--primary { border-color: #d97706; background: #d97706; color: #fff; }
 
 .dark .fi-body,
 .dark .fi-sidebar,
@@ -495,8 +597,8 @@
 .dark .fi-section,
 .dark .fi-ta-content,
 .dark .fi-section-header,
-.dark .opm-query-actions,
-.dark .opm-form-actions {
+.dark .crm-query-actions,
+.dark .crm-form-actions {
     border-color: #262626;
 }
 
@@ -513,26 +615,26 @@
 
 .dark .fi-ta-table thead { background: #0a0a0a; }
 .dark .fi-ta-table tbody tr:hover { background: #171717; }
-.dark .opm-page-intro { border-color: #5c430f; background: #000; }
-.dark .opm-page-intro__title { color: #fafafa; }
-.dark .opm-page-intro__copy, .dark .opm-query-hint { color: #a3a3a3; }
-.dark .opm-status { background: #171717; color: #e5e5e5; }
-.dark .opm-dashboard-hero { border-color: #5c430f; background: #000; }
-.dark .opm-dashboard-hero h2 { color: #fafafa; }
-.dark .opm-dashboard-hero p:not(.opm-page-intro__eyebrow) { color: #a3a3a3; }
-.dark .opm-dashboard-link { border-color: #a16207; background: #000; color: #fcd34d; }
-.dark .opm-dashboard-link--primary { background: #d97706; color: #fff; }
+.dark .crm-page-intro { border-color: #5c430f; background: #000; }
+.dark .crm-page-intro__title { color: #fafafa; }
+.dark .crm-page-intro__copy, .dark .crm-query-hint { color: #a3a3a3; }
+.dark .crm-status { background: #171717; color: #e5e5e5; }
+.dark .crm-dashboard-hero { border-color: #5c430f; background: #000; }
+.dark .crm-dashboard-hero h2 { color: #fafafa; }
+.dark .crm-dashboard-hero p:not(.crm-page-intro__eyebrow) { color: #a3a3a3; }
+.dark .crm-dashboard-link { border-color: #a16207; background: #000; color: #fcd34d; }
+.dark .crm-dashboard-link--primary { background: #d97706; color: #fff; }
 
 @media (max-width: 640px) {
-    .opm-page-intro { flex-direction: column; gap: .8rem; padding: 1rem; }
-    .opm-query-actions, .opm-form-actions { align-items: stretch; flex-direction: column; }
-    .opm-query-actions .fi-btn, .opm-form-actions .fi-btn { width: 100%; }
-    .opm-dashboard-hero { align-items: flex-start; flex-direction: column; padding: 1.25rem; }
-    .opm-date-picker {
+    .crm-page-intro { flex-direction: column; gap: .8rem; padding: 1rem; }
+    .crm-query-actions, .crm-form-actions { align-items: stretch; flex-direction: column; }
+    .crm-query-actions .fi-btn, .crm-form-actions .fi-btn { width: 100%; }
+    .crm-dashboard-hero { align-items: flex-start; flex-direction: column; padding: 1.25rem; }
+    .crm-date-picker {
         width: calc(100vw - 2rem) !important;
         max-width: 32rem;
     }
-    .opm-detail-summary { grid-template-columns: 1fr; }
-    .opm-detail-item header { flex-direction: column; gap: .25rem; }
-    .opm-detail-item dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .crm-detail-summary { grid-template-columns: 1fr; }
+    .crm-detail-item header { flex-direction: column; gap: .25rem; }
+    .crm-detail-item dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

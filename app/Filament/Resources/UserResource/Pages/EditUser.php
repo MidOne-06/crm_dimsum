@@ -22,6 +22,7 @@ class EditUser extends EditRecord
     {
         /** @var User $user */
         $user = $this->record;
+        $data['local_scope'] = $user->local_scope ?: ($user->locals()->exists() ? 'selected' : 'all');
         $data['local_ids'] = $user->locals()->pluck('local_id')->all();
 
         return $data;
@@ -65,7 +66,9 @@ class EditUser extends EditRecord
     {
         /** @var User $user */
         $user = $this->record;
-        $localIds = $this->data['local_ids'] ?? [];
+        $localIds = ($this->data['local_scope'] ?? 'all') === 'selected'
+            ? $this->data['local_ids'] ?? []
+            : [];
         $options = UserResource::localOptions();
 
         DB::transaction(function () use ($user, $localIds, $options): void {

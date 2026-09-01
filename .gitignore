@@ -15,3 +15,6 @@ yarn-error.log
 /.idea
 /.vscode
 /storage/app/opm_batch/
+/.tmp
+/output
+/outputs

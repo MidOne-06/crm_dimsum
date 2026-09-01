@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\RoleResource\Pages;
+use App\Models\Permission;
 use App\Models\Role;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
@@ -14,6 +15,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
 class RoleResource extends Resource
@@ -25,6 +27,44 @@ class RoleResource extends Resource
     protected static ?string $pluralModelLabel = 'Roles';
     protected static string|\UnitEnum|null $navigationGroup = 'Seguridad';
     protected static ?int $navigationSort = 91;
+
+    public static function canViewAny(): bool
+    {
+        return static::canManageRoles();
+    }
+
+    public static function canCreate(): bool
+    {
+        return static::canManageRoles();
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return static::canManageRoles() && static::canManageRoleRecord($record);
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return static::canManageRoles() && static::canManageRoleRecord($record);
+    }
+
+    private static function canManageRoles(): bool
+    {
+        return (bool) auth()->user()?->hasPermission('roles.manage');
+    }
+
+    /** Los roles base, en especial Superadministrador, solo los modifica un superadministrador. */
+    private static function canManageRoleRecord(Model $record): bool
+    {
+        if (! $record instanceof Role || ! $record->is_system) {
+            return true;
+        }
+
+        $actor = auth()->user();
+
+        return (bool) ($actor?->isPanelAdministrator()
+            || $actor?->roles()->where('slug', 'superadministrador')->exists());
+    }
 
     public static function form(Schema $schema): Schema
     {
@@ -45,9 +85,11 @@ class RoleResource extends Resource
                     Select::make('permissions')
                         ->label('Permisos asignados')
                         ->relationship('permissions', 'name')
+                        ->getOptionLabelFromRecordUsing(fn (Permission $record): string => trim(($record->module ? $record->module.' · ' : '').$record->name))
                         ->multiple()
                         ->searchable()
-                        ->preload(),
+                        ->preload()
+                        ->optionsLimit(100),
                 ]),
         ]);
     }

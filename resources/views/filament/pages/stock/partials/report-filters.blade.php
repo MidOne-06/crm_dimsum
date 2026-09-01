@@ -1,4 +1,4 @@
-<x-filament::fieldset label="Filtros de resultados" class="opm-report-filters mb-4">
+<x-filament::fieldset label="Filtros de resultados" class="crm-report-filters mb-4">
     <div class="grid gap-4 md:grid-cols-4">
         <label class="text-sm font-medium text-gray-950 dark:text-white">
             Local

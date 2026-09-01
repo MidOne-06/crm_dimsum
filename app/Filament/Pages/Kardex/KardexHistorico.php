@@ -4,20 +4,20 @@ namespace App\Filament\Pages\Kardex;
 
 use App\Filament\Concerns\ScopesLocalsToUser;
 use App\Models\KardexMovimiento;
-use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Grid;
-use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Concerns\InteractsWithTable;
+use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Livewire\WithPagination;
 
-class KardexHistorico extends Page
+class KardexHistorico extends Page implements HasTable
 {
-    use WithPagination;
+    use InteractsWithTable;
     use ScopesLocalsToUser;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-archive-box';
@@ -43,16 +43,14 @@ class KardexHistorico extends Page
 
     public array $motivoOptions = [];
 
+    public array $almacenOptions = [];
+
     public ?array $data = [];
 
-    public string $activeDatePreset = 'today';
-
-    public bool $hasSearched = false;
+    public string $activeDatePreset = 'month';
 
     public function mount(): void
     {
-        $today = now()->toDateString();
-
         $this->localOptions = $this->scopeKeyedLocalsToUser(KardexMovimiento::query()
             ->whereNotNull('local_id')
             ->select('local_id', 'local_nombre')
@@ -69,41 +67,68 @@ class KardexHistorico extends Page
             ->pluck('motivo', 'motivo')
             ->all();
 
+        $this->almacenOptions = KardexMovimiento::query()
+            ->whereNotNull('almacen')
+            ->where('almacen', '!=', '')
+            ->distinct()
+            ->orderBy('almacen')
+            ->pluck('almacen', 'almacen')
+            ->all();
+
         $this->form->fill([
-            'selectedLocals' => array_keys($this->localOptions),
-            'motivo' => '',
+            // Vacío significa "todos los locales permitidos". No se cargan
+            // como chips individuales para mantener el filtro compacto.
+            'selectedLocals' => [],
+            'almacen' => [],
+            'motivo' => [],
+            'tipoMovimiento' => '',
             'producto' => '',
-            'order' => '1',
         ]);
 
         $this->data['dateStart'] = now()->startOfMonth()->toDateString();
-        $this->data['dateEnd'] = $today;
+        $this->data['dateEnd'] = now()->toDateString();
     }
 
     public function form(Schema $schema): Schema
     {
         return $schema
             ->components([
-                Section::make('Locales')
-                    ->compact()
-                    ->collapsible()
-                    ->collapsed()
+                Grid::make(['default' => 1, 'md' => 2, 'xl' => 3])
                     ->schema([
-                        CheckboxList::make('selectedLocals')
-                            ->hiddenLabel()
+                        Select::make('selectedLocals')
+                            ->label('Locales')
                             ->options($this->localOptions)
-                            ->columns(['default' => 1, 'sm' => 2, 'lg' => 3, 'xl' => 4])
-                            ->bulkToggleable()
-                            ->searchable(),
-                    ]),
-                Grid::make(['default' => 1, 'md' => 3])
-                    ->schema([
-                        Select::make('motivo')->label('Motivo')->native(false)
+                            ->multiple()
+                            ->native(false)
+                            ->searchable()
+                            ->preload()
+                            ->placeholder('Todos los locales permitidos'),
+                        Select::make('almacen')
+                            ->label('Almacén')
+                            ->options($this->almacenOptions)
+                            ->multiple()
+                            ->searchable()
+                            ->preload()
+                            ->placeholder('Todos los almacenes'),
+                        Select::make('motivo')
+                            ->label('Motivo')
                             ->options($this->motivoOptions)
-                            ->placeholder('Todos'),
-                        TextInput::make('producto')->label('Producto / ítem')->placeholder('Buscar por nombre…'),
-                        Select::make('order')->label('Orden')->native(false)
-                            ->options(['1' => 'Descendente', '2' => 'Ascendente']),
+                            ->multiple()
+                            ->searchable()
+                            ->preload()
+                            ->placeholder('Todos los motivos'),
+                        Select::make('tipoMovimiento')
+                            ->label('Tipo de movimiento')
+                            ->options([
+                                'entrada' => 'Solo entradas',
+                                'salida' => 'Solo salidas',
+                                'ambos' => 'Con entrada y salida',
+                            ])
+                            ->placeholder('Todos los movimientos'),
+                        TextInput::make('producto')
+                            ->label('Producto o código')
+                            ->placeholder('Nombre o código interno...')
+                            ->maxLength(100),
                     ]),
             ])
             ->statePath('data');
@@ -116,21 +141,85 @@ class KardexHistorico extends Page
         $this->activeDatePreset = $preset;
     }
 
+    /** @return array{0: string, 1: string} */
+    public function dateRangeForDisplay(): array
+    {
+        return [
+            (string) ($this->data['dateStart'] ?? now()->startOfMonth()->toDateString()),
+            (string) ($this->data['dateEnd'] ?? now()->toDateString()),
+        ];
+    }
+
+    public function usesHistoricalCoverage(): bool
+    {
+        return false;
+    }
+
     public function search(): void
     {
-        $this->hasSearched = true;
         $this->resetPage();
     }
 
-    public function rows(): LengthAwarePaginator
+    public function table(Table $table): Table
     {
-        return $this->query()->paginate(25);
+        return $table
+            ->query($this->baseQuery())
+            ->columns([
+                TextColumn::make('fecha_hora')
+                    ->label('Fecha')
+                    ->dateTime('d/m/Y H:i')
+                    ->sortable(),
+                TextColumn::make('local_nombre')
+                    ->label('Local')
+                    ->searchable()
+                    ->sortable(),
+                TextColumn::make('almacen')
+                    ->label('Almacén')
+                    ->searchable()
+                    ->toggleable(),
+                TextColumn::make('item_nombre')
+                    ->label('Producto')
+                    ->searchable()
+                    ->sortable()
+                    ->wrap(),
+                TextColumn::make('motivo')
+                    ->label('Motivo')
+                    ->searchable()
+                    ->wrap()
+                    ->toggleable(),
+                TextColumn::make('entrada')
+                    ->label('Entrada')
+                    ->state(fn (KardexMovimiento $record): ?string => $record->entrada > 0 ? number_format((float) $record->entrada, 3) : null)
+                    ->color('success')
+                    ->alignEnd()
+                    ->sortable(),
+                TextColumn::make('salida')
+                    ->label('Salida')
+                    ->state(fn (KardexMovimiento $record): ?string => $record->salida > 0 ? number_format((float) $record->salida, 3) : null)
+                    ->color('danger')
+                    ->alignEnd()
+                    ->sortable(),
+                TextColumn::make('stock')
+                    ->label('Stock')
+                    ->numeric(3)
+                    ->alignEnd()
+                    ->sortable(),
+                TextColumn::make('stock_valorizado')
+                    ->label('Stock valorizado')
+                    ->numeric(2)
+                    ->alignEnd()
+                    ->sortable(),
+            ])
+            ->defaultSort('fecha_hora', 'desc')
+            ->paginated([10, 25, 50, 100])
+            ->defaultPaginationPageOption(10)
+            ->emptyStateHeading('No hay movimientos para los filtros seleccionados.');
     }
 
     /** @return array{entradas: float, salidas: float, movimientos: int} */
     public function resumen(): array
     {
-        $base = $this->query();
+        $base = $this->getFilteredTableQuery() ?? $this->baseQuery();
 
         return [
             'entradas' => (clone $base)->sum('entrada'),
@@ -139,23 +228,43 @@ class KardexHistorico extends Page
         ];
     }
 
-    protected function query(): Builder
+    protected function baseQuery(): Builder
     {
-        $selectedLocals = array_keys($this->scopeKeyedLocalsToUser(
-            array_fill_keys($this->data['selectedLocals'] ?? [], true),
-        ));
-        $motivo = $this->data['motivo'] ?? '';
+        $selectedLocals = $this->restrictLocalIdsToUser($this->data['selectedLocals'] ?? []);
+        $almacenes = $this->data['almacen'] ?? [];
+        $motivos = $this->data['motivo'] ?? [];
+        $tipoMovimiento = $this->data['tipoMovimiento'] ?? '';
         $producto = trim((string) ($this->data['producto'] ?? ''));
-        $order = ($this->data['order'] ?? '1') === '2' ? 'asc' : 'desc';
+        $desde = $this->data['dateStart'] ?? now()->startOfMonth()->toDateString();
+        $hasta = $this->data['dateEnd'] ?? now()->toDateString();
 
-        return KardexMovimiento::query()
-            ->when(! empty($selectedLocals), fn (Builder $query) => $query->whereIn('local_id', $selectedLocals))
-            ->when($motivo !== '', fn (Builder $query) => $query->where('motivo', $motivo))
-            ->when($producto !== '', fn (Builder $query) => $query->where('item_nombre', 'ilike', "%{$producto}%"))
-            ->whereBetween('fecha', [
-                $this->data['dateStart'] ?? now()->toDateString(),
-                $this->data['dateEnd'] ?? now()->toDateString(),
-            ])
-            ->orderBy('fecha_hora', $order);
+        $query = KardexMovimiento::query()
+            ->when(filled($selectedLocals), fn (Builder $query): Builder => $query->whereIn('local_id', $selectedLocals))
+            ->when(filled($almacenes), fn (Builder $query): Builder => $query->whereIn('almacen', $almacenes))
+            ->when(filled($motivos), fn (Builder $query): Builder => $query->whereIn('motivo', $motivos))
+            ->whereDate('fecha', '>=', $desde)
+            ->whereDate('fecha', '<=', $hasta);
+
+        if (auth()->user()?->isRestrictedToLocals() && blank($selectedLocals)) {
+            $query->whereIn('local_id', array_keys($this->localOptions));
+        }
+
+        if ($tipoMovimiento === 'entrada') {
+            $query->where('entrada', '>', 0);
+        } elseif ($tipoMovimiento === 'salida') {
+            $query->where('salida', '>', 0);
+        } elseif ($tipoMovimiento === 'ambos') {
+            $query->where('entrada', '>', 0)->where('salida', '>', 0);
+        }
+
+        if ($producto !== '') {
+            $query->where(function (Builder $query) use ($producto): void {
+                $query->where('item_nombre', 'ilike', "%{$producto}%")
+                    ->orWhere('cod_interno', 'ilike', "%{$producto}%")
+                    ->orWhere('producto', 'ilike', "%{$producto}%");
+            });
+        }
+
+        return $query;
     }
 }

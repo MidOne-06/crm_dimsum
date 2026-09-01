@@ -15,9 +15,9 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 use Throwable;
 
 /**
@@ -112,6 +112,20 @@ class KardexExtraccion extends Page
         $this->activeDatePreset = $preset;
     }
 
+    /** @return array{0: string, 1: string} */
+    public function dateRangeForDisplay(): array
+    {
+        return [
+            (string) ($this->data['dateStart'] ?? now()->startOfMonth()->toDateString()),
+            (string) ($this->data['dateEnd'] ?? now()->toDateString()),
+        ];
+    }
+
+    public function usesHistoricalCoverage(): bool
+    {
+        return false;
+    }
+
     public function hayExtraccionEnProgreso(): bool
     {
         return KardexExtraccionModel::query()->whereIn('estado', ['pendiente', 'en_progreso'])->exists();
@@ -148,6 +162,30 @@ class KardexExtraccion extends Page
 
         $start = (string) ($this->data['dateStart'] ?? now()->toDateString());
         $end = (string) ($this->data['dateEnd'] ?? now()->toDateString());
+
+        $validator = Validator::make([
+            'fecha_inicio' => $start,
+            'fecha_fin' => $end,
+        ], [
+            'fecha_inicio' => ['required', 'date'],
+            'fecha_fin' => ['required', 'date', 'after_or_equal:fecha_inicio'],
+        ]);
+
+        if ($validator->fails()) {
+            $this->resultError = 'El rango de fechas no es válido. La fecha final debe ser igual o posterior a la inicial.';
+
+            return;
+        }
+
+        // Los reportes de Restaurant son XLSX completos. Limitar cada
+        // extracción a 31 días evita archivos excesivos y hace que el
+        // reintento por local sea seguro y predecible. El histórico se carga
+        // por meses consecutivos desde la misma pantalla.
+        if (Carbon::parse($start)->diffInDays(Carbon::parse($end)) > 30) {
+            $this->resultError = 'El rango máximo por extracción es de 31 días. Ejecuta los meses por separado para proteger la integridad de los datos.';
+
+            return;
+        }
         $nombres = collect($this->availableLocals)->pluck('name', 'id')->all();
 
         $filtros = [
@@ -170,7 +208,7 @@ class KardexExtraccion extends Page
             return;
         }
 
-        ExtraerKardexJob::dispatch($extraccion->id);
+        ExtraerKardexJob::dispatch($extraccion->id)->onQueue('kardex');
 
         $this->extraccionActualId = $extraccion->id;
     }
@@ -220,13 +258,7 @@ class KardexExtraccion extends Page
 
     public function extraccionActual(): ?KardexExtraccionModel
     {
-        return $this->extraccionActualId ? KardexExtraccionModel::with('locales')->find($this->extraccionActualId) : null;
-    }
-
-    /** @return Collection<int, KardexExtraccionModel> */
-    public function historial(): Collection
-    {
-        return KardexExtraccionModel::query()->latest('id')->limit(20)->get();
+        return $this->extraccionActualId ? KardexExtraccionModel::find($this->extraccionActualId) : null;
     }
 
     /** @return array{movimientos: int, corridas: int, fallidas: int, coveragePercent: int} */
@@ -374,7 +406,7 @@ class KardexExtraccion extends Page
         Log::error('[Kardex extracción] '.$exception->getMessage(), ['exception' => $exception]);
 
         if (str_contains($exception->getMessage(), 'cURL error 7') || str_contains($exception->getMessage(), 'Connection refused')) {
-            return 'No se pudo conectar con el gateway de Stock (D:\DS-TI\API-TI). Verifica que esté corriendo con "npm start" en el puerto configurado.';
+            return 'No se pudo conectar con el servicio de Kardex.';
         }
 
         return $exception->getMessage();

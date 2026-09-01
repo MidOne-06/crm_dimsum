@@ -41,7 +41,9 @@ class CreateUser extends CreateRecord
     {
         /** @var User $user */
         $user = $this->record;
-        $localIds = $this->data['local_ids'] ?? [];
+        $localIds = ($this->data['local_scope'] ?? 'all') === 'selected'
+            ? $this->data['local_ids'] ?? []
+            : [];
         $options = UserResource::localOptions();
 
         DB::transaction(function () use ($user, $localIds, $options): void {

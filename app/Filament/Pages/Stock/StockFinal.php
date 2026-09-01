@@ -10,7 +10,10 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Schema;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -63,12 +66,23 @@ class StockFinal extends Page
 
     public bool $hasSearched = false;
 
+    public int $itemsPage = 1;
+
+    private const ITEMS_PER_PAGE = 10;
+
     public bool $isLoading = false;
 
     public ?string $resultError = null;
 
     /** @var array<int, array<string, mixed>> */
     public array $items = [];
+
+    /**
+     * Restaurant entrega un objeto muy grande por cada ítem. El objeto completo
+     * queda temporalmente en caché para poder enviarlo intacto al guardar; la
+     * propiedad Livewire contiene únicamente los campos que se muestran/editan.
+     */
+    public string $stockItemsCacheKey = '';
 
     public string $cuadreFecha = '';
 
@@ -106,6 +120,8 @@ class StockFinal extends Page
 
     public function mount(): void
     {
+        $this->stockItemsCacheKey = (string) Str::uuid();
+
         try {
             $gateway = $this->gateway();
             $this->availableLocals = $this->scopeLocalsToUser($gateway->locals());
@@ -124,6 +140,7 @@ class StockFinal extends Page
             'almacen_id' => '',
             'tipo' => '-1',
             'busqueda' => '',
+            'registros' => '100',
         ]);
 
         $this->filtrosSchema->fill([
@@ -167,7 +184,7 @@ class StockFinal extends Page
     {
         return $schema
             ->components([
-                Grid::make(['default' => 1, 'md' => 2, 'xl' => 4])
+                Grid::make(['default' => 1, 'md' => 2, 'xl' => 5])
                     ->schema([
                         Select::make('local_id')
                             ->label('Local')
@@ -193,6 +210,15 @@ class StockFinal extends Page
                         TextInput::make('busqueda')
                             ->label('Buscar ítem')
                             ->placeholder('Código o descripción'),
+                        Select::make('registros')
+                            ->label('Registros')
+                            ->native(false)
+                            ->options([
+                                '100' => '100',
+                                '250' => '250',
+                                '500' => '500',
+                            ])
+                            ->default('100'),
                     ]),
             ])
             ->statePath('data');
@@ -395,13 +421,12 @@ class StockFinal extends Page
 
         $fechaEnviada = str_replace('T', ' ', $this->cuadreFecha).':00';
 
-        $itemsParaPlantilla = collect($this->itemsSeleccionados)
-            ->map(fn (int $index) => $this->items[$index] ?? null)
-            ->filter()
-            ->values()
-            ->all();
-
         try {
+            $itemsParaPlantilla = collect($this->itemsSeleccionados)
+                ->map(fn (int $index): array => $this->gatewayItem($index))
+                ->values()
+                ->all();
+
             $this->gateway()->guardarPlantilla($localId, $fechaEnviada, trim($this->nombrePlantilla), $itemsParaPlantilla, guardarComo: 3);
 
             Notification::make()
@@ -442,14 +467,18 @@ class StockFinal extends Page
         }
 
         try {
-            $this->items = $this->gateway()->items([
+            $rawItems = $this->gateway()->items([
                 'local_id' => $state['local_id'] ?? '',
                 'almacen_id' => $state['almacen_id'] ?? '',
                 'categoria_id' => '-1',
                 'tipo' => $state['tipo'] ?? '-1',
                 'busqueda' => $state['busqueda'] ?? '',
+                'registros' => $state['registros'] ?? '100',
             ]);
+            Cache::put($this->stockItemsCacheKey, $rawItems, now()->addHours(2));
+            $this->items = $this->compactItems($rawItems);
             $this->hasSearched = true;
+            $this->itemsPage = 1;
             $this->filtrosData['postFilterCategoria'] = '';
             $this->plantillaAplicadaIndexes = [];
             $this->soloDesdePlantilla = false;
@@ -459,6 +488,83 @@ class StockFinal extends Page
         } finally {
             $this->isLoading = false;
         }
+    }
+
+    /** @param array<int, array<string, mixed>> $rawItems
+     *  @return array<int, array<string, mixed>>
+     */
+    private function compactItems(array $rawItems): array
+    {
+        return array_map(function (array $item): array {
+            $almacenes = array_map(fn (array $almacen): array => [
+                'almacen_descripcion' => $almacen['almacen_descripcion'] ?? '',
+                'almacen_id' => $almacen['almacen_id'] ?? '',
+                'almacen_controlar' => $almacen['almacen_controlar'] ?? '',
+                'cantidad2' => $almacen['cantidad2'] ?? 0,
+                'inventario_cantidad' => $almacen['inventario_cantidad'] ?? 0,
+                'costo' => $almacen['costo'] ?? 0,
+                'costoNuevo' => $almacen['costoNuevo'] ?? 0,
+            ], is_array($item['almacenes'] ?? null) ? $item['almacenes'] : []);
+
+            return [
+                'item_id' => $item['item_id'] ?? '',
+                'item_codigo' => $item['item_codigo'] ?? '',
+                'item_descripcion' => $item['item_descripcion'] ?? '',
+                'categoria_descripcion' => $item['categoria_descripcion'] ?? '',
+                'item_tipo' => $item['item_tipo'] ?? null,
+                'item_sigla' => $item['item_sigla'] ?? '',
+                'producto_um' => $item['producto_um'] ?? '',
+                'almacenes' => $almacenes,
+            ];
+        }, $rawItems);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function rawItems(): array
+    {
+        $rawItems = Cache::get($this->stockItemsCacheKey);
+
+        if (! is_array($rawItems) || count($rawItems) !== count($this->items)) {
+            throw new RuntimeException('La consulta venció. Vuelve a consultar el stock antes de guardar.');
+        }
+
+        return $rawItems;
+    }
+
+    /** @return array<string, mixed> */
+    private function gatewayItem(int $index): array
+    {
+        $rawItem = $this->rawItems()[$index] ?? null;
+        $visibleItem = $this->items[$index] ?? null;
+
+        return $this->mergeGatewayItem($rawItem, $visibleItem);
+    }
+
+    /** @param mixed $rawItem
+     *  @param mixed $visibleItem
+     *  @return array<string, mixed>
+     */
+    private function mergeGatewayItem(mixed $rawItem, mixed $visibleItem): array
+    {
+
+        if (! is_array($rawItem) || ! is_array($visibleItem)) {
+            throw new RuntimeException('La consulta venció. Vuelve a consultar el stock antes de guardar.');
+        }
+
+        $rawItem['almacenes'] = $visibleItem['almacenes'] ?? [];
+
+        return $rawItem;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function gatewayItems(): array
+    {
+        $rawItems = $this->rawItems();
+
+        return array_map(
+            fn (int $index): array => $this->mergeGatewayItem($rawItems[$index] ?? null, $this->items[$index] ?? null),
+            array_keys($this->items),
+        );
     }
 
     /** @return array<int, string> categorías presentes en la lista ya traída */
@@ -473,6 +579,7 @@ class StockFinal extends Page
     public function clearCategoriaFilter(): void
     {
         $this->filtrosData['postFilterCategoria'] = '';
+        $this->itemsPage = 1;
     }
 
     public bool $soloDesdePlantilla = false;
@@ -480,6 +587,7 @@ class StockFinal extends Page
     public function toggleSoloDesdePlantilla(): void
     {
         $this->soloDesdePlantilla = ! $this->soloDesdePlantilla;
+        $this->itemsPage = 1;
     }
 
     /** @return array<int, int> índices de $items que pasan el filtro de categoría y/o "solo desde plantilla" */
@@ -499,6 +607,36 @@ class StockFinal extends Page
         }
 
         return $indexes;
+    }
+
+    /** @return array<int, int> */
+    public function paginatedItemIndexes(): array
+    {
+        return array_slice(
+            $this->filteredItemIndexes(),
+            ($this->itemsPage - 1) * self::ITEMS_PER_PAGE,
+            self::ITEMS_PER_PAGE,
+        );
+    }
+
+    public function itemsPageCount(): int
+    {
+        return max(1, (int) ceil(count($this->filteredItemIndexes()) / self::ITEMS_PER_PAGE));
+    }
+
+    public function previousItemsPage(): void
+    {
+        $this->itemsPage = max(1, $this->itemsPage - 1);
+    }
+
+    public function nextItemsPage(): void
+    {
+        $this->itemsPage = min($this->itemsPageCount(), $this->itemsPage + 1);
+    }
+
+    public function updatedFiltrosDataPostFilterCategoria(): void
+    {
+        $this->itemsPage = 1;
     }
 
     public function toggleItemSeleccionado(int $index): void
@@ -606,7 +744,7 @@ class StockFinal extends Page
         $fechaEnviada = str_replace('T', ' ', $this->cuadreFecha).':00';
 
         try {
-            $result = $this->gateway()->guardar($localId, $fechaEnviada, $this->cuadreMotivo, $this->items);
+            $result = $this->gateway()->guardar($localId, $fechaEnviada, $this->cuadreMotivo, $this->gatewayItems());
 
             Notification::make()
                 ->title('Cuadre guardado en Logística')
@@ -635,7 +773,7 @@ class StockFinal extends Page
         Log::error('[Stock Final] '.$exception->getMessage(), ['exception' => $exception]);
 
         if (str_contains($exception->getMessage(), 'cURL error 7') || str_contains($exception->getMessage(), 'Connection refused')) {
-            return 'No se pudo conectar con el gateway de Stock (D:\DS-TI\API-TI). Verifica que esté corriendo con "npm start" en el puerto configurado.';
+            return 'No se pudo conectar con el servicio de Stock.';
         }
 
         return $exception->getMessage();

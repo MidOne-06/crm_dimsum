@@ -11,14 +11,14 @@ return new class extends Migration
     {
         Schema::create('branding_settings', function (Blueprint $table): void {
             $table->id();
-            $table->string('brand_name')->default('OPM DIGEMID');
+            $table->string('brand_name')->default('CRM DIMSUM');
             $table->string('logo_path')->nullable();
             $table->timestamps();
         });
 
         DB::table('branding_settings')->insert([
             'id' => 1,
-            'brand_name' => 'OPM DIGEMID',
+            'brand_name' => 'CRM DIMSUM',
             'created_at' => now(),
             'updated_at' => now(),
         ]);

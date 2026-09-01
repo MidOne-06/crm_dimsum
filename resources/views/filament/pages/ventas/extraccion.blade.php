@@ -3,19 +3,19 @@
 <x-filament-panels::page>
     <div class="space-y-4" x-data="{ tab: 'nueva' }">
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <x-filament::section compact class="opm-kpi-card" style="--opm-kpi-color: #64748b">
+            <x-filament::section compact class="crm-kpi-card" style="--crm-kpi-color: #64748b">
                 <span class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Ventas guardadas</span>
                 <p class="text-xl font-semibold text-gray-950 dark:text-white">{{ number_format($resumen['ventas']) }}</p>
             </x-filament::section>
-            <x-filament::section compact class="opm-kpi-card" style="--opm-kpi-color: #3e86d8">
+            <x-filament::section compact class="crm-kpi-card" style="--crm-kpi-color: #3e86d8">
                 <span class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Corridas totales</span>
                 <p class="text-xl font-semibold text-gray-950 dark:text-white">{{ number_format($resumen['corridas']) }}</p>
             </x-filament::section>
-            <x-filament::section compact class="opm-kpi-card" style="--opm-kpi-color: #dc2626">
+            <x-filament::section compact class="crm-kpi-card" style="--crm-kpi-color: #dc2626">
                 <span class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Corridas fallidas</span>
                 <p class="text-xl font-semibold text-danger-600 dark:text-danger-400">{{ number_format($resumen['fallidas']) }}</p>
             </x-filament::section>
-            <x-filament::section compact class="opm-kpi-card" style="--opm-kpi-color: #16a34a">
+            <x-filament::section compact class="crm-kpi-card" style="--crm-kpi-color: #16a34a">
                 <span class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Cobertura {{ $coverageYear }} · local elegido</span>
                 <p class="text-xl font-semibold text-success-600 dark:text-success-400">{{ $resumen['coveragePercent'] }}%</p>
             </x-filament::section>
@@ -35,13 +35,13 @@
         </x-filament::tabs>
 
         <div x-show="tab === 'nueva'" class="space-y-4">
-            <x-filament::section collapsible :collapsed="$this->extraccionActual() !== null" class="opm-query-section">
+            <x-filament::section collapsible :collapsed="$this->extraccionActual() !== null" class="crm-query-section">
                 <x-slot name="heading">Filtros de extracción</x-slot>
 
                 <form wire:submit.prevent="iniciarExtraccion" class="space-y-4">
                     {{ $this->form }}
 
-                    <x-filament::fieldset label="Fecha" class="opm-filter-date">
+                    <x-filament::fieldset label="Fecha" class="crm-filter-date">
                         @include('filament.pages.ventas.partials.date-range-picker')
                     </x-filament::fieldset>
 
@@ -49,7 +49,7 @@
                         <p class="text-sm font-medium text-danger-600 dark:text-danger-400">{{ $resultError }}</p>
                     @endif
 
-                    <div class="opm-form-actions">
+                    <div class="crm-form-actions">
                         <x-filament::button
                             type="submit"
                             icon="heroicon-m-circle-stack"

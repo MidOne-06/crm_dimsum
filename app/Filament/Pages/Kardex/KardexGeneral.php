@@ -57,9 +57,7 @@ class KardexGeneral extends Page
     /** @var array<string, mixed> */
     public ?array $data = [];
 
-    public string $fechaInicio = '';
-
-    public string $fechaFin = '';
+    public string $activeDatePreset = 'month';
 
     public bool $kardexValorizado = true;
 
@@ -99,8 +97,8 @@ class KardexGeneral extends Page
 
         $this->refreshAlmacenes($firstLocal);
 
-        $this->fechaInicio = now()->startOfMonth()->format('Y-m-d');
-        $this->fechaFin = now()->format('Y-m-d');
+        $this->data['fechaInicio'] = now()->startOfMonth()->toDateString();
+        $this->data['fechaFin'] = now()->toDateString();
     }
 
     public function form(Schema $schema): Schema
@@ -131,6 +129,13 @@ class KardexGeneral extends Page
             ->statePath('data');
     }
 
+    public function syncDateRange(string $start, string $end, string $preset = 'custom'): void
+    {
+        $this->data['fechaInicio'] = $start;
+        $this->data['fechaFin'] = $end;
+        $this->activeDatePreset = $preset;
+    }
+
     protected function refreshAlmacenes(string $localId): void
     {
         try {
@@ -151,6 +156,12 @@ class KardexGeneral extends Page
     public function descargar(string $type): ?StreamedResponse
     {
         $this->downloadError = null;
+
+        if (! auth()->user()?->hasPermission('kardex.descargar')) {
+            $this->downloadError = 'No tienes permiso para descargar kardex.';
+
+            return null;
+        }
 
         if (! $this->incluirDerivados && ! $this->incluirInsumos && ! $this->incluirProductos) {
             $this->downloadError = 'Selecciona al menos un tipo de ítem (Derivados, Insumos o Productos).';
@@ -174,8 +185,8 @@ class KardexGeneral extends Page
                 'local_id' => $localId,
                 'almacen_id' => (string) ($state['almacen_id'] ?? '-1'),
                 'motivo' => (string) ($state['motivo_id'] ?? '-1'),
-                'fecha_inicio' => $this->fechaInicio,
-                'fecha_fin' => $this->fechaFin,
+                'fecha_inicio' => (string) ($this->data['fechaInicio'] ?? now()->startOfMonth()->toDateString()),
+                'fecha_fin' => (string) ($this->data['fechaFin'] ?? now()->toDateString()),
                 'kardex_valorizado' => $this->kardexValorizado ? '1' : '0',
                 'vercostosinimpuesto' => $this->verPrecioSinImpuestos ? '1' : '0',
                 'tipo_producto' => $this->incluirProductos ? '1' : '0',
@@ -212,7 +223,7 @@ class KardexGeneral extends Page
         Log::error('[Kardex] '.$exception->getMessage(), ['exception' => $exception]);
 
         if (str_contains($exception->getMessage(), 'cURL error 7') || str_contains($exception->getMessage(), 'Connection refused')) {
-            return 'No se pudo conectar con el gateway de Stock (D:\DS-TI\API-TI). Verifica que esté corriendo con "npm start" en el puerto configurado.';
+            return 'No se pudo conectar con el servicio de Kardex.';
         }
 
         return $exception->getMessage();

@@ -66,6 +66,36 @@ class RequerimientoStockGatewayClient
         return $this->get('/api/lista', $query);
     }
 
+    /** @return array{cabecera: array<string, mixed>, detalles: array<int, array<string, mixed>>} */
+    public function detalle(string $id): array
+    {
+        return $this->get('/api/detalle', ['id' => $id]);
+    }
+
+    /** @return array<int, array{fecha: string, evento: string, usuario: string, origen_restaurant: array<string, mixed>}> */
+    public function historial(string $id): array
+    {
+        return $this->get('/api/historial', ['id' => $id])['eventos'] ?? [];
+    }
+
+    /** @return array<string, mixed> */
+    public function aprobar(string $id): array
+    {
+        return $this->post('/api/acciones/aprobar', ['id' => $id]);
+    }
+
+    /** @return array<string, mixed> */
+    public function rechazar(string $id, string $motivo): array
+    {
+        return $this->post('/api/acciones/rechazar', ['id' => $id, 'motivo' => $motivo]);
+    }
+
+    /** @return array<string, mixed> */
+    public function anular(string $id): array
+    {
+        return $this->post('/api/acciones/anular', ['id' => $id]);
+    }
+
     /** @return array{total: int, rows: array<int, array<string, mixed>>} */
     public function plantillas(string $localId, int $pagina = 1, int $registros = 25): array
     {
@@ -137,5 +167,17 @@ class RequerimientoStockGatewayClient
         }
 
         return is_array($body) ? $body : [];
+    }
+
+    private function post(string $path, array $body): array
+    {
+        $response = Http::baseUrl($this->baseUrl)->timeout(120)->post($path, $body);
+        $result = $response->json();
+
+        if ($response->failed()) {
+            throw new RuntimeException($result['error'] ?? 'No se pudo actualizar el requerimiento.');
+        }
+
+        return is_array($result) ? $result : [];
     }
 }
