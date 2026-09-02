@@ -16,12 +16,18 @@ class SecurityHeaders
         $response->headers->set('X-Frame-Options', 'SAMEORIGIN');
         $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
         $response->headers->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-        $response->headers->set('Cross-Origin-Opener-Policy', 'same-origin');
+        // COOP only applies to trustworthy (HTTPS/localhost) origins. Setting it
+        // on the public HTTP IP produces a browser warning and has no effect.
+        if ($request->isSecure()) {
+            $response->headers->set('Cross-Origin-Opener-Policy', 'same-origin');
+        } else {
+            $response->headers->remove('Cross-Origin-Opener-Policy');
+        }
         $response->headers->set(
             'Content-Security-Policy',
             "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; " .
             "script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; " .
-            "img-src 'self' data: blob:; worker-src 'self' blob:; font-src 'self' data:; connect-src 'self';",
+            "img-src 'self' data: blob: https://ui-avatars.com; worker-src 'self' blob:; font-src 'self' data:; connect-src 'self';",
         );
 
         if ($request->isSecure()) {

@@ -13,6 +13,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
@@ -177,24 +178,30 @@ class UserResource extends Resource
                     ->visible(fn (User $record): bool => $record->roles()->where('slug', 'terminal')->exists())
                     ->modalHeading('Credenciales de terminal')
                     ->modalDescription('Por seguridad, las contraseñas existentes no se pueden recuperar. La contraseña mostrada se aplicará al confirmar.')
+                    ->modalWidth('5xl')
+                    ->stickyModalHeader()
+                    ->stickyModalFooter()
                     ->modalSubmitActionLabel('Restablecer contraseña')
                     ->modalCancelActionLabel('Cancelar')
                     ->schema([
-                        TextInput::make('email')
-                            ->label('Correo')
-                            ->default(fn (User $record): string => $record->email)
-                            ->disabled()
-                            ->dehydrated(false)
-                            ->copyable(),
-                        TextInput::make('password_preview')
-                            ->label('Nueva contraseña')
-                            ->default(fn (User $record): string => static::terminalPasswordFor($record))
-                            ->password()
-                            ->revealable()
-                            ->disabled()
-                            ->dehydrated(false)
-                            ->copyable()
-                            ->helperText('Usa el icono del ojo para verla y el de copiar para entregarla al terminal.'),
+                        Grid::make(['default' => 1, 'md' => 2])
+                            ->schema([
+                                TextInput::make('email')
+                                    ->label('Correo')
+                                    ->default(fn (User $record): string => $record->email)
+                                    ->disabled()
+                                    ->dehydrated(false)
+                                    ->copyable(),
+                                TextInput::make('password_preview')
+                                    ->label('Nueva contraseña')
+                                    ->default(fn (User $record): string => static::terminalPasswordFor($record))
+                                    ->password()
+                                    ->revealable()
+                                    ->disabled()
+                                    ->dehydrated(false)
+                                    ->copyable()
+                                    ->helperText('Usa el icono del ojo para verla y el de copiar para entregarla al terminal.'),
+                            ]),
                     ])
                     ->action(function (User $record): void {
                         $record->forceFill([

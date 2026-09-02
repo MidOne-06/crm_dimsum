@@ -30,6 +30,33 @@ class GuiasInternasGatewayClient
     public function importarRequerimientos(array $ids): array { return $this->post('/api/requerimientos/importar', ['ids' => array_values($ids)]); }
     public function guardar(array $payload): array { return $this->post('/api/guardar', $payload); }
     public function anular(string $id, bool $devolverCantidades = true): array { return $this->post('/api/anular', ['id' => $id, 'devolverCantidades' => $devolverCantidades]); }
+    /** @param array<int, string|int> $ids */
+    public function agrupar(array $ids): array { return $this->post('/api/agrupar', ['ids' => array_values($ids)]); }
+
+    /** @return array{content:string,contentType:string} */
+    public function exportarExcel(array $filters): array
+    {
+        $response = Http::baseUrl($this->baseUrl)->timeout(180)->get('/api/exportar-excel', $filters);
+        if ($response->failed()) {
+            $body = $response->json();
+            throw new RuntimeException($body['error'] ?? 'No se pudo descargar el Excel de guías internas.');
+        }
+
+        return [
+            'content' => $response->body(),
+            'contentType' => $response->header('Content-Type') ?: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ];
+    }
+
+    public function solicitarExcelBatch(array $filters): array
+    {
+        return $this->post('/api/exportar-excel-batch', $filters);
+    }
+
+    public function reportesExcelBatch(): array
+    {
+        return $this->get('/api/reportes-excel-batch');
+    }
 
     /** @return array{content:string,contentType:string} */
     public function reporte(string $id, string $variant): array

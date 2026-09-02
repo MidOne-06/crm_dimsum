@@ -11,10 +11,11 @@ use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
-use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Validation\Rules\Unique;
 
 /**
  * Capacidad en unidades de un producto según el tipo de taper en el que se
@@ -29,7 +30,7 @@ class ProductoTaperResource extends Resource
     protected static ?string $navigationLabel = 'Capacidad por producto';
     protected static ?string $modelLabel = 'Capacidad de taper';
     protected static ?string $pluralModelLabel = 'Capacidades por producto';
-    protected static string|\UnitEnum|null $navigationGroup = 'Requerimientos de Stock';
+    protected static string|\UnitEnum|null $navigationGroup = 'Configuración DT';
     protected static ?int $navigationSort = 21;
 
     public static function canViewAny(): bool
@@ -55,7 +56,8 @@ class ProductoTaperResource extends Resource
     public static function form(Schema $schema): Schema
     {
         return $schema->schema([
-            Section::make()
+            Grid::make(['default' => 1, 'md' => 2, 'xl' => 4])
+                ->columnSpanFull()
                 ->schema([
                     Select::make('item_id')
                         ->label('Producto')
@@ -72,23 +74,30 @@ class ProductoTaperResource extends Resource
                             $set('item_codigo', $row?->cod_interno);
                             $set('item_nombre', $row?->item_nombre);
                         })
-                        ->live(),
-                    TextInput::make('item_codigo')->label('Código')->readOnly(),
-                    TextInput::make('item_nombre')->label('Nombre')->readOnly()->required(),
+                        ->live()
+                        ->columnSpan(['xl' => 2]),
                     Select::make('taper_tipo_id')
                         ->label('Tipo de taper')
                         ->relationship('taperTipo', 'nombre')
                         ->native(false)
                         ->searchable()
                         ->preload()
-                        ->required(),
+                        ->required()
+                        ->unique(
+                            table: 'producto_tapers',
+                            ignoreRecord: true,
+                            modifyRuleUsing: fn (Unique $rule, callable $get) => $rule->where('item_id', $get('item_id')),
+                        )
+                        ->columnSpan(1),
                     TextInput::make('capacidad_unidades')
                         ->label('Unidades por taper')
                         ->numeric()
                         ->minValue(1)
-                        ->required(),
-                ])
-                ->columns(2),
+                        ->required()
+                        ->columnSpan(1),
+                    TextInput::make('item_codigo')->readOnly()->hidden(),
+                    TextInput::make('item_nombre')->readOnly()->required()->hidden(),
+                ]),
         ]);
     }
 
@@ -104,7 +113,7 @@ class ProductoTaperResource extends Resource
             ->defaultSort('item_nombre')
             ->recordTitleAttribute('item_nombre')
             ->actions([
-                EditAction::make()->iconButton()->tooltip('Editar capacidad'),
+                EditAction::make()->iconButton()->tooltip('Editar capacidad')->modalWidth('5xl')->stickyModalHeader()->stickyModalFooter(),
                 DeleteAction::make()->iconButton()->tooltip('Eliminar'),
             ]);
     }

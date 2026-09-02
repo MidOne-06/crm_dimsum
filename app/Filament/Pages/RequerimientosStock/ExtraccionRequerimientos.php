@@ -7,14 +7,16 @@ use App\Models\RequerimientoStockHistorico;
 use App\Models\RequerimientoStockSincronizacion;
 use App\Services\RequerimientoStockGatewayClient;
 use Filament\Forms\Components\CheckboxList;
+use Filament\Schemas\Components\Grid;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
-use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
+use Illuminate\Support\Carbon;
+use Carbon\CarbonPeriod;
 use Throwable;
 
 /**
@@ -46,6 +48,8 @@ class ExtraccionRequerimientos extends Page implements HasTable
     public ?int $extraccionActualId = null;
     public bool $esperandoExtraccion = false;
     public string $activeDatePreset = 'last30';
+    public string $coverageLocalId = '';
+    public int $coverageYear;
 
     public static function canAccess(): bool
     {
@@ -54,6 +58,8 @@ class ExtraccionRequerimientos extends Page implements HasTable
 
     public function mount(): void
     {
+        $this->coverageYear = (int) now()->year;
+
         try {
             $this->locals = $this->scopeLocalsToUser(
                 collect(app(RequerimientoStockGatewayClient::class)->locals())
@@ -79,18 +85,29 @@ class ExtraccionRequerimientos extends Page implements HasTable
             'dateEnd' => now()->toDateString(),
         ];
         $this->extraccionActualId = RequerimientoStockSincronizacion::query()->latest('id')->value('id');
+        $this->coverageLocalId = (string) ($this->locals[0]['id'] ?? '');
     }
 
     public function form(Schema $schema): Schema
     {
         return $schema->components([
-            Section::make('Locales')->compact()->collapsible()->collapsed()->schema([
-                CheckboxList::make('selectedLocals')->hiddenLabel()
+            Grid::make(['default' => 1, 'md' => 2, 'xl' => 4])->schema([
+                CheckboxList::make('selectedLocals')->label('Locales a extraer')
                     ->options(fn (): array => collect($this->locals)->pluck('name', 'id')->all())
                     ->columns(['default' => 1, 'sm' => 2, 'lg' => 3, 'xl' => 4])
-                    ->bulkToggleable()->searchable()->required(),
+                    ->bulkToggleable()->searchable()->required()->columnSpanFull(),
             ]),
         ])->statePath('data');
+    }
+
+    public function abrirFiltrosExtraccion(): void
+    {
+        $this->dispatch('open-modal', id: 'filtros-extraccion-requerimientos');
+    }
+
+    public function cerrarFiltrosExtraccion(): void
+    {
+        $this->dispatch('close-modal', id: 'filtros-extraccion-requerimientos');
     }
 
     public function syncDateRange(string $start, string $end, string $preset = 'custom'): void
@@ -142,6 +159,7 @@ class ExtraccionRequerimientos extends Page implements HasTable
         ]);
         $this->extraccionActualId = $run->id;
         $this->esperandoExtraccion = true;
+        $this->cerrarFiltrosExtraccion();
         Notification::make()->title('Extracción encolada')->body('Arranca en menos de un minuto.')->success()->send();
     }
 
@@ -240,6 +258,100 @@ class ExtraccionRequerimientos extends Page implements HasTable
             'requerimientos' => RequerimientoStockHistorico::count(),
             'corridas' => RequerimientoStockSincronizacion::count(),
             'fallidas' => RequerimientoStockSincronizacion::where('estado', 'fallido')->count(),
+            'coveragePercent' => $this->coveragePercent(),
         ];
+    }
+
+    public function coveragePrevYear(): void
+    {
+        $this->coverageYear--;
+    }
+
+    public function coverageNextYear(): void
+    {
+        $this->coverageYear++;
+    }
+
+    /**
+     * Devuelve el estado por día del año seleccionado para el local elegido.
+     * La cobertura se deriva de las corridas registradas, no de una suposición
+     * basada únicamente en cabeceras: verde = corrida sin fallos, ámbar = corrida
+     * con fallos y vacío = rango aún no extraído.
+     *
+     * @return array<string, 'full'|'partial'>
+     */
+    public function coverageMap(): array
+    {
+        if ($this->coverageLocalId === '') {
+            return [];
+        }
+
+        $yearStart = Carbon::create($this->coverageYear, 1, 1);
+        $yearEnd = Carbon::create($this->coverageYear, 12, 31);
+        $coverage = [];
+
+        RequerimientoStockSincronizacion::query()
+            ->whereIn('estado', ['completado', 'completado_con_errores'])
+            ->get()
+            ->filter(function (RequerimientoStockSincronizacion $run) use ($yearStart, $yearEnd): bool {
+                $filters = (array) $run->filtros;
+                $start = isset($filters['fecha_inicio']) ? Carbon::parse($filters['fecha_inicio']) : null;
+                $end = isset($filters['fecha_fin']) ? Carbon::parse($filters['fecha_fin']) : null;
+                $locals = array_map('strval', $filters['locales'] ?? []);
+
+                return $start && $end
+                    && $start->lte($yearEnd)
+                    && $end->gte($yearStart)
+                    && ($locals === [] || in_array($this->coverageLocalId, $locals, true));
+            })
+            ->each(function (RequerimientoStockSincronizacion $run) use (&$coverage, $yearStart, $yearEnd): void {
+                $filters = (array) $run->filtros;
+                $start = Carbon::parse($filters['fecha_inicio'])->max($yearStart);
+                $end = Carbon::parse($filters['fecha_fin'])->min($yearEnd);
+
+                foreach (CarbonPeriod::create($start, $end) as $day) {
+                    $key = $day->toDateString();
+                    if (($coverage[$key] ?? null) !== 'full') {
+                        $coverage[$key] = $run->errores > 0 ? 'partial' : 'full';
+                    }
+                }
+            });
+
+        return $coverage;
+    }
+
+    /** @return array<int, array{start: string, end: string}> */
+    public function coverageGaps(): array
+    {
+        $map = $this->coverageMap();
+        $start = Carbon::create($this->coverageYear, 1, 1);
+        $end = Carbon::create($this->coverageYear, 12, 31)->min(now());
+        $gaps = [];
+        $gapStart = null;
+
+        foreach (CarbonPeriod::create($start, $end) as $day) {
+            if (! isset($map[$day->toDateString()]) && $gapStart === null) {
+                $gapStart = $day->copy();
+            }
+
+            if (isset($map[$day->toDateString()]) && $gapStart !== null) {
+                $gaps[] = ['start' => $gapStart->toDateString(), 'end' => $day->copy()->subDay()->toDateString()];
+                $gapStart = null;
+            }
+        }
+
+        if ($gapStart !== null) {
+            $gaps[] = ['start' => $gapStart->toDateString(), 'end' => $end->toDateString()];
+        }
+
+        return $gaps;
+    }
+
+    private function coveragePercent(): int
+    {
+        $start = Carbon::create($this->coverageYear, 1, 1);
+        $end = Carbon::create($this->coverageYear, 12, 31)->min(now());
+
+        return (int) round((collect($this->coverageMap())->where('full')->count() / max(1, $start->diffInDays($end) + 1)) * 100);
     }
 }

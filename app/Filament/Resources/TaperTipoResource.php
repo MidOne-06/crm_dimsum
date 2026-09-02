@@ -9,7 +9,7 @@ use Filament\Actions\EditAction;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
-use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -28,7 +28,7 @@ class TaperTipoResource extends Resource
     protected static ?string $navigationLabel = 'Tipos de taper';
     protected static ?string $modelLabel = 'Tipo de taper';
     protected static ?string $pluralModelLabel = 'Tipos de taper';
-    protected static string|\UnitEnum|null $navigationGroup = 'Requerimientos de Stock';
+    protected static string|\UnitEnum|null $navigationGroup = 'Configuración DT';
     protected static ?int $navigationSort = 20;
 
     public static function canViewAny(): bool
@@ -54,10 +54,11 @@ class TaperTipoResource extends Resource
     public static function form(Schema $schema): Schema
     {
         return $schema->schema([
-            Section::make()
+            Grid::make(['default' => 1, 'md' => 2, 'xl' => 4])
+                ->columnSpanFull()
                 ->schema([
-                    TextInput::make('nombre')->label('Nombre')->required()->maxLength(80)->placeholder('Ej. Taper chico'),
-                    Textarea::make('descripcion')->label('Descripción')->rows(2)->maxLength(255),
+                    TextInput::make('nombre')->label('Nombre')->required()->maxLength(80)->placeholder('Ej. Taper chico')->columnSpan(['xl' => 2]),
+                    Textarea::make('descripcion')->label('Descripción')->rows(2)->maxLength(255)->columnSpan(['xl' => 2]),
                 ]),
         ]);
     }
@@ -74,7 +75,7 @@ class TaperTipoResource extends Resource
             ->defaultSort('nombre')
             ->recordTitleAttribute('nombre')
             ->actions([
-                EditAction::make()->iconButton()->tooltip('Editar tipo de taper'),
+                EditAction::make()->iconButton()->tooltip('Editar tipo de taper')->modalWidth('5xl')->stickyModalHeader()->stickyModalFooter(),
                 DeleteAction::make()->iconButton()->tooltip('Eliminar tipo de taper'),
             ]);
     }

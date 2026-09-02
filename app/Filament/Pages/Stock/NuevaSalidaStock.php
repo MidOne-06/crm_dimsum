@@ -156,6 +156,9 @@ class NuevaSalidaStock extends Page
             ->requiresConfirmation()
             ->modalHeading('Registrar salida de stock')
             ->modalDescription('Revise los productos y la razón antes de confirmar.')
+            ->modalWidth('lg')
+            ->stickyModalHeader()
+            ->stickyModalFooter()
             ->modalSubmitActionLabel('Sí, registrar salida')
             ->modalCancelActionLabel('Revisar datos')
             ->action(fn () => $this->guardar())];

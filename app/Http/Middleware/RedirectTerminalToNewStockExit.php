@@ -17,8 +17,12 @@ class RedirectTerminalToNewStockExit
             return $next($request);
         }
 
-        // Un usuario con otro rol conserva el alcance adicional que este le otorgue.
-        if ($user->roles()->where('slug', '!=', 'terminal')->exists()) {
+        // Un usuario con otro rol, o con permisos operativos añadidos al rol
+        // Terminal, conserva ese alcance. De otro modo un permiso asignado no
+        // podría mostrarse ni utilizarse en el frontend.
+        if ($user->roles()->where('slug', '!=', 'terminal')->exists()
+            || $user->hasPermission('requerimientos-stock.crear')
+            || $user->hasPermission('requerimientos-stock.plantillas.view')) {
             return $next($request);
         }
 

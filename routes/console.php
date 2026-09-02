@@ -49,6 +49,15 @@ Schedule::command('guias-internas:sincronizar --desde='.$ventanaIncremental(3))
   ->withoutOverlapping(180)
   ->runInBackground();
 
+// El reporte de requerimientos consulta una copia local para que la matriz y
+// las exportaciones respondan de inmediato. Sin esta tarea, la copia quedaba
+// detenida en la última extracción manual y el filtro del día actual podía
+// mostrar cero aun cuando Restaurant ya tenía requerimientos registrados.
+Schedule::command('requerimientos-stock:sincronizar-reporte --desde='.$ventanaIncremental(3))
+  ->everyThirtyMinutes()
+  ->withoutOverlapping(180)
+  ->runInBackground();
+
 // Autocura corridas huérfanas: si el proceso de un backfill muere (sesión
 // SSH cortada, servidor reiniciado) la fila queda en 'en_progreso' para
 // siempre y nadie la reintenta. Cada 10 min se detectan corridas estancadas

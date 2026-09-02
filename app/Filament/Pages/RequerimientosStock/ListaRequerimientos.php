@@ -110,6 +110,9 @@ class ListaRequerimientos extends Page implements HasTable
                     ->icon('heroicon-o-x-mark')
                     ->color('danger')
                     ->requiresConfirmation()
+                    ->modalWidth('5xl')
+                    ->stickyModalHeader()
+                    ->stickyModalFooter()
                     ->schema([Textarea::make('motivo')->label('Motivo')->required()->maxLength(80)->rows(3)])
                     ->visible(fn (array $record): bool => $this->canReject($record) && (bool) auth()->user()?->hasPermission('requerimientos-stock.rechazar'))
                     ->action(fn (array $record, array $data) => $this->runRemoteAction('rechazar', $record, (string) ($data['motivo'] ?? ''))),
@@ -137,7 +140,7 @@ class ListaRequerimientos extends Page implements HasTable
                 Filter::make('criterios')->label('Filtros de búsqueda')->schema([
                     Grid::make(['default' => 1, 'md' => 2, 'xl' => 4])->schema([
                         Select::make('fecha_tipo')->label('Filtrar fecha por')->options(['0' => 'Fecha de registro', '1' => 'Fecha de abastecimiento'])->default('0')->native(false),
-                        ViewField::make('fecha_rango')->label('Rango de fecha')
+                        ViewField::make('fecha_rango')
                             ->view('filament.forms.components.requerimientos-date-range')
                             ->columnSpan(['xl' => 2]),
                         \Filament\Forms\Components\Hidden::make('fecha_inicio')->default(now()->toDateString()),
@@ -150,11 +153,18 @@ class ListaRequerimientos extends Page implements HasTable
                         Select::make('items')->label('Contiene insumo o producto')->multiple()->searchable()->native(false)->optionsLimit(10)
                             ->getSearchResultsUsing(fn (string $search): array => $this->itemOptions($search))
                             ->getOptionLabelsUsing(fn (array $values): array => $this->itemLabels($values))
-                            ->placeholder('Busca por nombre o código')->columnSpan(['xl' => 2]),
+                            ->placeholder('Busca por nombre o código')->columnSpan(['md' => 2, 'xl' => 4]),
                     ]),
                 ]),
-            ], layout: FiltersLayout::AboveContentCollapsible)
+            ], layout: FiltersLayout::Modal)
             ->filtersFormColumns(1)
+            ->filtersFormWidth('5xl')
+            ->filtersTriggerAction(fn (Action $action): Action => $action
+                ->label('Filtros')
+                ->icon('heroicon-o-adjustments-horizontal')
+                ->modalHeading('Filtros de requerimientos')
+                ->modalSubmitActionLabel('Aplicar filtros')
+                ->modalCancelActionLabel('Cancelar'))
             ->deferFilters()
             ->paginated([10, 25, 50, 100])
             ->defaultPaginationPageOption(10)

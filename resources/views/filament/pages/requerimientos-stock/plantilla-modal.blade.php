@@ -16,12 +16,12 @@
     'unidad' => ['label' => 'Unidad'],
 ])
 
-<div class="space-y-5">
+<div class="space-y-4">
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div><span class="text-sm text-gray-500 dark:text-gray-400">Nombre</span><p class="mt-1 font-medium text-gray-950 dark:text-white">{{ $plantilla['nombre'] ?? '—' }}</p></div>
-        <div><span class="text-sm text-gray-500 dark:text-gray-400">Solicitado por</span><p class="mt-1 font-medium text-gray-950 dark:text-white">{{ $plantilla['local_origen'] ?? '—' }}</p></div>
-        <div><span class="text-sm text-gray-500 dark:text-gray-400">Producción</span><p class="mt-1 font-medium text-gray-950 dark:text-white">{{ $plantilla['local_produccion'] ?? '—' }}</p></div>
-        <div><span class="text-sm text-gray-500 dark:text-gray-400">Encargado</span><p class="mt-1 font-medium text-gray-950 dark:text-white">{{ $plantilla['encargado'] ?: '—' }}</p></div>
+        <div><span class="block text-sm font-medium leading-6 text-gray-950 dark:text-white">Nombre</span><p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{{ $plantilla['nombre'] ?? '—' }}</p></div>
+        <div><span class="block text-sm font-medium leading-6 text-gray-950 dark:text-white">Solicitado por</span><p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{{ $plantilla['local_origen'] ?? '—' }}</p></div>
+        <div><span class="block text-sm font-medium leading-6 text-gray-950 dark:text-white">Producción</span><p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{{ $plantilla['local_produccion'] ?? '—' }}</p></div>
+        <div><span class="block text-sm font-medium leading-6 text-gray-950 dark:text-white">Encargado</span><p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{{ $plantilla['encargado'] ?: '—' }}</p></div>
     </div>
 
     <x-filament::section heading="Ítems" compact>

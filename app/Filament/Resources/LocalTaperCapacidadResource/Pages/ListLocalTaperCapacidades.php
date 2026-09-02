@@ -9,5 +9,5 @@ use Filament\Resources\Pages\ListRecords;
 class ListLocalTaperCapacidades extends ListRecords
 {
     protected static string $resource = LocalTaperCapacidadResource::class;
-    protected function getHeaderActions(): array { return [CreateAction::make()->label('Nueva capacidad')]; }
+    protected function getHeaderActions(): array { return [CreateAction::make()->label('Nueva capacidad')->modalWidth('5xl')->stickyModalHeader()->stickyModalFooter()->modalSubmitActionLabel('Guardar')->modalCancelActionLabel('Cancelar')]; }
 }

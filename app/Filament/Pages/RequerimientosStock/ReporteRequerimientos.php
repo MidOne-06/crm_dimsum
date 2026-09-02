@@ -71,7 +71,11 @@ class ReporteRequerimientos extends Page implements HasTable
             'fechaTipo' => 'registro',
             'estado' => '',
             'metric' => 'solicitada',
-            'selectedLocals' => [],
+            // Restaurant envía todos los locales cuando ambos filtros se
+            // seleccionan completos. Se conserva explícitamente esa misma
+            // intención, en vez de confundirla con las columnas de la matriz.
+            'requestedByLocals' => [self::ALL_LOCALES_OPTION],
+            'productionLocals' => [self::ALL_LOCALES_OPTION],
             'selectedProducts' => [],
         ]);
         // "Mes en curso" como default hacía que el reporte abriera vacío en
@@ -102,12 +106,17 @@ class ReporteRequerimientos extends Page implements HasTable
                 Select::make('estado')
                     ->label('Estado')
                     ->options($this->statusOptions())
-                    ->placeholder('Todos los estados')->native(false)->searchable(),
+                    ->placeholder('Todos los estados')->native(),
                 TextInput::make('codigo')
                     ->label('Código de requerimiento')
                     ->maxLength(40),
-                Select::make('selectedLocals')
-                    ->label('Locales de la matriz')
+                Select::make('requestedByLocals')
+                    ->label('Solicitado por')
+                    ->options($this->localSelectOptions())
+                    ->multiple()->searchable()->native(false)->optionsLimit(10)
+                    ->placeholder('Todos los locales'),
+                Select::make('productionLocals')
+                    ->label('Local de producción')
                     ->options($this->localSelectOptions())
                     ->multiple()->searchable()->native(false)->optionsLimit(10)
                     ->placeholder('Todos los locales'),
@@ -117,7 +126,7 @@ class ReporteRequerimientos extends Page implements HasTable
                     ->getSearchResultsUsing(fn (string $search): array => $this->productSearchResults($search))
                     ->getOptionLabelsUsing(fn (array $values): array => $this->productLabels($values))
                     ->placeholder('Todos los productos')
-                    ->columnSpan(['xl' => 2]),
+                    ->columnSpan(['xl' => 4]),
             ]),
         ])->statePath('data');
     }
@@ -136,6 +145,17 @@ class ReporteRequerimientos extends Page implements HasTable
     public function search(): void
     {
         $this->resetPage();
+        $this->cerrarFiltrosReporte();
+    }
+
+    public function abrirFiltrosReporte(): void
+    {
+        $this->dispatch('open-modal', id: 'filtros-reporte-requerimientos');
+    }
+
+    public function cerrarFiltrosReporte(): void
+    {
+        $this->dispatch('close-modal', id: 'filtros-reporte-requerimientos');
     }
 
     /**
@@ -280,6 +300,8 @@ class ReporteRequerimientos extends Page implements HasTable
         $dateColumn = ($this->data['fechaTipo'] ?? 'registro') === 'abastecimiento' ? 'fecha_abastecimiento' : 'fecha_registro';
         $locals = $this->matrixLocalNames();
         $products = $this->selectedProducts();
+        $requestedBy = $this->selectedLocalNames('requestedByLocals');
+        $production = $this->selectedLocalNames('productionLocals');
 
         $query = RequerimientoStockHistoricoDetalle::query()
             ->join('requerimientos_stock_historicos as requerimientos', 'requerimientos.id', '=', 'requerimientos_stock_historicos_detalles.requerimiento_stock_historico_id')
@@ -288,6 +310,8 @@ class ReporteRequerimientos extends Page implements HasTable
             ->whereDate("requerimientos.{$dateColumn}", '<=', $this->dateEnd())
             ->when(filled($this->data['estado'] ?? null), fn (Builder $query): Builder => $query->where('requerimientos.estado', $this->data['estado']))
             ->when(filled($this->data['codigo'] ?? null), fn (Builder $query): Builder => $query->where('requerimientos.erp_id', (string) $this->data['codigo']))
+            ->when($requestedBy !== [], fn (Builder $query): Builder => $query->whereIn('requerimientos.solicitado_por', $requestedBy))
+            ->when($production !== [], fn (Builder $query): Builder => $query->whereIn('requerimientos.local_produccion', $production))
             ->when($products !== [], fn (Builder $query): Builder => $query->whereIn('requerimientos_stock_historicos_detalles.codigo', $products))
             ->selectRaw("MIN(requerimientos_stock_historicos_detalles.id) AS id, MAX(requerimientos_stock_historicos_detalles.codigo) AS codigo, MAX(requerimientos_stock_historicos_detalles.item) AS item, MAX(requerimientos_stock_historicos_detalles.unidad) AS unidad, COALESCE(SUM(requerimientos_stock_historicos_detalles.{$metric}), 0) AS cantidad_total")
             ->groupBy('requerimientos_stock_historicos_detalles.codigo');
@@ -321,11 +345,8 @@ class ReporteRequerimientos extends Page implements HasTable
     /** @return array<int, string> */
     protected function matrixLocalNames(): array
     {
-        $selected = (array) ($this->data['selectedLocals'] ?? []);
-        if (in_array(self::ALL_LOCALES_OPTION, $selected, true)) return array_values($this->localOptions);
-
-        $ids = $this->restrictLocalIdsToUser(array_values(array_filter($selected, fn ($value): bool => filled($value))));
-        if ($ids !== []) return array_values(array_intersect_key($this->localOptions, array_flip(array_map('strval', $ids))));
+        $selected = $this->selectedLocalNames('requestedByLocals');
+        if ($selected !== []) return $selected;
 
         return RequerimientoStockHistorico::query()
             ->whereDate($this->dateColumn(), '>=', $this->dateStart())
@@ -363,7 +384,18 @@ class ReporteRequerimientos extends Page implements HasTable
     /** @return array<string, string> */
     protected function statusOptions(): array
     {
-        return RequerimientoStockHistorico::query()->whereNotNull('estado')->distinct()->orderBy('estado')->pluck('estado', 'estado')->all();
+        return RequerimientoStockHistorico::query()
+            ->whereNotNull('estado')
+            ->distinct()
+            ->orderBy('estado')
+            ->pluck('estado')
+            ->mapWithKeys(fn (string $estado): array => [$estado => $this->statusLabel($estado)])
+            ->all();
+    }
+
+    private function statusLabel(string $estado): string
+    {
+        return ['0' => 'Anulado', '1' => 'Pendiente', '2' => 'Aprobado', '3' => 'Rechazado', '4' => 'Despachado', '5' => 'Recibido'][$estado] ?? $estado;
     }
 
     /** @return array<string, string> */
@@ -376,6 +408,20 @@ class ReporteRequerimientos extends Page implements HasTable
     protected function selectedProducts(): array
     {
         return array_values(array_filter((array) ($this->data['selectedProducts'] ?? []), fn ($value): bool => filled($value)));
+    }
+
+    /** @return array<int, string> */
+    protected function selectedLocalNames(string $field): array
+    {
+        $selected = array_values(array_filter((array) ($this->data[$field] ?? []), fn ($value): bool => filled($value)));
+
+        if (in_array(self::ALL_LOCALES_OPTION, $selected, true)) {
+            return array_values($this->localOptions);
+        }
+
+        $ids = $this->restrictLocalIdsToUser($selected);
+
+        return array_values(array_intersect_key($this->localOptions, array_flip(array_map('strval', $ids))));
     }
 
     protected function metricColumn(): string
@@ -398,8 +444,12 @@ class ReporteRequerimientos extends Page implements HasTable
     {
         $dateLabel = ($this->data['fechaTipo'] ?? 'registro') === 'abastecimiento' ? 'Abastecimiento' : 'Registro';
         $metric = ['solicitada' => 'Solicitada', 'despachada' => 'Despachada', 'preparada' => 'Preparada'][$this->data['metric'] ?? 'solicitada'];
+        $requestedBy = $this->selectedLocalNames('requestedByLocals');
+        $production = $this->selectedLocalNames('productionLocals');
+        $requestedByLabel = $requestedBy === array_values($this->localOptions) ? 'Todos' : implode(', ', $requestedBy);
+        $productionLabel = $production === array_values($this->localOptions) ? 'Todos' : implode(', ', $production);
 
-        return "Fecha de {$dateLabel}: {$this->dateStart()} al {$this->dateEnd()} | Cantidad: {$metric}";
+        return "Fecha de {$dateLabel}: {$this->dateStart()} al {$this->dateEnd()} | Cantidad: {$metric} | Solicitado por: {$requestedByLabel} | Producción: {$productionLabel}";
     }
 
     private function gateway(): RequerimientoStockGatewayClient { return app(RequerimientoStockGatewayClient::class); }

@@ -255,6 +255,9 @@ class NuevaGuiaInterna extends Page
                 })
                 ->schema($this->guideOptionsSchema())
                 ->modalHeading('Opciones de guía interna')
+                ->modalWidth('5xl')
+                ->stickyModalHeader()
+                ->stickyModalFooter()
                 ->modalSubmitActionLabel('Guardar opciones')
                 ->modalCancelActionLabel('Cerrar')
                 ->action(function (array $data): void {
@@ -265,6 +268,7 @@ class NuevaGuiaInterna extends Page
             Action::make('guardar')->label('Registrar guía interna')->icon('heroicon-o-document-check')
                 ->requiresConfirmation()->modalHeading('Registrar guía interna')
                 ->modalDescription('Se descontará el stock del almacén de origen.')
+                ->modalWidth('lg')->stickyModalHeader()->stickyModalFooter()
                 ->modalSubmitActionLabel('Sí, registrar guía')->modalCancelActionLabel('Revisar datos')
                 ->action(fn () => $this->guardar()),
         ];
@@ -302,6 +306,12 @@ class NuevaGuiaInterna extends Page
                     TextInput::make('telefono')->label('Teléfono'),
                 ])
                 ->createOptionModalHeading('Nuevo motorizado')
+                ->createOptionAction(fn (Action $action): Action => $action
+                    ->modalWidth('5xl')
+                    ->stickyModalHeader()
+                    ->stickyModalFooter()
+                    ->modalSubmitActionLabel('Guardar')
+                    ->modalCancelActionLabel('Cancelar'))
                 ->createOptionUsing(function (array $data): string {
                     $result = $this->gateway()->guardarMotorizado($data);
                     $motorizado = $result['motorizado'] ?? [];

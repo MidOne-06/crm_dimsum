@@ -134,6 +134,12 @@ class RequerimientoStockGatewayClient
         string $receptor = '',
         string $observacion = '',
         bool $esSolicitudCompra = false,
+        bool $esSoloPlantilla = false,
+        bool $generarPlantilla = false,
+        string $nombrePlantilla = '',
+        bool $mostrarCostos = false,
+        bool $mostrarPrecio = false,
+        ?string $plantillaId = null,
     ): array {
         $response = Http::baseUrl($this->baseUrl)->timeout(120)->post('/api/guardar', [
             'localOrigenId' => $localOrigenId,
@@ -144,6 +150,12 @@ class RequerimientoStockGatewayClient
             'observacion' => $observacion,
             'fecha' => $fecha,
             'esSolicitudCompra' => $esSolicitudCompra,
+            'esSoloPlantilla' => $esSoloPlantilla,
+            'generarPlantilla' => $generarPlantilla,
+            'nombrePlantilla' => $nombrePlantilla,
+            'mostrarCostos' => $mostrarCostos,
+            'mostrarPrecio' => $mostrarPrecio,
+            'plantillaId' => $plantillaId,
             'items' => $items,
         ]);
 

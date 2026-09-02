@@ -9,6 +9,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Grid;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
@@ -16,8 +17,8 @@ use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\HtmlString;
 use Throwable;
 
 class ImportarPlantilla extends Page implements HasTable
@@ -29,6 +30,8 @@ class ImportarPlantilla extends Page implements HasTable
     use ScopesLocalsToUser;
 
     private const TODOS_LOCALES = '-1';
+    private const MIS_LOCALES = '__mis_locales__';
+    private const GATEWAY_PAGE_SIZE = 100;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-document-arrow-down';
     protected static ?string $navigationLabel = 'Importar plantilla';
@@ -42,10 +45,29 @@ class ImportarPlantilla extends Page implements HasTable
     public array $localOptions = [];
 
     public ?string $loadError = null;
+    public ?string $plantillasLocalId = null;
+    public string $plantillasLocalNombre = '';
+
+    /** @var array<int, array<string, mixed>> */
+    public array $plantillasDelLocal = [];
+
+    /** @var array<string, mixed>|null */
+    public ?array $plantillaVistaPrevia = null;
+
+    /** @var array<string, mixed>|null */
+    public ?array $plantillaPendienteImportacion = null;
+
+    public bool $incluirCantidadesCero = true;
 
     public static function canAccess(): bool
     {
-        return (bool) auth()->user()?->hasPermission('requerimientos-stock.plantillas.view');
+        $user = auth()->user();
+
+        // Terminal imports from Nuevo requerimiento, where its authorized
+        // templates are already filtered by assigned local. Keeping this page
+        // visible would duplicate the same action and create two workflows.
+        return (bool) $user?->hasPermission('requerimientos-stock.plantillas.view')
+            && ! $user->roles()->where('slug', 'terminal')->exists();
     }
 
     public function mount(): void
@@ -71,6 +93,69 @@ class ImportarPlantilla extends Page implements HasTable
         $this->filamentApplyTableFilters();
     }
 
+    public function abrirPlantillasLocal(string $localId): void
+    {
+        if (! $this->localAllowedForUser($localId)) {
+            Notification::make()->title('No tienes acceso a este local.')->danger()->send();
+
+            return;
+        }
+
+        try {
+            $this->loadError = null;
+            $this->plantillasDelLocal = $this->normalizeRows($this->allRowsForLocal($localId))->values()->all();
+            $this->plantillasLocalId = $localId;
+            $this->plantillasLocalNombre = (string) ($this->localOptions[$localId] ?? 'Local');
+            $this->dispatch('open-modal', id: 'plantillas-del-local');
+        } catch (Throwable $exception) {
+            $this->loadError = $this->friendlyError($exception);
+        }
+    }
+
+    public function verPlantillaDelLocal(string $templateId): void
+    {
+        $plantilla = $this->plantillaDelLocal($templateId);
+        if ($plantilla === null) {
+            Notification::make()->title('La plantilla ya no está disponible.')->danger()->send();
+
+            return;
+        }
+
+        $this->plantillaVistaPrevia = $plantilla;
+        $this->dispatch('open-modal', id: 'vista-previa-plantilla');
+    }
+
+    public function abrirImportacionPlantilla(string $templateId): void
+    {
+        if (! auth()->user()?->hasPermission('requerimientos-stock.plantillas.importar')) {
+            Notification::make()->title('No tienes permiso para importar plantillas.')->danger()->send();
+
+            return;
+        }
+
+        $plantilla = $this->plantillaDelLocal($templateId);
+        if ($plantilla === null) {
+            Notification::make()->title('La plantilla ya no está disponible.')->danger()->send();
+
+            return;
+        }
+
+        $this->plantillaPendienteImportacion = $plantilla;
+        $this->incluirCantidadesCero = true;
+        $this->dispatch('open-modal', id: 'confirmar-importacion-plantilla');
+    }
+
+    public function confirmarImportacionPlantilla(): void
+    {
+        if (! is_array($this->plantillaPendienteImportacion)) {
+            Notification::make()->title('Selecciona una plantilla válida.')->danger()->send();
+
+            return;
+        }
+
+        $this->importar($this->plantillaPendienteImportacion, $this->incluirCantidadesCero);
+    }
+
     public function table(Table $table): Table
     {
         return $table
@@ -85,16 +170,24 @@ class ImportarPlantilla extends Page implements HasTable
                 TextColumn::make('items_count')->label('Ítems')->alignEnd(),
             ])
             ->filters([
-                Filter::make('local')->label('Filtros')->schema([
+                Filter::make('local')->label('Filtros de plantillas')->schema([
                     Select::make('local_id')
                         ->label('Local')
                         ->native(false)
                         ->searchable()
-                        ->options($this->localSelectOptions())
-                        ->default(self::TODOS_LOCALES),
+                        ->options(fn (): array => $this->localSelectOptions())
+                        ->default(fn (): string => $this->defaultLocalFilter()),
                 ]),
-            ], layout: FiltersLayout::AboveContentCollapsible)
+            ], layout: FiltersLayout::Modal)
             ->filtersFormColumns(1)
+            ->filtersFormWidth('5xl')
+            ->filtersTriggerAction(fn (Action $action): Action => $action
+                ->label('Filtros')
+                ->icon('heroicon-o-adjustments-horizontal')
+                ->modalHeading('Filtros de plantillas')
+                ->modalSubmitActionLabel('Aplicar filtros')
+                ->modalCancelActionLabel('Cancelar'))
+            ->deferFilters()
             ->recordActions([
                 Action::make('ver')
                     ->label('Ver')
@@ -114,11 +207,19 @@ class ImportarPlantilla extends Page implements HasTable
                     ->modal()
                     ->requiresConfirmation()
                     ->modalHeading(fn (array $record): string => 'Importar plantilla #'.($record['id'] ?? ''))
+                    ->modalWidth('lg')
+                    ->stickyModalHeader()
+                    ->stickyModalFooter()
                     ->modalSubmitActionLabel('Importar')
                     ->modalCancelActionLabel('Cancelar')
-                    ->modalContent(new HtmlString(''))
                     ->schema([
-                        Toggle::make('incluir_cantidades_cero')->label('Incluir cantidades cero')->default(true),
+                        Grid::make(['default' => 1, 'md' => 2, 'xl' => 4])
+                            ->schema([
+                                Toggle::make('incluir_cantidades_cero')
+                                    ->label('Incluir cantidades cero')
+                                    ->default(true)
+                                    ->columnSpanFull(),
+                            ]),
                     ])
                     ->action(fn (array $record, array $data) => $this->importar($record, (bool) ($data['incluir_cantidades_cero'] ?? true))),
             ])
@@ -132,28 +233,49 @@ class ImportarPlantilla extends Page implements HasTable
     protected function records(array $filters, int $page, int $recordsPerPage): LengthAwarePaginator
     {
         $localId = (string) ($filters['local_id'] ?? $filters['local']['local_id'] ?? self::TODOS_LOCALES);
+
+        if ($localId === self::MIS_LOCALES) {
+            if (! $this->isRestrictedToLocals()) {
+                $localId = self::TODOS_LOCALES;
+            } else {
+                return $this->assignedLocalRecords($page, $recordsPerPage);
+            }
+        }
+
+        // Restaurant uses -1 as an unrestricted query. It must never be sent by
+        // an account whose scope is limited to assigned locations.
+        if ($localId === self::TODOS_LOCALES && $this->isRestrictedToLocals()) {
+            return $this->emptyPaginator($page, $recordsPerPage);
+        }
+
         if ($localId !== self::TODOS_LOCALES && ! $this->localAllowedForUser($localId)) {
-            return new LengthAwarePaginator(collect(), 0, $recordsPerPage, $page);
+            return $this->emptyPaginator($page, $recordsPerPage);
         }
 
         try {
             $this->loadError = null;
             $result = $this->gateway()->plantillas($localId, $page, $recordsPerPage);
-            $rows = collect($result['rows'] ?? [])->map(function (array $row): array {
-                $row['items_count'] = count($row['recetas'] ?? []) + count($row['insumos'] ?? []) + count($row['productos'] ?? []);
+            $rows = $this->normalizeRows(collect($result['rows'] ?? []));
 
-                return $row;
-            });
-
-            return new LengthAwarePaginator($rows, (int) ($result['total'] ?? $rows->count()), $recordsPerPage, $page, [
-                'path' => request()->url(),
-                'pageName' => 'plantillasPage',
-            ]);
+            return $this->paginator($rows, (int) ($result['total'] ?? $rows->count()), $page, $recordsPerPage);
         } catch (Throwable $exception) {
             $this->loadError = $this->friendlyError($exception);
 
-            return new LengthAwarePaginator(collect(), 0, $recordsPerPage, $page);
+            return $this->emptyPaginator($page, $recordsPerPage);
         }
+    }
+
+    /** @return array<string, mixed>|null */
+    private function plantillaDelLocal(string $templateId): ?array
+    {
+        $plantilla = collect($this->plantillasDelLocal)
+            ->first(fn (array $row): bool => (string) ($row['id'] ?? '') === $templateId);
+
+        if (! is_array($plantilla)) {
+            return null;
+        }
+
+        return $this->localAllowedForUser((string) ($plantilla['local_origen_id'] ?? '')) ? $plantilla : null;
     }
 
     /** @param array<string, mixed> $plantilla */
@@ -175,12 +297,27 @@ class ImportarPlantilla extends Page implements HasTable
 
         try {
             $importada = $this->gateway()->importarPlantilla($templateId, $incluirCantidadesCero);
+            $remoteLocalId = (string) ($importada['localOrigenId'] ?? '');
+            if ($remoteLocalId === '' || ! $this->localAllowedForUser($remoteLocalId)) {
+                Log::warning('[ImportarPlantillaRequerimiento] Restaurant returned a template outside the user scope.', [
+                    'template_id' => $templateId,
+                    'local_id' => $remoteLocalId,
+                    'user_id' => auth()->id(),
+                ]);
+                Notification::make()->title('La plantilla no está disponible para tu usuario.')->danger()->send();
+
+                return;
+            }
+
             if (empty($importada['items'])) {
                 Notification::make()->title('La plantilla no contiene ítems.')->warning()->send();
 
                 return;
             }
 
+            // Se conserva el identificador: Restaurant lo exige si el usuario
+            // autorizado decide actualizar la misma plantilla al guardar.
+            $importada['nombre'] = (string) ($plantilla['nombre'] ?? '');
             session(['requerimientos-stock.plantilla-importada' => $importada]);
             $this->redirect(NuevoRequerimiento::getUrl());
         } catch (Throwable $exception) {
@@ -191,7 +328,102 @@ class ImportarPlantilla extends Page implements HasTable
     /** @return array<string, string> */
     private function localSelectOptions(): array
     {
+        if ($this->isRestrictedToLocals()) {
+            // A restricted user never receives Restaurant's unrestricted option.
+            // With multiple assignments this virtual option merges only those locals.
+            if (count($this->localOptions) > 1) {
+                return [self::MIS_LOCALES => 'Mis locales asignados'] + $this->localOptions;
+            }
+
+            return $this->localOptions;
+        }
+
         return [self::TODOS_LOCALES => 'Todos los locales'] + $this->localOptions;
+    }
+
+    private function defaultLocalFilter(): string
+    {
+        if (! $this->isRestrictedToLocals()) {
+            return self::TODOS_LOCALES;
+        }
+
+        $localIds = array_keys($this->localOptions);
+
+        return count($localIds) === 1 ? (string) $localIds[0] : self::MIS_LOCALES;
+    }
+
+    private function isRestrictedToLocals(): bool
+    {
+        return (bool) auth()->user()?->isRestrictedToLocals();
+    }
+
+    private function assignedLocalRecords(int $page, int $recordsPerPage): LengthAwarePaginator
+    {
+        if ($this->localOptions === []) {
+            return $this->emptyPaginator($page, $recordsPerPage);
+        }
+
+        try {
+            $this->loadError = null;
+            $rows = collect();
+
+            foreach (array_keys($this->localOptions) as $localId) {
+                $rows = $rows->concat($this->allRowsForLocal((string) $localId));
+            }
+
+            $rows = $this->normalizeRows($rows)
+                ->unique(fn (array $row): string => (string) ($row['local_origen_id'] ?? '').'|'.(string) ($row['id'] ?? ''))
+                ->sortByDesc(fn (array $row): int => (int) ($row['id'] ?? 0))
+                ->values();
+
+            $total = $rows->count();
+
+            return $this->paginator($rows->forPage($page, $recordsPerPage)->values(), $total, $page, $recordsPerPage);
+        } catch (Throwable $exception) {
+            $this->loadError = $this->friendlyError($exception);
+
+            return $this->emptyPaginator($page, $recordsPerPage);
+        }
+    }
+
+    /** @return Collection<int, array<string, mixed>> */
+    private function allRowsForLocal(string $localId): Collection
+    {
+        $firstPage = $this->gateway()->plantillas($localId, 1, self::GATEWAY_PAGE_SIZE);
+        $rows = collect($firstPage['rows'] ?? []);
+        $total = (int) ($firstPage['total'] ?? $rows->count());
+        $pages = max(1, (int) ceil($total / self::GATEWAY_PAGE_SIZE));
+
+        for ($currentPage = 2; $currentPage <= $pages; $currentPage++) {
+            $result = $this->gateway()->plantillas($localId, $currentPage, self::GATEWAY_PAGE_SIZE);
+            $rows = $rows->concat($result['rows'] ?? []);
+        }
+
+        return $rows;
+    }
+
+    /** @param Collection<int, array<string, mixed>> $rows */
+    private function normalizeRows(Collection $rows): Collection
+    {
+        return $rows->map(function (array $row): array {
+            $row['items_count'] = count($row['recetas'] ?? []) + count($row['insumos'] ?? []) + count($row['productos'] ?? []);
+
+            return $row;
+        });
+    }
+
+    /** @param Collection<int, array<string, mixed>> $rows */
+    private function paginator(Collection $rows, int $total, int $page, int $recordsPerPage): LengthAwarePaginator
+    {
+        return new LengthAwarePaginator($rows, $total, $recordsPerPage, $page, [
+            'path' => request()->url(),
+            'pageName' => 'plantillasPage',
+        ]);
+    }
+
+    private function emptyPaginator(int $page, int $recordsPerPage): LengthAwarePaginator
+    {
+        return $this->paginator(collect(), 0, $page, $recordsPerPage);
     }
 
     private function gateway(): RequerimientoStockGatewayClient

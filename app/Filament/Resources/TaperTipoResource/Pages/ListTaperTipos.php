@@ -9,5 +9,5 @@ use Filament\Resources\Pages\ListRecords;
 class ListTaperTipos extends ListRecords
 {
     protected static string $resource = TaperTipoResource::class;
-    protected function getHeaderActions(): array { return [CreateAction::make()->label('Nuevo tipo de taper')]; }
+    protected function getHeaderActions(): array { return [CreateAction::make()->label('Nuevo tipo de taper')->modalWidth('5xl')->stickyModalHeader()->stickyModalFooter()->modalSubmitActionLabel('Guardar')->modalCancelActionLabel('Cancelar')]; }
 }

@@ -10,10 +10,11 @@ use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
-use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Validation\Rules\Unique;
 
 /**
  * Máximo de tapers de un tipo dado que caben en la congeladora de cada local
@@ -27,7 +28,7 @@ class LocalTaperCapacidadResource extends Resource
     protected static ?string $navigationLabel = 'Capacidad por local';
     protected static ?string $modelLabel = 'Capacidad de local';
     protected static ?string $pluralModelLabel = 'Capacidades por local';
-    protected static string|\UnitEnum|null $navigationGroup = 'Requerimientos de Stock';
+    protected static string|\UnitEnum|null $navigationGroup = 'Configuración DT';
     protected static ?int $navigationSort = 22;
 
     public static function canViewAny(): bool
@@ -53,7 +54,8 @@ class LocalTaperCapacidadResource extends Resource
     public static function form(Schema $schema): Schema
     {
         return $schema->schema([
-            Section::make()
+            Grid::make(['default' => 1, 'md' => 2, 'xl' => 4])
+                ->columnSpanFull()
                 ->schema([
                     Select::make('local_id')
                         ->label('Local')
@@ -64,22 +66,29 @@ class LocalTaperCapacidadResource extends Resource
                         ->live()
                         ->afterStateUpdated(function (callable $set, ?string $state): void {
                             $set('local_nombre', $state ? (static::localOptions()[$state] ?? null) : null);
-                        }),
-                    TextInput::make('local_nombre')->label('Nombre (referencia)')->readOnly()->required(),
+                        })
+                        ->columnSpan(['xl' => 2]),
                     Select::make('taper_tipo_id')
                         ->label('Tipo de taper')
                         ->relationship('taperTipo', 'nombre')
                         ->native(false)
                         ->searchable()
                         ->preload()
-                        ->required(),
+                        ->required()
+                        ->unique(
+                            table: 'local_taper_capacidades',
+                            ignoreRecord: true,
+                            modifyRuleUsing: fn (Unique $rule, callable $get) => $rule->where('local_id', $get('local_id')),
+                        )
+                        ->columnSpan(1),
                     TextInput::make('capacidad_maxima')
                         ->label('Tapers máximos que caben')
                         ->numeric()
                         ->minValue(0)
-                        ->required(),
-                ])
-                ->columns(2),
+                        ->required()
+                        ->columnSpan(1),
+                    TextInput::make('local_nombre')->readOnly()->required()->hidden(),
+                ]),
         ]);
     }
 
@@ -94,7 +103,7 @@ class LocalTaperCapacidadResource extends Resource
             ->defaultSort('local_nombre')
             ->recordTitleAttribute('local_nombre')
             ->actions([
-                EditAction::make()->iconButton()->tooltip('Editar capacidad'),
+                EditAction::make()->iconButton()->tooltip('Editar capacidad')->modalWidth('5xl')->stickyModalHeader()->stickyModalFooter(),
                 DeleteAction::make()->iconButton()->tooltip('Eliminar'),
             ]);
     }

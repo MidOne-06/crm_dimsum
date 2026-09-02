@@ -191,7 +191,7 @@
         @endif
     </div>
 
-    <x-filament::modal id="confirm-guardar-cuadre" width="lg">
+    <x-filament::modal id="confirm-guardar-cuadre" width="5xl" sticky-header sticky-footer>
         <x-slot name="heading">Confirmar cuadre de stock</x-slot>
 
         <p class="text-sm text-gray-700 dark:text-gray-200">Guardar {{ count($this->changedIndexes()) }} ítem(s) en Logística.</p>
@@ -227,7 +227,7 @@
         </x-slot>
     </x-filament::modal>
 
-    <x-filament::modal id="guardar-plantilla" width="md">
+    <x-filament::modal id="guardar-plantilla" width="lg" sticky-header sticky-footer>
         <x-slot name="heading">Guardar como plantilla</x-slot>
 
         <p class="text-sm text-gray-700 dark:text-gray-200">Guardar plantilla con {{ count($itemsSeleccionados) }} ítem(s).</p>
