@@ -21,6 +21,8 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Enums\Alignment;
 use Filament\Support\Enums\Width;
 use Filament\Tables\Columns\TextColumn;
@@ -46,8 +48,9 @@ class GuiasInternas extends Page implements HasTable
     public string $desde = '';
     public string $hasta = '';
     public string $activeDatePreset = 'last30';
-    public string $fechaTipo = 'fecha_emision';
+    public string $fechaTipo = '1';
     public string $buscarSegun = '1';
+    public ?string $restaurantLocalId = null;
     /** @var array<int, string> */
     public array $localesOrigen = [];
     /** @var array<int, string> */
@@ -57,13 +60,32 @@ class GuiasInternas extends Page implements HasTable
     public ?string $numero = null;
     public ?string $codigo = null;
     public ?string $motivo = null;
-    public ?string $estado = null;
+    public ?string $estado = '1';
+    /** @var array<string, string> */
+    public array $remoteItemLabels = [];
 
     public static function canAccess(): bool { return (bool) auth()->user()?->hasPermission('guias-internas.view'); }
 
-    public function mount(): void { $this->desde = now()->subDays(30)->toDateString(); $this->hasta = now()->toDateString(); }
+    public function mount(): void
+    {
+        try {
+            $localId = (string) (app(GuiasInternasGatewayClient::class)->contextoFiltros()['local_id'] ?? '');
+            if ($localId !== '' && array_key_exists($localId, $this->restaurantLocalesOptions()) && $this->localAllowedForUser($localId)) {
+                $this->restaurantLocalId = $localId;
+            }
+        } catch (\Throwable) {
+            // La copia local sigue siendo consultable si Restaurant no responde durante el montaje.
+        }
+
+        $this->restablecerFiltrosRestaurant();
+    }
     public function setDateRange(string $start, string $end, ?string $preset = 'custom'): void { $this->desde = $start; $this->hasta = $end; $this->activeDatePreset = $preset ?: 'custom'; $this->resetTable(); }
-    public function sincronizar(): void { abort_unless(auth()->user()?->hasPermission('guias-internas.sincronizar'), 403); Artisan::call('guias-internas:sincronizar', ['--desde' => $this->desde, '--hasta' => $this->hasta]); $this->resetTable(); }
+    public function sincronizar(): void
+    {
+        abort_unless(auth()->user()?->hasPermission('guias-internas.sincronizar'), 403);
+        $this->sincronizarCopiaDeFiltros();
+        $this->resetTable();
+    }
 
     protected function getHeaderActions(): array
     {
@@ -78,6 +100,15 @@ class GuiasInternas extends Page implements HasTable
                 ->stickyModalFooter()
                 ->modalSubmitActionLabel('Aplicar filtros')
                 ->modalCancelActionLabel('Cancelar')
+                ->extraModalFooterActions([
+                    Action::make('restablecer_filtros')
+                        ->label('Borrar todos')
+                        ->color('gray')
+                        ->action(function (): void {
+                            $this->restablecerFiltrosRestaurant();
+                            $this->replaceMountedAction('filtros');
+                        }),
+                ])
                 ->fillForm(fn (): array => [
                     'desde' => $this->desde,
                     'hasta' => $this->hasta,
@@ -90,29 +121,36 @@ class GuiasInternas extends Page implements HasTable
                     'codigo' => $this->codigo,
                     'motivo' => $this->motivo,
                     'items' => $this->items,
-                    'estado' => $this->estado ?? '',
+                    'estado' => $this->estado ?? '1',
                 ])
                 ->schema([
                     Grid::make(['default' => 1, 'md' => 4])->schema([
-                        Select::make('fecha_tipo')->label('Filtrar fecha por')->options([
-                            'fecha_emision' => 'Fecha de emisión',
-                            'fecha_registro' => 'Fecha de registro',
-                            'fecha_traslado' => 'Fecha de traslado',
-                        ])->native(),
-                        DatePicker::make('desde')->label('Desde')->native(false)->required(),
-                        DatePicker::make('hasta')->label('Hasta')->native(false)->required(),
-                        Select::make('estado')->label('Estado')->options(['' => 'Todos', '1' => 'Activa', '0' => 'Anulada'])->native(),
-                        Select::make('locales_origen')->label('Locales de origen')->options($this->locales())->multiple()->searchable()->native(false)->placeholder('Todos los locales')->columnSpan(['md' => 2]),
-                        Select::make('buscar_segun')->label('Buscar según')->options(['1' => 'Local de origen', '2' => 'Local de destino'])->native(),
-                        Select::make('almacen')->label('Almacén de origen')->options($this->almacenOptions())->searchable()->native(false)->placeholder('Todos los almacenes'),
-                        Select::make('motivo')->label('Motivo')->options($this->motivoOptions())->native()->placeholder('Todos'),
-                        TextInput::make('serie')->label('Serie')->maxLength(20),
-                        TextInput::make('numero')->label('Número')->maxLength(30),
-                        TextInput::make('codigo')->label('Código')->maxLength(30),
+                        Select::make('locales_origen')->label('Locales de origen')->options(fn (): array => $this->restaurantLocalesOptions())->multiple()->searchable()->native(false)->required()->live()
+                            ->afterStateUpdated(function (mixed $state, Set $set): void {
+                                $set('almacen', null);
+                                $set('items', []);
+                                $this->remoteItemLabels = [];
+                            })->columnSpanFull(),
                         Select::make('items')->label('Contiene insumo o producto')->multiple()->searchable()->native(false)->optionsLimit(20)->maxItems(5)
-                            ->getSearchResultsUsing(fn (string $search): array => $this->itemOptions($search))
+                            ->getSearchResultsUsing(fn (string $search, Get $get): array => $this->itemOptions($search, (array) $get('locales_origen')))
                             ->getOptionLabelsUsing(fn (array $values): array => $this->itemLabels($values))
-                            ->placeholder('Buscar por nombre o código')->columnSpan(['md' => 4]),
+                            ->placeholder('Selecciona un insumo o producto')->columnSpanFull(),
+                        Select::make('almacen')->label('Almacén de origen')->options(fn (Get $get): array => $this->restaurantWarehouseOptions((array) $get('locales_origen')))->searchable()->native(false)->placeholder('Todos')
+                            ->disabled(fn (Get $get): bool => count(array_filter((array) $get('locales_origen'))) !== 1)
+                            ->columnSpan(['md' => 2]),
+                        Select::make('buscar_segun')->label('Buscar según')->options(['1' => 'Local de origen', '2' => 'Local de destino'])->native()->columnSpan(['md' => 2]),
+                        Grid::make(['default' => 1, 'md' => 3])->schema([
+                            TextInput::make('serie')->label('Serie')->maxLength(20),
+                            TextInput::make('numero')->label('Número')->maxLength(30),
+                            TextInput::make('codigo')->label('Código')->maxLength(30),
+                        ])->columnSpan(['md' => 2]),
+                        Grid::make(['default' => 1, 'md' => 3])->schema([
+                            Select::make('fecha_tipo')->label('Fecha')->options(['1' => 'De emisión', '0' => 'De traslado'])->native(),
+                            DatePicker::make('desde')->label('Desde')->native(false)->required(),
+                            DatePicker::make('hasta')->label('Hasta')->native(false)->required(),
+                        ])->columnSpan(['md' => 2]),
+                        Select::make('motivo')->label('Motivo')->options(fn (): array => $this->restaurantMotivoOptions())->native()->placeholder('Todos')->columnSpan(['md' => 2]),
+                        Select::make('estado')->label('Estado')->options(fn (): array => $this->restaurantEstadoOptions())->native()->columnSpan(['md' => 2]),
                     ]),
                 ])
                 ->action(function (array $data): void {
@@ -125,17 +163,18 @@ class GuiasInternas extends Page implements HasTable
 
                     $this->desde = $desde;
                     $this->hasta = $hasta;
-                    $this->fechaTipo = in_array((string) ($data['fecha_tipo'] ?? ''), ['fecha_emision', 'fecha_registro', 'fecha_traslado'], true) ? (string) $data['fecha_tipo'] : 'fecha_emision';
+                    $this->fechaTipo = in_array((string) ($data['fecha_tipo'] ?? ''), ['0', '1'], true) ? (string) $data['fecha_tipo'] : '1';
                     $this->buscarSegun = in_array((string) ($data['buscar_segun'] ?? ''), ['1', '2'], true) ? (string) $data['buscar_segun'] : '1';
-                    $this->localesOrigen = $this->restrictLocalIdsToUser(array_values(array_filter((array) ($data['locales_origen'] ?? []), fn (mixed $id): bool => array_key_exists((string) $id, $this->locales()))));
-                    $this->almacen = array_key_exists((string) ($data['almacen'] ?? ''), $this->almacenOptions()) ? (string) $data['almacen'] : null;
+                    $this->localesOrigen = $this->restrictLocalIdsToUser(array_values(array_filter((array) ($data['locales_origen'] ?? []), fn (mixed $id): bool => array_key_exists((string) $id, $this->restaurantLocalesOptions()))));
+                    $this->almacen = count($this->localesOrigen) === 1 && array_key_exists((string) ($data['almacen'] ?? ''), $this->restaurantWarehouseOptions($this->localesOrigen)) ? (string) $data['almacen'] : null;
                     $this->serie = $this->filterText($data['serie'] ?? null, 20);
                     $this->numero = $this->filterText($data['numero'] ?? null, 30);
                     $this->codigo = $this->filterText($data['codigo'] ?? null, 30);
-                    $this->motivo = array_key_exists((string) ($data['motivo'] ?? ''), $this->motivoOptions()) ? (string) $data['motivo'] : null;
+                    $this->motivo = array_key_exists((string) ($data['motivo'] ?? ''), $this->restaurantMotivoOptions()) ? (string) $data['motivo'] : null;
                     $this->items = array_values(array_filter((array) ($data['items'] ?? []), fn (mixed $id): bool => array_key_exists((string) $id, $this->itemLabels([(string) $id]))));
                     $this->items = array_slice($this->items, 0, 5);
-                    $this->estado = in_array((string) ($data['estado'] ?? ''), ['', '0', '1'], true) ? (string) ($data['estado'] ?? '') : null;
+                    $this->estado = array_key_exists((string) ($data['estado'] ?? ''), $this->restaurantEstadoOptions()) ? (string) $data['estado'] : '1';
+                    $this->sincronizarCopiaDeFiltros();
                     $this->resetTable();
                 }),
             ActionGroup::make([
@@ -194,6 +233,11 @@ class GuiasInternas extends Page implements HasTable
                     ->icon('heroicon-o-arrow-down-tray')
                     ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('guias-internas.sincronizar'))
                     ->url(fn (): string => ExtraccionGuiasInternas::getUrl()),
+                Action::make('reporte')
+                    ->label('Reporte')
+                    ->icon('heroicon-o-table-cells')
+                    ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('guias-internas.reporte.view'))
+                    ->url(fn (): string => ReporteGuiasInternas::getUrl()),
             ])
                 ->label('Operaciones')
                 ->icon('heroicon-o-cog-6-tooth')
@@ -299,7 +343,8 @@ class GuiasInternas extends Page implements HasTable
 
     private function query(): Builder
     {
-        $dateColumn = in_array($this->fechaTipo, ['fecha_emision', 'fecha_registro', 'fecha_traslado'], true) ? $this->fechaTipo : 'fecha_emision';
+        $dateColumn = $this->fechaTipo === '0' ? 'fecha_traslado' : 'fecha_emision';
+        $itemPairs = $this->itemPairs();
         $query = GuiaInterna::query()->when($this->desde, fn ($query) => $query->whereDate($dateColumn, '>=', $this->desde))
             ->when($this->hasta, fn ($query) => $query->whereDate($dateColumn, '<=', $this->hasta))
             ->when($this->localesOrigen !== [], fn ($query) => $query->whereIn($this->buscarSegun === '2' ? 'local_destino_id' : 'local_origen_id', $this->localesOrigen))
@@ -308,58 +353,110 @@ class GuiasInternas extends Page implements HasTable
             ->when($this->numero, fn ($query) => $query->where('correlativo', 'like', '%'.$this->numero.'%'))
             ->when($this->codigo, fn ($query) => $query->where('restaurant_id', 'like', '%'.$this->codigo.'%'))
             ->when($this->motivo, fn ($query) => $query->where('motivo_id', $this->motivo))
-            ->when($this->items !== [], fn ($query) => $query->whereIn('id', GuiaInternaDetalle::query()->whereIn('item_id', $this->items)->select('guia_interna_id')))
-            ->when($this->estado !== null && $this->estado !== '', fn ($query) => $query->where('estado_codigo', $this->estado));
+            ->when($itemPairs !== [], function (Builder $query) use ($itemPairs): void {
+                $query->whereIn('id', GuiaInternaDetalle::query()
+                    ->where(function (Builder $details) use ($itemPairs): void {
+                        foreach ($itemPairs as $item) {
+                            $details->orWhere(fn (Builder $detail) => $detail
+                                ->where('item_id', $item['id'])
+                                ->where('item_tipo', $item['tipo']));
+                        }
+                    })
+                    ->select('guia_interna_id'));
+            })
+            ->when($this->estado !== null && $this->estado !== '' && $this->estado !== '-1', fn ($query) => $query->where('estado_codigo', $this->estado));
         if (auth()->user()?->isRestrictedToLocals()) $query->whereIn('local_origen_id', auth()->user()->assignedLocalIds());
         return $query->orderByDesc('fecha_emision')->orderByDesc('id');
     }
 
     /** @return array<string, string> */
-    private function almacenOptions(): array
+    private function restaurantLocalesOptions(): array
     {
-        $query = GuiaInterna::query()->whereNotNull('almacen_id')->whereNotNull('almacen');
-        if (auth()->user()?->isRestrictedToLocals()) $query->whereIn('local_origen_id', auth()->user()->assignedLocalIds());
-        if ($this->localesOrigen !== []) $query->whereIn('local_origen_id', $this->localesOrigen);
+        try {
+            return collect($this->scopeLocalsToUser(app(GuiasInternasGatewayClient::class)->locales()))
+                ->mapWithKeys(fn (array $local): array => [(string) ($local['id'] ?? '') => (string) ($local['name'] ?? '')])
+                ->filter(fn (string $name, string $id): bool => $id !== '' && $name !== '')
+                ->all();
+        } catch (\Throwable) {
+            return [];
+        }
+    }
 
-        return $query->orderBy('almacen')->pluck('almacen', 'almacen_id')->all();
+    /** @param array<int, string> $localIds @return array<string, string> */
+    private function restaurantWarehouseOptions(array $localIds): array
+    {
+        if (count(array_filter($localIds)) !== 1) return [];
+
+        $localId = (string) (collect($localIds)->filter()->first() ?? $this->restaurantLocalId ?? '');
+        if ($localId === '' || ! $this->localAllowedForUser($localId)) return [];
+
+        try {
+            return collect(app(GuiasInternasGatewayClient::class)->almacenes($localId))
+                ->mapWithKeys(fn (array $warehouse): array => [(string) ($warehouse['id'] ?? '') => (string) ($warehouse['name'] ?? '')])
+                ->filter(fn (string $name, string $id): bool => $id !== '' && $name !== '')
+                ->all();
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /** @return array<string, string> */
-    private function motivoOptions(): array
+    private function restaurantMotivoOptions(): array
     {
-        $query = GuiaInterna::query()->whereNotNull('motivo_id')->whereNotNull('motivo');
-        if (auth()->user()?->isRestrictedToLocals()) $query->whereIn('local_origen_id', auth()->user()->assignedLocalIds());
-
-        return $query->orderBy('motivo')->pluck('motivo', 'motivo_id')->all();
+        try {
+            return collect(app(GuiasInternasGatewayClient::class)->motivos())
+                ->mapWithKeys(fn (array $motivo): array => [(string) ($motivo['id'] ?? '') => (string) ($motivo['name'] ?? '')])
+                ->filter(fn (string $name, string $id): bool => $id !== '' && $name !== '')
+                ->all();
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /** @return array<string, string> */
-    private function itemOptions(string $search): array
+    private function restaurantEstadoOptions(): array
+    {
+        try {
+            return collect(app(GuiasInternasGatewayClient::class)->estados())
+                ->mapWithKeys(fn (array $estado): array => [(string) ($estado['id'] ?? '') => (string) ($estado['name'] ?? '')])
+                ->filter(fn (string $name, string $id): bool => $id !== '' && $name !== '')
+                ->all();
+        } catch (\Throwable) {
+            return ['-1' => 'Todos', '1' => 'Activa', '2' => 'Importada', '0' => 'Anulada', '3' => 'Agrupada', '4' => 'Sin Facturar'];
+        }
+    }
+
+    /** @param array<int, string> $localIds @return array<string, string> */
+    private function itemOptions(string $search, array $localIds = []): array
     {
         $search = trim($search);
-        if (mb_strlen($search) < 2) return [];
+        $localId = (string) (collect($localIds)->filter()->first() ?? $this->restaurantLocalId ?? '');
+        if (mb_strlen($search) < 2 || $localId === '' || ! $this->localAllowedForUser($localId)) return [];
 
-        $guideIds = GuiaInterna::query()->select('id');
-        if (auth()->user()?->isRestrictedToLocals()) $guideIds->whereIn('local_origen_id', auth()->user()->assignedLocalIds());
+        try {
+            $options = collect(app(GuiasInternasGatewayClient::class)->items($search, $localId))
+                ->mapWithKeys(function (array $item): array {
+                    $key = $this->itemValue($item['item_tipo'] ?? '', $item['id'] ?? $item['item_id'] ?? '');
+                    $label = trim((filled($item['codigo'] ?? null) ? $item['codigo'].' · ' : '').($item['descripcion'] ?? $item['item_descripcion'] ?? ''));
+                    if ($key === ':' || $label === '') return [];
+                    $this->remoteItemLabels[$key] = $label;
 
-        return GuiaInternaDetalle::query()->whereIn('guia_interna_id', $guideIds)
-            ->where(fn ($query) => $query->where('item_codigo', 'ilike', '%'.$search.'%')->orWhere('item', 'ilike', '%'.$search.'%'))
-            ->orderBy('item')->limit(20)->get(['item_id', 'item_codigo', 'item'])
-            ->mapWithKeys(fn (GuiaInternaDetalle $item): array => [(string) $item->item_id => trim(($item->item_codigo ? $item->item_codigo.' · ' : '').$item->item)])
-            ->all();
+                    return [$key => $label];
+                })
+                ->all();
+
+            return $options;
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /** @param array<int, string> $values @return array<string, string> */
     private function itemLabels(array $values): array
     {
-        if ($values === []) return [];
-
-        $guideIds = GuiaInterna::query()->select('id');
-        if (auth()->user()?->isRestrictedToLocals()) $guideIds->whereIn('local_origen_id', auth()->user()->assignedLocalIds());
-
-        return GuiaInternaDetalle::query()->whereIn('guia_interna_id', $guideIds)->whereIn('item_id', $values)
-            ->orderBy('item')->get(['item_id', 'item_codigo', 'item'])->unique('item_id')
-            ->mapWithKeys(fn (GuiaInternaDetalle $item): array => [(string) $item->item_id => trim(($item->item_codigo ? $item->item_codigo.' · ' : '').$item->item)])
+        return collect($values)
+            ->filter(fn (mixed $value): bool => isset($this->remoteItemLabels[(string) $value]))
+            ->mapWithKeys(fn (mixed $value): array => [(string) $value => $this->remoteItemLabels[(string) $value]])
             ->all();
     }
 
@@ -368,6 +465,55 @@ class GuiasInternas extends Page implements HasTable
         $value = mb_substr(trim((string) $value), 0, $maxLength);
 
         return $value !== '' ? $value : null;
+    }
+
+    /** @param array<int, string>|null $values @return array<int, array{tipo: string, id: string}> */
+    private function itemPairs(?array $values = null): array
+    {
+        return collect($values ?? $this->items)
+            ->map(function (mixed $value): ?array {
+                [$tipo, $id] = array_pad(explode(':', (string) $value, 2), 2, '');
+
+                return $tipo !== '' && $id !== '' ? ['tipo' => $tipo, 'id' => $id] : null;
+            })
+            ->filter()
+            ->values()
+            ->all();
+    }
+
+    private function itemValue(mixed $tipo, mixed $id): string
+    {
+        return (string) $tipo.':'.(string) $id;
+    }
+
+    private function restablecerFiltrosRestaurant(): void
+    {
+        $this->desde = now()->subDays(30)->toDateString();
+        $this->hasta = now()->toDateString();
+        $this->activeDatePreset = 'last30';
+        $this->fechaTipo = '1';
+        $this->buscarSegun = '1';
+        $this->localesOrigen = $this->restaurantLocalId ? [$this->restaurantLocalId] : [];
+        $this->items = [];
+        $this->remoteItemLabels = [];
+        $this->almacen = null;
+        $this->serie = null;
+        $this->numero = null;
+        $this->codigo = null;
+        $this->motivo = null;
+        $this->estado = '1';
+    }
+
+    private function sincronizarCopiaDeFiltros(): void
+    {
+        if (! auth()->user()?->hasPermission('guias-internas.sincronizar')) return;
+
+        Artisan::call('guias-internas:sincronizar', [
+            '--desde' => $this->desde,
+            '--hasta' => $this->hasta,
+            '--locales' => $this->localesOrigen,
+            '--estado' => $this->estado ?? '-1',
+        ]);
     }
 
     private function downloadAction(string $variant, string $label): Action
@@ -426,6 +572,8 @@ class GuiasInternas extends Page implements HasTable
     /** @return array<string, string> */
     private function gatewayFilters(): array
     {
+        $itemPairs = $this->itemPairs();
+
         return [
             'fecha_inicio' => $this->desde,
             'fecha_fin' => $this->hasta,
@@ -437,6 +585,9 @@ class GuiasInternas extends Page implements HasTable
             'serie' => $this->serie ?? '',
             'numero' => $this->numero ?? '',
             'codigo' => $this->codigo ?? '',
+            'filtro_por_fecha' => $this->fechaTipo,
+            'item_ids' => implode('-', array_column($itemPairs, 'id')),
+            'item_tipos' => implode('-', array_column($itemPairs, 'tipo')),
         ];
     }
 

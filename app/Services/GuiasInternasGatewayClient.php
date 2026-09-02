@@ -15,10 +15,12 @@ class GuiasInternasGatewayClient
     }
 
     public function guias(array $filters): array { return $this->get('/api/guias', $filters); }
+    public function contextoFiltros(): array { return $this->get('/api/contexto-filtros'); }
     public function detalle(string $id): array { return $this->get('/api/guias/' . $id); }
     public function locales(): array { return $this->get('/api/locals')['locals'] ?? []; }
     public function almacenes(string $local): array { return $this->get('/api/almacenes', ['local_id' => $local])['almacenes'] ?? []; }
     public function motivos(): array { return $this->get('/api/motivos')['motivos'] ?? []; }
+    public function estados(): array { return $this->get('/api/estados')['estados'] ?? []; }
     public function recurrentes(string $local): array { return $this->get('/api/recurrentes', ['local_id' => $local]); }
     public function siguienteCorrelativo(string $serie): array { return $this->get('/api/siguiente-correlativo', ['serie' => $serie]); }
     public function items(string $q, string $local): array { return $this->get('/api/items', ['q' => $q, 'local_id' => $local])['items'] ?? []; }
