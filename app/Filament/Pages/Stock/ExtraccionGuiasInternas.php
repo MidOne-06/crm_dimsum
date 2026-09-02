@@ -12,7 +12,7 @@ use Carbon\CarbonPeriod;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
-use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
@@ -78,13 +78,23 @@ class ExtraccionGuiasInternas extends Page implements HasTable
     public function form(Schema $schema): Schema
     {
         return $schema->components([
-            Section::make('Locales')->compact()->collapsible()->collapsed()->schema([
-                CheckboxList::make('selectedLocals')->hiddenLabel()
+            Grid::make(['default' => 1, 'md' => 2, 'xl' => 4])->schema([
+                CheckboxList::make('selectedLocals')->label('Locales a extraer')
                     ->options(fn (): array => collect($this->locals)->pluck('name', 'id')->all())
                     ->columns(['default' => 1, 'sm' => 2, 'lg' => 3, 'xl' => 4])
-                    ->bulkToggleable()->searchable()->required(),
+                    ->bulkToggleable()->searchable()->required()->columnSpanFull(),
             ]),
         ])->statePath('data');
+    }
+
+    public function abrirFiltrosExtraccion(): void
+    {
+        $this->dispatch('open-modal', id: 'filtros-extraccion-guias');
+    }
+
+    public function cerrarFiltrosExtraccion(): void
+    {
+        $this->dispatch('close-modal', id: 'filtros-extraccion-guias');
     }
 
     public function syncDateRange(string $start, string $end, string $preset = 'custom'): void
@@ -130,6 +140,7 @@ class ExtraccionGuiasInternas extends Page implements HasTable
         $run = app(GuiasInternasHistoricoService::class)->iniciar($start, $end, $locals, auth()->id());
         $this->extraccionActualId = $run->id;
         $this->esperandoExtraccion = true;
+        $this->cerrarFiltrosExtraccion();
         Notification::make()->title('Extracción encolada')->body('Arranca en menos de un minuto.')->success()->send();
     }
 

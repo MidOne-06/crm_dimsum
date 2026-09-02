@@ -18,17 +18,11 @@
         </x-filament::tabs>
 
         <div x-show="tab === 'nueva'" class="space-y-4">
-            <x-filament::section collapsible :collapsed="$extraccion !== null" class="crm-query-section">
-                <x-slot name="heading">Filtros de extracción</x-slot>
-                <form wire:submit.prevent="iniciarExtraccion" class="space-y-4">
-                    {{ $this->form }}
-                    <x-filament::fieldset label="Fecha" class="crm-filter-date">
-                        @include('filament.components.date-range-picker',['start'=>$data['dateStart'] ?? now()->toDateString(),'end'=>$data['dateEnd'] ?? now()->toDateString(),'preset'=>$activeDatePreset,'syncMethod'=>'syncDateRange'])
-                    </x-filament::fieldset>
-                    @if($resultError)<p class="text-sm font-medium text-danger-600 dark:text-danger-400">{{ $resultError }}</p>@endif
-                    <div class="crm-form-actions"><x-filament::button type="submit" icon="heroicon-m-circle-stack" :disabled="$this->hayExtraccionEnProgreso()">{{ $this->hayExtraccionEnProgreso() ? 'Ya hay una extracción en progreso…' : 'Iniciar extracción' }}</x-filament::button></div>
-                </form>
-            </x-filament::section>
+            <div class="flex justify-end">
+                <x-filament::button wire:click="abrirFiltrosExtraccion" icon="heroicon-o-adjustments-horizontal" :disabled="$this->hayExtraccionEnProgreso()">
+                    {{ $this->hayExtraccionEnProgreso() ? 'Extracción en progreso' : 'Configurar extracción' }}
+                </x-filament::button>
+            </div>
 
             @if($extraccion || $esperandoExtraccion)
                 <div @if($esperandoExtraccion || ($extraccion && in_array($extraccion->estado,['pendiente','en_progreso'],true))) wire:poll.3s="refreshExtraccion" @endif>
@@ -54,5 +48,27 @@
 
         <div x-show="tab === 'cobertura'" x-cloak>@include('filament.pages.stock.partials.extraccion-guias-cobertura')</div>
         <div x-show="tab === 'historial'" x-cloak><x-filament::section><x-slot name="heading">Historial de extracciones</x-slot>{{ $this->table }}</x-filament::section></div>
+
+        <x-filament::modal id="filtros-extraccion-guias" width="5xl" sticky-header sticky-footer>
+            <x-slot name="heading">Filtros de extracción</x-slot>
+
+            <form id="filtros-extraccion-guias-form" wire:submit.prevent="iniciarExtraccion" class="space-y-5">
+                <div class="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+                    <div class="md:col-span-2 xl:col-span-4">
+                        <span class="mb-1.5 block text-sm font-medium leading-6 text-gray-950 dark:text-white">Rango de fecha</span>
+                        @include('filament.components.date-range-picker', ['start' => $data['dateStart'] ?? now()->subDays(30)->toDateString(), 'end' => $data['dateEnd'] ?? now()->toDateString(), 'preset' => $activeDatePreset, 'syncMethod' => 'syncDateRange'])
+                    </div>
+                    <div class="md:col-span-2 xl:col-span-4">
+                        {{ $this->form }}
+                    </div>
+                </div>
+                @if($resultError)<p class="text-sm font-medium text-danger-600 dark:text-danger-400">{{ $resultError }}</p>@endif
+            </form>
+
+            <x-slot name="footerActions">
+                <x-filament::button color="gray" wire:click="cerrarFiltrosExtraccion">Cancelar</x-filament::button>
+                <x-filament::button type="submit" form="filtros-extraccion-guias-form" icon="heroicon-m-circle-stack" :disabled="$this->hayExtraccionEnProgreso()">Iniciar extracción</x-filament::button>
+            </x-slot>
+        </x-filament::modal>
     </div>
 </x-filament-panels::page>
