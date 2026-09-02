@@ -43,6 +43,7 @@ class FabricaCapacidadProductoResource extends Resource
                 Select::make('item_id')
                     ->label('Producto')
                     ->searchable()->native(false)->required()
+                    ->unique(ignoreRecord: true)
                     ->getSearchResultsUsing(fn (string $search): array => static::productSearchResults($search))
                     ->getOptionLabelUsing(fn ($value): ?string => static::productLabel((string) $value))
                     ->afterStateUpdated(function (callable $set, ?string $state): void {

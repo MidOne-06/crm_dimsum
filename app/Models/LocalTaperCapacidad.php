@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\RegistraTrazabilidad;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /** Máximo de tapers de un tipo dado que soporta la congeladora de un local. */
 class LocalTaperCapacidad extends Model
 {
+    use RegistraTrazabilidad;
+
     protected $table = 'local_taper_capacidades';
 
     protected $fillable = ['local_id', 'local_nombre', 'taper_tipo_id', 'capacidad_maxima'];

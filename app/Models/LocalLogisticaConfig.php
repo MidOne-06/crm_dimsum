@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\RegistraTrazabilidad;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -13,6 +14,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class LocalLogisticaConfig extends Model
 {
+    use RegistraTrazabilidad;
+
     protected $fillable = [
         'local_id', 'local_nombre', 'frecuencia_dias', 'hora_llegada_estimada',
         'ventana_recepcion_inicio', 'ventana_recepcion_fin',

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\RegistraTrazabilidad;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
@@ -13,6 +14,8 @@ use Illuminate\Support\Facades\DB;
  */
 class FabricaCapacidadProducto extends Model
 {
+    use RegistraTrazabilidad;
+
     protected $fillable = ['item_id', 'item_codigo', 'item_nombre', 'capacidad_maxima_dia'];
 
     /** Producido real (suma de entradas a FABRICA) para este producto en una fecha dada. */

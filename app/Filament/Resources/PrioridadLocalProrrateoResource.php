@@ -43,6 +43,7 @@ class PrioridadLocalProrrateoResource extends Resource
                     ->label('Local')
                     ->options(fn (): array => static::localOptions())
                     ->searchable()->native(false)->required()->live()
+                    ->unique(ignoreRecord: true)
                     ->afterStateUpdated(fn (callable $set, ?string $state) => $set('local_nombre', $state ? (static::localOptions()[$state] ?? null) : null)),
                 TextInput::make('local_nombre')->label('Nombre (referencia)')->readOnly()->required(),
                 TextInput::make('orden')->label('Orden de prioridad')->numeric()->minValue(1)->required()->helperText('Menor número = más prioridad al repartir si FABRICA no alcanza.'),

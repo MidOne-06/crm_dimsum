@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\RegistraTrazabilidad;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -10,6 +11,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class ConfiguracionProrrateo extends Model
 {
+    use RegistraTrazabilidad;
+
     protected $fillable = ['estrategia'];
 
     public static function singleton(): self

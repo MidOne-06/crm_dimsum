@@ -14,6 +14,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Validation\Rules\Unique;
 
 /** Producto sustituto válido cuando falta la presentación exacta en origen (Directiva de Transferencia, Fase 0). */
 class ReglaSustitucionProductoResource extends Resource
@@ -39,12 +40,19 @@ class ReglaSustitucionProductoResource extends Resource
                     ->searchable()->native(false)->required()
                     ->getSearchResultsUsing(fn (string $search) => static::productSearchResults($search))
                     ->getOptionLabelUsing(fn ($value) => static::productLabel((string) $value))
-                    ->afterStateUpdated(fn (callable $set, ?string $state) => $set('item_original_nombre', $state ? static::productLabel((string) $state) : null))->live(),
+                    ->afterStateUpdated(fn (callable $set, ?string $state) => $set('item_original_nombre', $state ? static::productNombrePuro((string) $state) : null))
+                    ->unique(
+                        ignoreRecord: true,
+                        modifyRuleUsing: fn (Unique $rule, callable $get) => $rule->where('item_sustituto_id', $get('item_sustituto_id')),
+                    )
+                    ->live(),
                 Select::make('item_sustituto_id')->label('Producto sustituto')
                     ->searchable()->native(false)->required()
                     ->getSearchResultsUsing(fn (string $search) => static::productSearchResults($search))
                     ->getOptionLabelUsing(fn ($value) => static::productLabel((string) $value))
-                    ->afterStateUpdated(fn (callable $set, ?string $state) => $set('item_sustituto_nombre', $state ? static::productLabel((string) $state) : null))->live(),
+                    ->afterStateUpdated(fn (callable $set, ?string $state) => $set('item_sustituto_nombre', $state ? static::productNombrePuro((string) $state) : null))
+                    ->different('item_original_id')
+                    ->live(),
                 Toggle::make('activo')->label('Regla activa')->default(true)->columnSpanFull(),
             ])->columns(2),
         ]);
@@ -80,6 +88,13 @@ class ReglaSustitucionProductoResource extends Resource
             ->selectRaw('MAX(cod_interno) AS cod_interno, MAX(item_nombre) AS item_nombre')->first();
 
         return $row ? trim("{$row->cod_interno} · {$row->item_nombre}", ' ·') : null;
+    }
+
+    /** Nombre puro (sin código) para guardar en item_original_nombre/item_sustituto_nombre -- el combinado "código · nombre" es solo para la etiqueta del desplegable. */
+    protected static function productNombrePuro(string $itemId): ?string
+    {
+        return KardexMovimiento::query()->where('item_id', $itemId)
+            ->orderByDesc('id')->value('item_nombre');
     }
 
     public static function getPages(): array
