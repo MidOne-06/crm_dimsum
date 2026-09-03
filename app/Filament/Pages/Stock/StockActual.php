@@ -48,14 +48,10 @@ class StockActual extends Page implements HasTable
 
     public int $cuadresRegistros = 10;
 
-    public bool $showDetail = false;
-
-    public bool $detailLoading = false;
-
-    public ?string $detailError = null;
-
-    /** @var array<string, mixed>|null */
-    public ?array $detail = null;
+    protected function getHeaderActions(): array
+    {
+        return [$this->filtrosModalAction()];
+    }
 
     public function search(): void
     {
@@ -99,7 +95,21 @@ class StockActual extends Page implements HasTable
                     ->label('Ver')
                     ->icon('heroicon-o-eye')
                     ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('stock.actual.ver-detalle'))
-                    ->action(fn (array $record): mixed => $this->openDetail((string) ($record['cuadremanual_id'] ?? ''))),
+                    ->modalHeading(fn (array $record): string => 'Detalle de cuadre manual #'.($record['cuadremanual_id'] ?? ''))
+                    ->modalWidth('7xl')
+                    ->stickyModalHeader()
+                    ->stickyModalFooter()
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('Cerrar')
+                    ->modalContent(function (array $record) {
+                        $detail = $this->loadDetail((string) ($record['cuadremanual_id'] ?? ''));
+
+                        return view('filament.pages.stock.partials.stock-actual-detalle', [
+                            'detail' => $detail,
+                            'rows' => $detail ? $this->detailTableRows($detail) : [],
+                            'columns' => $this->detailTableColumns(),
+                        ]);
+                    }),
             ])
             ->paginated([10, 25, 50, 100])
             ->defaultPaginationPageOption(10)
@@ -139,34 +149,22 @@ class StockActual extends Page implements HasTable
         $this->resetTable();
     }
 
-    public function openDetail(string $id): void
+    /** @return array<string, mixed>|null null si el cuadre aún no está en la copia local. */
+    public function loadDetail(string $id): ?array
     {
         if (! auth()->user()?->hasPermission('stock.actual.ver-detalle')) {
-            return;
+            return null;
         }
 
-        $this->showDetail = true;
-        $this->detailLoading = false;
-        $this->detailError = null;
-        $this->detail = null;
         $cuadre = StockCuadre::query()->with(['detalles' => fn ($query) => $query->where('activo', true)->orderBy('id')])->where('restaurant_id', $id)->first();
-        if (! $cuadre) $this->detailError = 'El detalle aún no está disponible en la copia local.';
-        else $this->detail = $this->detailLocal($cuadre);
-        $this->dispatch('open-modal', id: 'stock-detail-modal');
+
+        return $cuadre ? $this->detailLocal($cuadre) : null;
     }
 
-    public function closeDetail(): void
+    /** @param array<string, mixed> $detail @return array<int, array<string, mixed>> */
+    public function detailTableRows(array $detail): array
     {
-        $this->showDetail = false;
-        $this->detail = null;
-        $this->detailError = null;
-        $this->dispatch('close-modal', id: 'stock-detail-modal');
-    }
-
-    /** @return array<int, array<string, mixed>> */
-    public function detailTableRows(): array
-    {
-        return collect($this->detail['items'] ?? [])->map(fn (array $item): array => [
+        return collect($detail['items'] ?? [])->map(fn (array $item): array => [
             'item' => $item['item'] ?? '—',
             'almacen' => $item['almacen'] ?? '—',
             'aumento' => $item['aumento'] ?? 0,

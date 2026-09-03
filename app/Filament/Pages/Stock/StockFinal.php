@@ -4,6 +4,7 @@ namespace App\Filament\Pages\Stock;
 
 use App\Filament\Concerns\ScopesLocalsToUser;
 use App\Services\StockFinalGatewayClient;
+use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -222,6 +223,62 @@ class StockFinal extends Page
                     ]),
             ])
             ->statePath('data');
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('filtros')
+                ->label('Filtros')
+                ->icon('heroicon-o-adjustments-horizontal')
+                ->color('gray')
+                ->visible(fn (): bool => ! $this->gatewayUnavailable)
+                ->modalHeading('Filtros de stock por almacén')
+                ->modalWidth('3xl')
+                ->stickyModalHeader()
+                ->stickyModalFooter()
+                ->modalSubmitActionLabel('Consultar')
+                ->modalCancelActionLabel('Cancelar')
+                ->fillForm(fn (): array => $this->data ?? [])
+                ->schema([
+                    Grid::make(['default' => 1, 'md' => 2, 'xl' => 5])
+                        ->schema([
+                            Select::make('local_id')
+                                ->label('Local')
+                                ->native(false)
+                                ->searchable()
+                                ->live()
+                                ->options(fn (): array => collect($this->availableLocals)->pluck('name', 'id')->all())
+                                ->afterStateUpdated(function (?string $state) {
+                                    $this->refreshAlmacenes($state ?? '');
+                                    $this->refreshPlantillas($state ?? '');
+                                }),
+                            Select::make('almacen_id')
+                                ->label('Almacén')
+                                ->native(false)
+                                ->searchable()
+                                ->options(fn (): array => collect($this->almacenOptions)->pluck('nombre', 'id')->all())
+                                ->placeholder('Selecciona un almacén'),
+                            Select::make('tipo')
+                                ->label('Tipo')
+                                ->native(false)
+                                ->searchable()
+                                ->options(fn (): array => collect($this->tipoOptions)->pluck('label', 'value')->all()),
+                            TextInput::make('busqueda')
+                                ->label('Buscar ítem')
+                                ->placeholder('Código o descripción'),
+                            Select::make('registros')
+                                ->label('Registros')
+                                ->native(false)
+                                ->options(['100' => '100', '250' => '250', '500' => '500'])
+                                ->default('100'),
+                        ]),
+                ])
+                ->action(function (array $data): void {
+                    $this->data = array_merge($this->data ?? [], $data);
+                    $this->search();
+                }),
+        ];
     }
 
     /** Select buscables de "Categoría" y "Plantilla", separados del form() principal para no mezclar su estado. */

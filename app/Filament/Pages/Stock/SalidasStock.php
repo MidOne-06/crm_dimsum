@@ -5,10 +5,13 @@ namespace App\Filament\Pages\Stock;
 use App\Filament\Concerns\ScopesLocalsToUser;
 use App\Models\SalidaStock;
 use Filament\Actions\Action;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Select;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
@@ -62,6 +65,44 @@ class SalidasStock extends Page implements HasTable
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('filtros')
+                ->label('Filtros')
+                ->icon('heroicon-o-adjustments-horizontal')
+                ->color('gray')
+                ->modalHeading('Filtros de salidas de stock')
+                ->modalWidth('2xl')
+                ->stickyModalHeader()
+                ->stickyModalFooter()
+                ->modalSubmitActionLabel('Aplicar filtros')
+                ->modalCancelActionLabel('Cancelar')
+                ->fillForm(fn (): array => [
+                    'desde' => $this->desde,
+                    'hasta' => $this->hasta,
+                    'local' => $this->local,
+                    'categoria' => $this->categoria,
+                ])
+                ->schema([
+                    Grid::make(['default' => 1, 'md' => 2])->schema([
+                        DatePicker::make('desde')->label('Desde')->native(false)->required(),
+                        DatePicker::make('hasta')->label('Hasta')->native(false)->required(),
+                        Select::make('local')->label('Local')->native(false)->searchable()
+                            ->options(fn (): array => $this->locales())->placeholder('Todos los locales'),
+                        Select::make('categoria')->label('Categoría')->native(false)->searchable()
+                            ->options(fn (): array => $this->categorias())->placeholder('Todas las categorías'),
+                    ]),
+                ])
+                ->action(function (array $data): void {
+                    $desde = (string) ($data['desde'] ?? $this->desde);
+                    $hasta = (string) ($data['hasta'] ?? $this->hasta);
+                    if ($desde > $hasta) [$desde, $hasta] = [$hasta, $desde];
+
+                    $this->desde = $desde;
+                    $this->hasta = $hasta;
+                    $this->activeDatePreset = 'custom';
+                    $this->local = filled($data['local'] ?? null) ? (string) $data['local'] : null;
+                    $this->categoria = filled($data['categoria'] ?? null) ? (string) $data['categoria'] : null;
+                    $this->resetTable();
+                }),
             Action::make('nuevaSalida')
                 ->label('Nueva salida')
                 ->icon('heroicon-o-plus')

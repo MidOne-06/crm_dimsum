@@ -4,8 +4,15 @@
         x-data
         x-on:stock-results-ready.window="$nextTick(() => document.getElementById('stock-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))"
     >
+        @if ($gatewayUnavailable)
+            <x-filament::section icon="heroicon-o-exclamation-triangle" icon-color="danger">
+                <p class="fi-in-text text-sm font-medium text-danger-600 dark:text-danger-400">{{ $filtersError }}</p>
+            </x-filament::section>
+        @endif
 
-        @include('filament.pages.stock.partials.filters-form')
+        @if ($resultError)
+            <p class="text-sm font-medium text-danger-600 dark:text-danger-400">{{ $resultError }}</p>
+        @endif
 
         @if ($hasSearched)
             <div class="grid gap-4 sm:grid-cols-3">
@@ -30,41 +37,4 @@
             <livewire:stock.maestro-operativo-table :rows="$reportMasterRows" wire:key="stock-maestro-{{ md5(json_encode($reportMasterRows)) }}" />
         @endif
     </div>
-
-    <x-filament::modal id="stock-detail-modal" width="7xl" sticky-header sticky-footer class="crm-detail-modal">
-        <x-slot name="heading">
-            Detalle de cuadre manual {{ $detail['id'] ?? '' ? '#'.$detail['id'] : '' }}
-        </x-slot>
-
-        @if ($detailLoading)
-            <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                <x-filament::loading-indicator class="h-4 w-4" />
-                Cargando detalle local…
-            </div>
-        @elseif ($detailError)
-            <p class="text-sm font-medium text-danger-600 dark:text-danger-400">{{ $detailError }}</p>
-        @elseif ($detail)
-            <div class="crm-detail-summary">
-                <div><span>Responsable</span><strong>{{ $detail['registradoPor'] ?: '—' }}</strong></div>
-                <div><span>Local</span><strong>{{ $detail['local'] ?? '—' }}</strong></div>
-                <div><span>Registro</span><strong>{{ $detail['fechaRegistro'] ?? '—' }}</strong></div>
-                <div><span>Cuadre</span><strong>{{ $detail['fechaCuadre'] ?? '—' }}</strong></div>
-                <div><span>Ítems</span><strong>{{ count($detail['items'] ?? []) }}</strong></div>
-            </div>
-
-            @if (count($detail['items'] ?? []))
-                <livewire:requerimientos-stock.tabla
-                    :rows="$this->detailTableRows()"
-                    :columns="$this->detailTableColumns()"
-                    wire:key="stock-detail-{{ $detail['id'] ?? $detail['cuadremanual_id'] ?? 'actual' }}"
-                />
-            @else
-                <x-filament::empty-state icon="heroicon-o-inbox" heading="Este cuadre no tiene ítems." />
-            @endif
-        @endif
-
-        <x-slot name="footerActions">
-            <x-filament::button color="gray" wire:click="closeDetail">Cerrar</x-filament::button>
-        </x-slot>
-    </x-filament::modal>
 </x-filament-panels::page>

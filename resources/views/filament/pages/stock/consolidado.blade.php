@@ -1,11 +1,14 @@
 <x-filament-panels::page>
-    <div
-        class="space-y-6"
-        x-data
-        x-on:stock-results-ready.window="$nextTick(() => document.getElementById('stock-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))"
-    >
+    <div class="space-y-6">
+        @if ($gatewayUnavailable)
+            <x-filament::section icon="heroicon-o-exclamation-triangle" icon-color="danger">
+                <p class="fi-in-text text-sm font-medium text-danger-600 dark:text-danger-400">{{ $filtersError }}</p>
+            </x-filament::section>
+        @endif
 
-        @include('filament.pages.stock.partials.filters-form')
+        @if ($resultError)
+            <p class="text-sm font-medium text-danger-600 dark:text-danger-400">{{ $resultError }}</p>
+        @endif
 
         @if ($hasSearched)
             <x-filament::section id="stock-results">

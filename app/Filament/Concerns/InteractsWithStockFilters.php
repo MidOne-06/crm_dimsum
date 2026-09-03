@@ -3,10 +3,12 @@
 namespace App\Filament\Concerns;
 
 use App\Services\StockGatewayClient;
+use Filament\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Select;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\View as ViewComponent;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -137,6 +139,69 @@ trait InteractsWithStockFilters
                     ]),
             ])
             ->statePath('data');
+    }
+
+    /**
+     * Estándar de modales de Filament nativo: reemplaza la sección "Filtros"
+     * que antes vivía siempre visible arriba de la página por un botón que
+     * abre un modal (Action::make()->schema()->action()), igual que el
+     * resto de módulos ya convertidos. El rango de fechas y el buscador de
+     * insumo/producto no son campos de Schema (son un widget Alpine y un
+     * buscador con sugerencias en vivo, respectivamente) -- se embeben
+     * dentro del mismo modal con un componente View, que renderiza sobre
+     * el mismo Livewire de la página sin duplicar su estado.
+     */
+    protected function filtrosModalAction(): Action
+    {
+        return Action::make('filtros')
+            ->label('Filtros')
+            ->icon('heroicon-o-adjustments-horizontal')
+            ->color('gray')
+            ->modalHeading('Filtros')
+            ->modalWidth('4xl')
+            ->stickyModalHeader()
+            ->stickyModalFooter()
+            ->modalSubmitActionLabel('Buscar')
+            ->modalCancelActionLabel('Cancelar')
+            ->fillForm(fn (): array => $this->data ?? [])
+            ->schema([
+                Section::make('Locales')
+                    ->collapsible()
+                    ->collapsed()
+                    ->compact()
+                    ->schema([
+                        CheckboxList::make('selectedLocals')
+                            ->hiddenLabel()
+                            ->options(fn (): array => collect($this->availableLocals)->pluck('name', 'id')->all())
+                            ->columns(['default' => 1, 'sm' => 2, 'lg' => 3, 'xl' => 4])
+                            ->bulkToggleable()
+                            ->searchable()
+                            ->gridDirection('row'),
+                    ]),
+                Grid::make(['default' => 1, 'md' => 2])
+                    ->schema([
+                        Select::make('estado')
+                            ->label('Estado')
+                            ->native(false)
+                            ->options(fn (): array => collect($this->estadoOptions)->pluck('label', 'value')->all()),
+                        Select::make('tipo')
+                            ->label('Tipo de cuadre')
+                            ->native(false)
+                            ->options(fn (): array => collect($this->tipoOptions)->pluck('label', 'value')->all()),
+                    ]),
+                ViewComponent::make('filament.pages.stock.partials.filtros-modal-extra')
+                    ->viewData(fn (): array => [
+                        'data' => $this->data ?? [],
+                        'activeDatePreset' => $this->activeDatePreset,
+                        'itemSearch' => $this->itemSearch,
+                        'itemSuggestions' => $this->itemSuggestions,
+                        'selectedItems' => $this->selectedItems,
+                    ]),
+            ])
+            ->action(function (array $data): void {
+                $this->data = array_merge($this->data ?? [], $data);
+                $this->search();
+            });
     }
 
     protected function gateway(): StockGatewayClient

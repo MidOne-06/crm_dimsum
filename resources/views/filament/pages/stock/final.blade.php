@@ -5,21 +5,11 @@
                 <p class="text-sm font-medium text-danger-600 dark:text-danger-400">{{ $filtersError }}</p>
             </x-filament::section>
         @else
+            @if ($resultError)
+                <p class="text-sm font-medium text-danger-600 dark:text-danger-400">{{ $resultError }}</p>
+            @endif
+
             <x-filament::section>
-                <form wire:submit.prevent="search" class="space-y-3">
-                    {{ $this->form }}
-
-                    @if ($resultError)
-                        <p class="text-sm font-medium text-danger-600 dark:text-danger-400">{{ $resultError }}</p>
-                    @endif
-
-                    <div class="flex justify-end">
-                        <x-filament::button type="submit" icon="heroicon-o-magnifying-glass" :disabled="$isLoading">
-                            {{ $isLoading ? 'Consultando…' : 'Consultar' }}
-                        </x-filament::button>
-                    </div>
-                </form>
-
                 @if ($hasSearched && count($items))
                     <div class="mt-3 border-t border-gray-200 pt-3 dark:border-white/10">
                         <div class="max-w-xl">

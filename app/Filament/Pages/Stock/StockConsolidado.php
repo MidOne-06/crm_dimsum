@@ -50,6 +50,11 @@ class StockConsolidado extends Page implements HasTable
         $this->resetTable();
     }
 
+    protected function getHeaderActions(): array
+    {
+        return [$this->filtrosModalAction()];
+    }
+
     public function table(Table $table): Table
     {
         return $table
