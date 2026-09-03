@@ -95,7 +95,11 @@ services:
       STOCK_GATEWAY_URL: http://gateway:3000
     # Kardex usa reportes XLSX completos; concede margen al timeout de 600 s
     # del job y mantenlo por debajo del retry_after de la cola.
-    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=ventas-pages,ventas-details,stock-actual,default", "--sleep=1", "--tries=4", "--timeout=720", "--max-time=3600"]
+    # guias-internas/salidas-stock/requerimientos-stock se agregaron para
+    # que un redeploy de `scheduler` (donde antes corrían via
+    # BackgroundArtisan) no interrumpa una sincronización histórica larga a
+    # mitad de camino -- ver Bitácora en AGENTS.md.
+    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=ventas-pages,ventas-details,stock-actual,guias-internas,salidas-stock,requerimientos-stock,default", "--sleep=1", "--tries=4", "--timeout=720", "--max-time=3600"]
     deploy:
       replicas: ${VENTAS_WORKER_REPLICAS:-0}
     volumes:

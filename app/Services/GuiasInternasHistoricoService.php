@@ -34,8 +34,14 @@ class GuiasInternasHistoricoService
             // transitorias (ver GuiasInternasGatewayClient::get); si aun así
             // falla, no hay forma de continuar.
             $first = $gateway->guias($filters); $total = (int) ($first['total'] ?? 0); $pages = max(1, (int) ceil($total / 50)); $sync->update(['paginas_total' => $pages]);
-            $saved = $details = $failed = 0; $seen = $errors = []; $paginasFallidas = [];
+            $saved = $details = $failed = 0; $seen = $errors = []; $paginasFallidas = []; $cancelada = false;
             for ($page = 1; $page <= $pages; $page++) {
+                // Cancelación cooperativa: al correr en un worker compartido
+                // (no un proceso propio con PID matable), "Detener" en la UI
+                // solo puede marcar el estado -- este chequeo entre páginas es
+                // lo que realmente para el trabajo, en el próximo punto de
+                // control seguro (nunca a mitad de guardar una página).
+                if (GuiaInternaSincronizacion::query()->whereKey($sync->id)->value('estado') === 'cancelado') { $cancelada = true; break; }
                 try {
                     $result = $page === 1 ? $first : $gateway->guias([...$filters, 'pagina' => $page]);
                 } catch (\Throwable $e) {
@@ -54,6 +60,13 @@ class GuiasInternasHistoricoService
                     catch (\Throwable $e) { $failed++; $errors[] = "Guía {$id}: {$e->getMessage()}"; }
                 }
                 $sync->update(['paginas_procesadas' => $page, 'cabeceras_guardadas' => $saved, 'detalles_guardados' => $details, 'errores' => $failed]);
+            }
+            if ($cancelada) {
+                // El estado 'cancelado' y su mensaje ya los puso la propia UI
+                // al pedir la cancelación -- no se sobrescriben aquí. Sí se
+                // conserva el avance guardado hasta el corte (saved/details ya
+                // están en BD por cada página procesada).
+                return compact('pages', 'saved', 'details', 'failed') + ['sincronizacion_id' => $sync->id, 'cancelada' => true];
             }
             // Reconciliar (borrar lo que ya no existe en Restaurant) solo es
             // seguro si TODAS las páginas se leyeron: con páginas fallidas,

@@ -2,9 +2,10 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\SincronizarGuiasInternasJob;
+use App\Jobs\SincronizarRequerimientosStockJob;
 use App\Models\GuiaInternaSincronizacion;
 use App\Models\RequerimientoStockSincronizacion;
-use App\Services\BackgroundArtisan;
 use Illuminate\Console\Command;
 
 /**
@@ -12,16 +13,14 @@ use Illuminate\Console\Command;
  * extracción") y que quedaron en 'pendiente'.
  *
  * Por qué existe: Filament creaba la fila Y lanzaba Process::start() en el
- * mismo request web. Se comprobó empíricamente (con un `sleep 30` de
- * prueba, tanto desde un request web como desde consola dentro del propio
- * contenedor de producción) que Process::start() NO sobrevive aquí en
- * absoluto -- el hijo muere en cuanto el proceso PHP que lo creó termina,
- * sin importar si ese proceso era un worker de PHP-FPM o un comando de
- * consola de corta vida. Por eso las páginas de Filament ahora SOLO crean
- * la fila 'pendiente'; el arranque real siempre pasa por este comando
- * (programado cada minuto), usando BackgroundArtisan -- el mismo mecanismo
- * de `&` de shell que usa el propio scheduler de Laravel para
- * `runInBackground()`, que sí se comprobó que sobrevive.
+ * mismo request web. Se comprobó empíricamente que Process::start() NO
+ * sobrevive en este contenedor -- el hijo muere en cuanto el proceso PHP
+ * que lo creó termina. Por eso las páginas de Filament SOLO crean la fila
+ * 'pendiente'; el arranque real siempre pasa por este comando (programado
+ * cada minuto), que despacha un job real a la cola del contenedor
+ * `worker` -- no un proceso de shell dentro de `scheduler`, que moriría
+ * si ese contenedor se recrea en un despliegue mientras la corrida sigue
+ * viva (bug real encontrado y corregido -- ver Bitácora en AGENTS.md).
  */
 class DespacharSincronizacionesPendientes extends Command
 {
@@ -54,11 +53,7 @@ class DespacharSincronizacionesPendientes extends Command
         }
 
         $locales = array_values(array_filter((array) ($run->filtros['locales'] ?? [])));
-        $args = ['guias-internas:sincronizar', '--sync-id='.$run->id];
-        foreach ($locales as $local) {
-            $args[] = '--locales='.$local;
-        }
-        BackgroundArtisan::start($args);
+        SincronizarGuiasInternasJob::dispatch($run->id, $locales);
         $this->line("guias-internas: despachada sync-id={$run->id}");
 
         return 1;
@@ -75,7 +70,7 @@ class DespacharSincronizacionesPendientes extends Command
             return 0;
         }
 
-        BackgroundArtisan::start(['requerimientos-stock:sincronizar-reporte', '--sync-id='.$run->id]);
+        SincronizarRequerimientosStockJob::dispatch($run->id);
         $this->line("requerimientos-stock: despachada sync-id={$run->id}");
 
         return 1;

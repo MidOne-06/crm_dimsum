@@ -3,6 +3,9 @@
 namespace App\Console\Commands;
 
 use App\Jobs\ExtraerKardexJob;
+use App\Jobs\SincronizarGuiasInternasJob;
+use App\Jobs\SincronizarRequerimientosStockJob;
+use App\Jobs\SincronizarSalidasStockJob;
 use App\Models\GuiaInternaSincronizacion;
 use App\Models\KardexExtraccion;
 use App\Models\KardexExtraccionLocal;
@@ -66,9 +69,7 @@ class ReanudarExtraccionesHuerfanas extends Command
 
         foreach ($huerfanas as $run) {
             $locales = array_values(array_filter((array) ($run->filtros['locales'] ?? [])));
-            $args = ['guias-internas:sincronizar', '--sync-id='.$run->id];
-            foreach ($locales as $local) $args[] = '--locales='.$local;
-            BackgroundArtisan::start($args);
+            SincronizarGuiasInternasJob::dispatch($run->id, $locales);
             $this->line("guias-internas: relanzada sync-id={$run->id}");
         }
 
@@ -83,7 +84,7 @@ class ReanudarExtraccionesHuerfanas extends Command
             ->get();
 
         foreach ($huerfanas as $run) {
-            BackgroundArtisan::start(['salidas-stock:sincronizar', '--sync-id='.$run->id]);
+            SincronizarSalidasStockJob::dispatch($run->id);
             $this->line("salidas-stock: relanzada sync-id={$run->id}");
         }
 
@@ -134,7 +135,7 @@ class ReanudarExtraccionesHuerfanas extends Command
             if ($run->estado === 'en_progreso') {
                 $run->update(['estado' => 'pendiente']);
             }
-            BackgroundArtisan::start(['requerimientos-stock:sincronizar-reporte', '--sync-id='.$run->id]);
+            SincronizarRequerimientosStockJob::dispatch($run->id);
             $this->line("requerimientos-stock: relanzada sync-id={$run->id}");
         }
 

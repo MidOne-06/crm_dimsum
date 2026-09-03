@@ -59,7 +59,8 @@ class SincronizarReporteRequerimientos extends Command
         }
     }
 
-    private function sincronizar(RequerimientoStockSincronizacion $run, RequerimientoStockGatewayClient $gateway, RequerimientoStockHistoricoService $historico): int
+    /** Público para que SincronizarRequerimientosStockJob (colas) lo reutilice sin duplicar la lógica. */
+    public function sincronizar(RequerimientoStockSincronizacion $run, RequerimientoStockGatewayClient $gateway, RequerimientoStockHistoricoService $historico): int
     {
 
         $filters = (array) $run->filtros;
@@ -70,15 +71,19 @@ class SincronizarReporteRequerimientos extends Command
         $failed = 0;
         $errors = [];
 
-        // Se autorregistra el PID sin importar quién lo haya lanzado (el
-        // despachador programado, el watchdog de huérfanas, o consola
-        // manual) -- así "Detener" en la UI siempre puede matar el proceso
-        // real, igual que en guías internas.
-        $run->update(['estado' => 'en_progreso', 'iniciado_en' => now(), 'mensaje_error' => null, 'proceso_pid' => getmypid()]);
+        // NO se registra proceso_pid: esto corre en el worker compartido de
+        // colas (contenedor `worker`), no en un proceso propio -- guardar
+        // getmypid() aquí apuntaría al PID del worker entero, y "Detener" en
+        // la UI lo mataría junto con cualquier otra cola que esté procesando
+        // (ventas, stock actual). "Detener" solo marca 'cancelado'; el
+        // chequeo de abajo entre páginas es lo que realmente para el trabajo.
+        $run->update(['estado' => 'en_progreso', 'iniciado_en' => now(), 'mensaje_error' => null]);
         $paginasFallidas = [];
+        $cancelado = false;
 
         try {
             do {
+                if (RequerimientoStockSincronizacion::query()->whereKey($run->id)->value('estado') === 'cancelado') { $cancelado = true; break; }
                 try {
                     $result = $gateway->lista($filters + ['pagina' => $page, 'registros' => 100]);
                 } catch (Throwable $exception) {
@@ -124,6 +129,10 @@ class SincronizarReporteRequerimientos extends Command
 
                 $page++;
             } while (($page - 1) * 100 < ($run->total_registros ?? 0));
+
+            if ($cancelado) {
+                return self::SUCCESS;
+            }
 
             $run->update([
                 'estado' => ($failed === 0 && $paginasFallidas === []) ? 'completado' : 'completado_con_errores',
