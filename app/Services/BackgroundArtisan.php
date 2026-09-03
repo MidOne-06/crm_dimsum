@@ -43,6 +43,11 @@ class BackgroundArtisan
             return;
         }
 
-        Process::fromShellCommandline('('.$comando.') > /dev/null 2>&1 &', base_path())->run();
+        // No enviar stderr a /dev/null: una extracción que muere sin dejar
+        // traza no se puede diagnosticar ni reanudar con seguridad. El log
+        // persiste en el volumen storage y es el mismo canal operativo que
+        // se consulta desde el contenedor cuando una corrida falla.
+        $log = escapeshellarg(storage_path('logs/background-artisan.log'));
+        Process::fromShellCommandline('('.$comando.') >> '.$log.' 2>&1 &', base_path())->run();
     }
 }

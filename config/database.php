@@ -92,6 +92,12 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => 'prefer',
+            // PostgreSQL interpreta los timestamps sin offset que Eloquent
+            // envía según la zona horaria de la sesión. La aplicación opera
+            // en Lima; si esta conexión queda en UTC, "06:51" se guarda como
+            // 06:51 UTC en vez de 06:51 -05, y cualquier cálculo de antigüedad
+            // aparenta cinco horas adicionales.
+            'timezone' => env('DB_TIMEZONE', env('APP_TIMEZONE', 'UTC')),
         ],
 
         'sqlsrv' => [
