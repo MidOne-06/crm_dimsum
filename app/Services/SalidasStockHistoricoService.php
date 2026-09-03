@@ -24,20 +24,44 @@ class SalidasStockHistoricoService
     {
         $desde = $soporte->fecha_inicio->toDateString();
         $hasta = $soporte->fecha_fin->toDateString();
-        $soporte->update(['estado' => 'en_progreso', 'iniciado_en' => now(), 'mensaje_error' => null]);
+
+        // Reanudación incremental por página, igual que
+        // GuiasInternasHistoricoService::sincronizar() -- si esta corrida ya
+        // venía "en_progreso" con páginas guardadas (se cortó por un deploy,
+        // un reinicio de worker, etc.), continúa desde la página siguiente en
+        // vez de repetir todo el rango desde cero y perder tiempo/llamadas al
+        // gateway. $seen se reconstruye desde lo ya persistido en BD porque
+        // no se guarda aparte entre reanudaciones.
+        $reanudando = $soporte->estado === 'en_progreso' && $soporte->paginas_procesadas > 0 && $soporte->paginas_total > 0;
+        $erroresPrevios = $reanudando ? $soporte->errores : 0;
+
+        if (! $reanudando) {
+            $soporte->update(['estado' => 'en_progreso', 'iniciado_en' => now(), 'mensaje_error' => null]);
+        }
 
         try {
-            $first = $gateway->salidas(['pagina' => 1, 'registros' => 50, 'fecha_inicio' => $desde, 'fecha_fin' => $hasta]);
-            $pages = max(1, (int) ceil(((int) ($first['total'] ?? 0)) / 50));
-            $soporte->update(['paginas_total' => $pages]);
-            $saved = $details = $failed = 0;
-            $seen = [];
+            if ($reanudando) {
+                $pages = $soporte->paginas_total;
+                $first = null;
+                $startPage = $soporte->paginas_procesadas + 1;
+                $saved = $soporte->cabeceras_guardadas;
+                $details = $soporte->detalles_guardados;
+                $failed = $soporte->errores;
+                $seen = SalidaStock::query()->where('sincronizacion_id', $soporte->id)->pluck('restaurant_id')->all();
+            } else {
+                $first = $gateway->salidas(['pagina' => 1, 'registros' => 50, 'fecha_inicio' => $desde, 'fecha_fin' => $hasta]);
+                $pages = max(1, (int) ceil(((int) ($first['total'] ?? 0)) / 50));
+                $soporte->update(['paginas_total' => $pages]);
+                $startPage = 1;
+                $saved = $details = $failed = 0;
+                $seen = [];
+            }
             $errors = [];
             $paginasFallidas = [];
 
-            for ($page = 1; $page <= $pages; $page++) {
+            for ($page = $startPage; $page <= $pages; $page++) {
                 try {
-                    $result = $page === 1 ? $first : $gateway->salidas(['pagina' => $page, 'registros' => 50, 'fecha_inicio' => $desde, 'fecha_fin' => $hasta]);
+                    $result = $page === 1 && $first !== null ? $first : $gateway->salidas(['pagina' => $page, 'registros' => 50, 'fecha_inicio' => $desde, 'fecha_fin' => $hasta]);
                 } catch (\Throwable $exception) {
                     // Página irrecuperable tras los reintentos del gateway:
                     // se registra el hueco y se continúa con el resto en vez
@@ -66,9 +90,13 @@ class SalidasStockHistoricoService
 
             // Reconciliar solo es seguro si se leyeron todas las páginas --
             // con huecos, $seen está incompleto y se borrarían salidas
-            // válidas que cayeron en una página no leída esta vez.
-            $deleted = $paginasFallidas === [] ? $this->reconciliarCabeceras($desde, $hasta, $seen) : 0;
+            // válidas que cayeron en una página no leída esta vez. Lo mismo
+            // si un intento ANTERIOR a esta reanudación dejó errores: $seen
+            // reconstruido desde BD no distingue eso, así que se sigue
+            // omitiendo el borrado para no generar falsos positivos.
+            $deleted = $paginasFallidas === [] && $erroresPrevios === 0 ? $this->reconciliarCabeceras($desde, $hasta, $seen) : 0;
             if ($paginasFallidas !== []) $errors[] = 'Reconciliación omitida: páginas sin leer '.implode(',', $paginasFallidas).' (no se eliminó nada para evitar falsos positivos).';
+            elseif ($erroresPrevios > 0) $errors[] = 'Reconciliación omitida: un intento anterior de esta misma corrida tuvo '.$erroresPrevios.' error(es) antes de reanudar (no se eliminó nada para evitar falsos positivos).';
             $soporte->update([
                 'estado' => $errors === [] ? 'completado' : 'completado_con_errores',
                 'cabeceras_guardadas' => $saved, 'detalles_guardados' => $details,
