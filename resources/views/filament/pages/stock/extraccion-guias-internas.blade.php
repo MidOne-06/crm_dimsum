@@ -71,25 +71,44 @@
         <div x-show="tab === 'cobertura'" x-cloak>@include('filament.pages.stock.partials.extraccion-guias-cobertura')</div>
         <div x-show="tab === 'historial'" x-cloak><x-filament::section><x-slot name="heading">Historial de extracciones</x-slot>{{ $this->table }}</x-filament::section></div>
 
+        @php($bloqueadoPorOtra = $this->hayExtraccionEnProgreso())
         <x-filament::modal id="filtros-extraccion-guias" width="5xl" sticky-header sticky-footer>
             <x-slot name="heading">Filtros de extracción</x-slot>
 
-            <form id="filtros-extraccion-guias-form" wire:submit.prevent="iniciarExtraccion" class="space-y-5">
-                <div class="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
-                    <div class="md:col-span-2 xl:col-span-4">
-                        <span class="mb-1.5 block text-sm font-medium leading-6 text-gray-950 dark:text-white">Rango de fecha</span>
-                        @include('filament.components.date-range-picker', ['start' => $data['dateStart'] ?? now()->subDays(30)->toDateString(), 'end' => $data['dateEnd'] ?? now()->toDateString(), 'preset' => $activeDatePreset, 'syncMethod' => 'syncDateRange'])
+            {{--
+                Mismo motivo que en Extracción de requerimientos: sin este
+                aviso ni el poll, un usuario que abre el modal justo cuando
+                otra extracción (automática o de otro usuario) está en curso
+                presiona "Iniciar extracción" y no pasa nada -- el botón
+                deshabilitado nunca dispara wire:submit, así que
+                iniciarExtraccion() ni corre. El poll reactiva el botón solo
+                apenas se libere, sin que haga falta cerrar el panel.
+            --}}
+            <div @if($bloqueadoPorOtra) wire:poll.5s @endif>
+                @if($bloqueadoPorOtra)
+                    <div class="mb-4 flex items-start gap-2 rounded-lg bg-warning-50 p-3 text-sm text-warning-700 dark:bg-warning-500/10 dark:text-warning-400">
+                        <x-heroicon-o-clock class="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>Ya hay una extracción en curso (automática o de otro usuario). El botón "Iniciar extracción" se habilita solo apenas termine -- no hace falta cerrar este panel.</span>
                     </div>
-                    <div class="md:col-span-2 xl:col-span-4">
-                        {{ $this->form }}
+                @endif
+
+                <form id="filtros-extraccion-guias-form" wire:submit.prevent="iniciarExtraccion" class="space-y-5">
+                    <div class="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+                        <div class="md:col-span-2 xl:col-span-4">
+                            <span class="mb-1.5 block text-sm font-medium leading-6 text-gray-950 dark:text-white">Rango de fecha</span>
+                            @include('filament.components.date-range-picker', ['start' => $data['dateStart'] ?? now()->subDays(30)->toDateString(), 'end' => $data['dateEnd'] ?? now()->toDateString(), 'preset' => $activeDatePreset, 'syncMethod' => 'syncDateRange'])
+                        </div>
+                        <div class="md:col-span-2 xl:col-span-4">
+                            {{ $this->form }}
+                        </div>
                     </div>
-                </div>
-                @if($resultError)<p class="text-sm font-medium text-danger-600 dark:text-danger-400">{{ $resultError }}</p>@endif
-            </form>
+                    @if($resultError)<p class="text-sm font-medium text-danger-600 dark:text-danger-400">{{ $resultError }}</p>@endif
+                </form>
+            </div>
 
             <x-slot name="footerActions">
                 <x-filament::button color="gray" wire:click="cerrarFiltrosExtraccion">Cancelar</x-filament::button>
-                <x-filament::button type="submit" form="filtros-extraccion-guias-form" icon="heroicon-m-circle-stack" :disabled="$this->hayExtraccionEnProgreso()">Iniciar extracción</x-filament::button>
+                <x-filament::button type="submit" form="filtros-extraccion-guias-form" icon="heroicon-m-circle-stack" :disabled="$bloqueadoPorOtra">Iniciar extracción</x-filament::button>
             </x-slot>
         </x-filament::modal>
     </div>
