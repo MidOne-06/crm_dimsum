@@ -109,6 +109,33 @@ class ExtraccionGuiasInternas extends Page implements HasTable
         return GuiaInternaSincronizacion::query()->whereIn('estado', ['pendiente', 'en_progreso'])->exists();
     }
 
+    /**
+     * TODAS las corridas activas ahora mismo, no solo "la más reciente por
+     * id" -- mount() elegía únicamente extraccionActualId = latest('id'),
+     * así que si esa corrida ya terminó pero una MÁS ANTIGUA seguía atascada
+     * en_progreso, el botón quedaba deshabilitado sin que la pantalla
+     * mostrara ningún motivo: no había ninguna tarjeta visible que
+     * explicara qué la bloqueaba ni forma de cancelarla desde la UI.
+     *
+     * @return \Illuminate\Support\Collection<int, GuiaInternaSincronizacion>
+     */
+    public function extraccionesActivas(): \Illuminate\Support\Collection
+    {
+        return GuiaInternaSincronizacion::query()->whereIn('estado', ['pendiente', 'en_progreso'])->orderByDesc('id')->get();
+    }
+
+    /**
+     * Sin ningún avance real en los últimos 15 minutos casi siempre
+     * significa que el proceso que la corría ya no existe (contenedor
+     * reiniciado, zombie sin reaparentar) y nunca pudo marcarse a sí mismo
+     * como 'fallido'. Se usa para distinguir visualmente una corrida
+     * genuinamente en curso de una que solo parece estarlo.
+     */
+    public function estaEstancada(GuiaInternaSincronizacion $run): bool
+    {
+        return in_array($run->estado, ['pendiente', 'en_progreso'], true) && $run->updated_at->lt(now()->subMinutes(15));
+    }
+
     public function iniciarExtraccion(): void
     {
         $this->resultError = null;
@@ -153,11 +180,13 @@ class ExtraccionGuiasInternas extends Page implements HasTable
     }
 
     /**
-     * Detiene una extracción en curso. Antes de esto, la única forma de
-     * cancelar una corrida atascada era acceso directo a consola/servidor
-     * para matar el proceso y editar la fila a mano.
+     * Detiene una extracción en curso, identificada por id -- cualquiera de
+     * las que devuelve extraccionesActivas(), no solo "la más reciente".
+     * Antes de esto, la única forma de cancelar una corrida atascada que no
+     * fuera la última era acceso directo a consola/servidor para matar el
+     * proceso y editar la fila a mano.
      */
-    public function cancelarExtraccion(): void
+    public function cancelarExtraccion(int $id): void
     {
         if (! auth()->user()?->hasPermission('guias-internas.sincronizar')) {
             Notification::make()->title('No tienes permiso para cancelar la extracción.')->danger()->send();
@@ -165,7 +194,7 @@ class ExtraccionGuiasInternas extends Page implements HasTable
             return;
         }
 
-        $actual = $this->extraccionActual();
+        $actual = GuiaInternaSincronizacion::find($id);
         if (! $actual || ! in_array($actual->estado, ['pendiente', 'en_progreso'], true)) {
             return;
         }
@@ -185,7 +214,7 @@ class ExtraccionGuiasInternas extends Page implements HasTable
             'completado_en' => now(),
         ]);
 
-        $this->esperandoExtraccion = false;
+        if ($id === $this->extraccionActualId) $this->esperandoExtraccion = false;
         Notification::make()
             ->title('Extracción cancelada')
             ->body($matado ? 'El proceso se detuvo correctamente.' : 'Se marcó como cancelada; el proceso ya no estaba activo o corre en otro servidor.')

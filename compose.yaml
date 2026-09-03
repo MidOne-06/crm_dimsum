@@ -148,6 +148,16 @@ services:
   scheduler:
     image: crm-dimsum:local
     restart: unless-stopped
+    # schedule:work corre como PID 1 y lanza en segundo plano (vía `&`) cada
+    # comando programado que necesita seguir vivo tras la respuesta -- pero
+    # PID 1 no hereda el manejo estándar de SIGCHLD de un init real, así que
+    # esos hijos, al morir (normalmente o por un `docker restart`), quedan
+    # zombies (estado Z) para siempre en vez de limpiarse. Con muchos, esto
+    # ensucia la tabla de procesos y, peor, deja registros de sincronización
+    # marcados "en_progreso" indefinidamente porque el PID que se guardó ya
+    # no corresponde a nada real. `init: true` inserta tini como PID 1
+    # real, que sí reaparienta y limpia (reap) esos procesos.
+    init: true
     env_file:
       - ${ENV_FILE:-.env.docker}
     environment:

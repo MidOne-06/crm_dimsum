@@ -1,5 +1,5 @@
 @php($resumen = $this->resumenGeneral())
-@php($extraccion = $this->extraccionActual())
+@php($activas = $this->extraccionesActivas())
 
 <x-filament-panels::page>
     <div class="space-y-4" x-data="{ tab: 'nueva' }">
@@ -19,29 +19,51 @@
 
         <div x-show="tab === 'nueva'" class="space-y-4">
             <div class="flex justify-end">
-                <x-filament::button wire:click="abrirFiltrosExtraccion" icon="heroicon-o-adjustments-horizontal" :disabled="$this->hayExtraccionEnProgreso()">
-                    {{ $this->hayExtraccionEnProgreso() ? 'Extracción en progreso' : 'Configurar extracción' }}
+                <x-filament::button wire:click="abrirFiltrosExtraccion" icon="heroicon-o-adjustments-horizontal" :disabled="$activas->isNotEmpty()">
+                    @if($activas->isEmpty())
+                        Configurar extracción
+                    @elseif($activas->count() === 1)
+                        Extracción #{{ $activas->first()->id }} en progreso
+                    @else
+                        {{ $activas->count() }} extracciones en progreso
+                    @endif
                 </x-filament::button>
             </div>
 
-            @if($extraccion || $esperandoExtraccion)
-                <div @if($esperandoExtraccion || ($extraccion && in_array($extraccion->estado,['pendiente','en_progreso'],true))) wire:poll.3s="refreshExtraccion" @endif>
-                    @if($extraccion)
-                    <x-filament::section>
-                        <x-slot name="heading">Extracción #{{ $extraccion->id }} <span class="crm-status">{{ ucfirst(str_replace('_',' ',$extraccion->estado)) }}</span></x-slot>
-                        @if(in_array($extraccion->estado,['pendiente','en_progreso'],true))
-                            <x-slot name="headerEnd">
-                                <x-filament::button color="danger" icon="heroicon-m-stop-circle" size="sm" wire:click="cancelarExtraccion" wire:confirm="¿Detener la extracción #{{ $extraccion->id }}? El avance guardado hasta ahora se conserva y se puede reanudar después.">Detener</x-filament::button>
+            @if($activas->isNotEmpty())
+                <div wire:poll.3s="refreshExtraccion" class="space-y-3">
+                    @foreach($activas as $run)
+                        @php($estancada = $this->estaEstancada($run))
+                        <x-filament::section>
+                            <x-slot name="heading">
+                                Extracción #{{ $run->id }}
+                                <span class="crm-status">{{ ucfirst(str_replace('_',' ',$run->estado)) }}</span>
+                                @if($estancada)
+                                    <span class="ml-2 inline-flex items-center gap-1 rounded-full bg-danger-50 px-2 py-0.5 text-xs font-medium text-danger-600 dark:bg-danger-500/10 dark:text-danger-400">
+                                        <x-heroicon-m-exclamation-triangle class="h-3.5 w-3.5" />
+                                        Sin avance desde {{ $run->updated_at->diffForHumans() }}
+                                    </span>
+                                @endif
                             </x-slot>
-                        @endif
-                        @php($progreso = $extraccion->paginas_total > 0 ? min(100, round(($extraccion->paginas_procesadas / $extraccion->paginas_total) * 100)) : 0)
-                        <div class="mb-3"><div class="h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-white/10"><div class="h-full rounded-full bg-primary-600 transition-all" style="width:{{ $progreso }}%"></div></div><p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ $progreso }}% · {{ $extraccion->paginas_procesadas }} de {{ $extraccion->paginas_total ?: '—' }} páginas procesadas</p></div>
-                        <div class="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4"><div><span class="block text-gray-500 dark:text-gray-400">Cabeceras</span><strong class="text-gray-950 dark:text-white">{{ $extraccion->cabeceras_guardadas }}</strong></div><div><span class="block text-gray-500 dark:text-gray-400">Detalles</span><strong class="text-gray-950 dark:text-white">{{ $extraccion->detalles_guardados }}</strong></div><div><span class="block text-gray-500 dark:text-gray-400">Eliminadas</span><strong class="text-gray-950 dark:text-white">{{ $extraccion->cabeceras_eliminadas }}</strong></div><div><span class="block text-gray-500 dark:text-gray-400">Fallidas</span><strong class="text-danger-600 dark:text-danger-400">{{ $extraccion->errores }}</strong></div></div>
-                        @if(in_array($extraccion->estado,['fallido','completado_con_errores'],true) && $extraccion->mensaje_error)<p class="mt-3 text-sm font-medium text-danger-600 dark:text-danger-400">{{ $extraccion->mensaje_error }}</p>@endif
-                    </x-filament::section>
-                    @else
-                    <x-filament::section><x-slot name="heading">Preparando extracción</x-slot><p class="text-sm text-gray-500 dark:text-gray-400">Conectando con Restaurant…</p></x-filament::section>
-                    @endif
+                            <x-slot name="headerEnd">
+                                <x-filament::button color="danger" icon="heroicon-m-stop-circle" size="sm" wire:click="cancelarExtraccion({{ $run->id }})" wire:confirm="¿Detener la extracción #{{ $run->id }}? El avance guardado hasta ahora se conserva y se puede reanudar después.">
+                                    {{ $estancada ? 'Cancelar (atascada)' : 'Detener' }}
+                                </x-filament::button>
+                            </x-slot>
+
+                            @if($estancada)
+                                <p class="mb-3 text-sm text-danger-600 dark:text-danger-400">Esta extracción dejó de reportar avance hace más de 15 minutos -- casi siempre significa que el proceso que la corría ya no existe (reinicio del servidor u otra interrupción), no que siga trabajando en segundo plano. Puedes cancelarla con seguridad: el avance ya guardado se conserva y queda reanudable.</p>
+                            @endif
+
+                            @if($run->estado === 'pendiente')
+                                <p class="text-sm text-gray-500 dark:text-gray-400">En cola -- arranca en menos de un minuto.</p>
+                            @else
+                                @php($progreso = $run->paginas_total > 0 ? min(100, round(($run->paginas_procesadas / $run->paginas_total) * 100)) : 0)
+                                <div class="mb-3"><div class="h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-white/10"><div class="h-full rounded-full {{ $estancada ? 'bg-danger-500' : 'bg-primary-600' }} transition-all" style="width:{{ $progreso }}%"></div></div><p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ $progreso }}% · {{ $run->paginas_procesadas }} de {{ $run->paginas_total ?: '—' }} páginas procesadas</p></div>
+                                <div class="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4"><div><span class="block text-gray-500 dark:text-gray-400">Cabeceras</span><strong class="text-gray-950 dark:text-white">{{ $run->cabeceras_guardadas }}</strong></div><div><span class="block text-gray-500 dark:text-gray-400">Detalles</span><strong class="text-gray-950 dark:text-white">{{ $run->detalles_guardados }}</strong></div><div><span class="block text-gray-500 dark:text-gray-400">Eliminadas</span><strong class="text-gray-950 dark:text-white">{{ $run->cabeceras_eliminadas }}</strong></div><div><span class="block text-gray-500 dark:text-gray-400">Fallidas</span><strong class="text-danger-600 dark:text-danger-400">{{ $run->errores }}</strong></div></div>
+                            @endif
+                        </x-filament::section>
+                    @endforeach
                 </div>
             @endif
         </div>
