@@ -26,8 +26,6 @@ class SincronizarGuiasInternasJob implements ShouldQueue
 
     public int $timeout = 7200;
 
-    public int $tries = 2;
-
     /** @param array<int, string> $locales */
     public function __construct(
         public int $syncId,
@@ -36,6 +34,23 @@ class SincronizarGuiasInternasJob implements ShouldQueue
         public string $filtroFecha = '1',
     ) {
         $this->onQueue('guias-internas');
+    }
+
+    /**
+     * Reintentar por tiempo, no por cantidad de intentos: cuando el lock
+     * está ocupado (otra corrida real trabajando, o un duplicado esperando
+     * su turno), el job se reencola cada 30s con release() -- eso cuenta
+     * como "intento" para Laravel. Con un $tries fijo bajo (2), un
+     * despacho duplicado que solo estaba esperando el lock se marcaba
+     * "fallido" (MaxAttemptsExceededException) a los ~60s sin que nada
+     * hubiera fallado de verdad -- se comprobó en producción: 64 jobs
+     * terminaron en failed_jobs así, mientras la corrida real seguía
+     * avanzando sin problema. retryUntil() usa el mismo horizonte que el
+     * TTL del lock (4h) en vez de contar reintentos.
+     */
+    public function retryUntil(): \DateTime
+    {
+        return now()->addHours(4);
     }
 
     public function handle(GuiasInternasHistoricoService $service, GuiasInternasGatewayClient $gateway): void

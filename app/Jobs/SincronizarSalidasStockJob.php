@@ -26,11 +26,21 @@ class SincronizarSalidasStockJob implements ShouldQueue
 
     public int $timeout = 7200;
 
-    public int $tries = 2;
-
     public function __construct(public int $soporteId)
     {
         $this->onQueue('salidas-stock');
+    }
+
+    /**
+     * Por tiempo, no por cantidad de intentos -- un $tries fijo bajo
+     * marcaba "fallido" (MaxAttemptsExceededException) a un duplicado que
+     * solo estaba esperando el lock, sin que nada hubiera fallado de
+     * verdad. Ver SincronizarGuiasInternasJob::retryUntil() para el
+     * detalle completo (se encontró primero ahí, 64 casos reales).
+     */
+    public function retryUntil(): \DateTime
+    {
+        return now()->addHours(4);
     }
 
     public function handle(SalidasStockHistoricoService $service, SalidasStockGatewayClient $gateway): void

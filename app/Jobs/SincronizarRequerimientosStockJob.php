@@ -25,11 +25,19 @@ class SincronizarRequerimientosStockJob implements ShouldQueue
 
     public int $timeout = 7200;
 
-    public int $tries = 2;
-
     public function __construct(public int $syncId)
     {
         $this->onQueue('requerimientos-stock');
+    }
+
+    /**
+     * Por tiempo, no por cantidad de intentos -- ver
+     * SincronizarGuiasInternasJob::retryUntil() para el detalle completo
+     * (64 casos reales de "fallido" falsos en producción por esto).
+     */
+    public function retryUntil(): \DateTime
+    {
+        return now()->addHours(4);
     }
 
     public function handle(
