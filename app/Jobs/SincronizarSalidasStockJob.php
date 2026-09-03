@@ -36,7 +36,11 @@ class SincronizarSalidasStockJob implements ShouldQueue
     public function handle(SalidasStockHistoricoService $service, SalidasStockGatewayClient $gateway): void
     {
         $soporte = SalidaStockSincronizacion::find($this->soporteId);
-        if (! $soporte) return;
+        // Evita reencolar un despacho duplicado (ej. dos ciclos de
+        // reanudar-huerfanas antes de que el primero termine) y volver a
+        // sincronizar desde cero un rango que ya quedó completado -- bug
+        // real encontrado hoy en el equivalente de Stock Actual.
+        if (! $soporte || ! in_array($soporte->estado, ['pendiente', 'en_progreso'], true)) return;
 
         // Mismo lock que ya usa el comando de consola, para que una corrida
         // programada (scheduler, incremental) y una relanzada desde acá

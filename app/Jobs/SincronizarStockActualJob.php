@@ -20,7 +20,12 @@ class SincronizarStockActualJob implements ShouldQueue
     public function handle(StockActualHistoricoService $service, StockGatewayClient $gateway): void
     {
         $soporte = StockCuadreSoporte::find($this->soporteId);
-        if (! $soporte) return;
+        // Sin este chequeo, un despacho duplicado (ej. reanudarStockActual
+        // corriendo cada 10 min mientras la corrida anterior sigue viva más
+        // de 10 min) vuelve a sincronizar desde cero un rango ya completado
+        // -- se comprobó en producción: 4 de 5 despachos "huérfanos"
+        // apuntaban a corridas que ya estaban en estado 'completado'.
+        if (! $soporte || ! in_array($soporte->estado, ['pendiente', 'en_progreso'], true)) return;
         try { $service->sincronizar($soporte, $gateway); }
         catch (Throwable $e) { $soporte->update(['estado' => 'fallido', 'mensaje_error' => $e->getMessage(), 'completado_at' => now()]); throw $e; }
     }
