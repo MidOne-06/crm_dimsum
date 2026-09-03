@@ -61,11 +61,26 @@ Schedule::command('requerimientos-stock:sincronizar-reporte --desde='.$ventanaIn
 // Kardex era el único módulo de extracción sin ningún automatismo -- dependía
 // 100% de que alguien entrara y presionara el botón a mano (hallazgo real de
 // la auditoría del 2026-09-03: última corrida con 2 días de antigüedad). Se
-// extrae el día ANTERIOR (ya cerrado/estable en Restaurant) una vez al día,
-// de madrugada, para no competir en horario pico con el resto de las
-// extracciones por el único worker de Kardex (1 réplica a propósito).
+// extrae el día ANTERIOR (ya cerrado/estable en Restaurant) una vez al día.
+// Pedido explícito del usuario: todos los módulos deben quedar sincronizados
+// a las 12 AM -- se corre justo pasada la medianoche, escalonado 5 minutos
+// respecto a Ventas (00:00) para no competir por el mismo worker justo en el
+// mismo segundo.
 Schedule::command('kardex:sincronizar-diario')
-  ->dailyAt('03:15')
+  ->dailyAt('00:05')
+  ->withoutOverlapping(180)
+  ->runInBackground();
+
+// Ventas era el único módulo (de los 5: Guías/Salidas/Requerimientos/Stock
+// Actual/Kardex ya tenían el suyo) sin NINGUNA sincronización incremental
+// programada -- ventas:procesar-automatizaciones corre cada minuto, pero
+// solo AVANZA una automatización ya creada, nunca crea una sola. Hallazgo
+// real de la auditoría de cobertura del 2026-09-03: el hueco llegaba hasta
+// 2026-07-22 porque nadie volvió a encolar un bloque nuevo desde el último
+// backfill manual. A las 12 AM en punto, como pidió el usuario para todos
+// los módulos.
+Schedule::command('ventas:sincronizar-diario')
+  ->dailyAt('00:00')
   ->withoutOverlapping(180)
   ->runInBackground();
 
