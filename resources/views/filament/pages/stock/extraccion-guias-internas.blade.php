@@ -40,7 +40,16 @@
                                     </span>
                                 @endif
                             </x-slot>
-                            <x-slot name="headerEnd">
+                            {{--
+                                El slot real de x-filament::section para
+                                contenido a la derecha del heading es
+                                `afterHeader`, no `headerEnd` (que no existe
+                                como prop del componente). Un slot con nombre
+                                no reconocido no da error, simplemente no se
+                                renderiza: por eso "Detener"/"Quitar de la
+                                cola" nunca aparecían acá tampoco.
+                            --}}
+                            <x-slot name="afterHeader">
                                 @if($run->estado === 'pendiente' && ! $estancada)
                                     <x-filament::button color="gray" icon="heroicon-m-trash" size="sm" wire:click="eliminarDeCola({{ $run->id }})" wire:confirm="¿Eliminar la extracción #{{ $run->id }} de la cola? Todavía no arrancó.">Quitar de la cola</x-filament::button>
                                 @else

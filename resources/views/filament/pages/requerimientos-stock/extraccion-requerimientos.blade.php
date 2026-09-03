@@ -35,7 +35,17 @@
                                     <span class="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">· {{ $loop->index }}° en la cola</span>
                                 @endif
                             </x-slot>
-                            <x-slot name="headerEnd">
+                            {{--
+                                El slot real de x-filament::section para
+                                contenido a la derecha del heading es
+                                `afterHeader`, no `headerEnd` (que no existe
+                                como prop del componente -- ver
+                                vendor/filament/support/resources/views/components/section/index.blade.php).
+                                Un slot con nombre no reconocido no da error,
+                                simplemente no se renderiza: por eso "Quitar
+                                de la cola"/"Detener" nunca aparecían.
+                            --}}
+                            <x-slot name="afterHeader">
                                 @if($run->estado === 'pendiente')
                                     <x-filament::button color="gray" icon="heroicon-m-trash" size="sm" wire:click="eliminarDeCola({{ $run->id }})" wire:confirm="¿Eliminar la extracción #{{ $run->id }} de la cola? Todavía no arrancó.">Quitar de la cola</x-filament::button>
                                 @else
