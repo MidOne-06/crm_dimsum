@@ -24,7 +24,7 @@
             >
                 <div class="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium shadow-sm ring-1 ring-gray-950/10 dark:bg-gray-900 dark:ring-white/10">
                     <x-filament::loading-indicator class="h-5 w-5 text-primary-600 dark:text-primary-400" />
-                    <span>Actualizando matriz</span>
+                    <span>Sincronizando con Restaurant y actualizando matriz</span>
                 </div>
             </div>
 
@@ -54,7 +54,7 @@
                 <x-filament::button color="gray" wire:click="cerrarFiltrosReporte">Cancelar</x-filament::button>
                 <x-filament::button type="button" wire:click="search" x-on:click="$dispatch('close-modal', { id: 'filtros-reporte-guias-internas' })" icon="heroicon-m-magnifying-glass" wire:loading.attr="disabled" wire:target="search">
                     <span wire:loading.remove wire:target="search">Aplicar filtros</span>
-                    <span wire:loading.flex wire:target="search" class="items-center gap-2"><x-filament::loading-indicator class="h-4 w-4" /> Aplicando</span>
+                    <span wire:loading.flex wire:target="search" class="items-center gap-2"><x-filament::loading-indicator class="h-4 w-4" /> Sincronizando</span>
                 </x-filament::button>
             </x-slot>
         </x-filament::modal>

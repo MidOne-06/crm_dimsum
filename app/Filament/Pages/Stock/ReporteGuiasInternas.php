@@ -19,6 +19,7 @@ use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Artisan;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
@@ -29,12 +30,12 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
 /**
- * Mismo patrón que ReporteRequerimientos: matriz de solo lectura sobre la
- * copia local de guías internas (guias_internas / guia_interna_detalles),
- * con los mismos filtros/columnas/exportación que ese módulo, adaptados a
- * los campos propios de una guía interna (origen/destino en vez de
- * solicitado-por/producción, cantidad/cantidad de salida/total en vez de
- * solicitada/despachada/preparada).
+ * A diferencia de ReporteRequerimientos (que es de solo lectura), este
+ * reporte SÍ sincroniza: al aplicar filtros, corre
+ * guias-internas:sincronizar con el rango de fechas/locales/estado
+ * elegidos -- igual que el botón "Aplicar filtros" del listado principal
+ * de Guías internas -- para que la matriz refleje datos reales y
+ * recientes de Restaurant antes de mostrarse y de poder exportarse.
  */
 class ReporteGuiasInternas extends Page implements HasTable
 {
@@ -146,6 +147,7 @@ class ReporteGuiasInternas extends Page implements HasTable
 
     public function search(): void
     {
+        $this->sincronizarCopiaDeFiltros();
         $this->resetPage();
         $this->cerrarFiltrosReporte();
     }
@@ -161,10 +163,24 @@ class ReporteGuiasInternas extends Page implements HasTable
     }
 
     /**
-     * Reporte de solo lectura sobre la copia local -- no sincroniza nada por
-     * sí mismo. La sincronización vive en su propio submódulo (Extracción),
-     * igual que en Requerimientos de Stock.
+     * Sincroniza la copia local (cabecera guias_internas + detalle
+     * guia_interna_detalles) contra Restaurant, con el mismo rango de
+     * fechas/locales/estado que el formulario de filtros. Un usuario sin
+     * permiso de sincronizar sigue pudiendo ver y exportar lo que ya esté
+     * guardado localmente -- solo se omite el refresco contra Restaurant.
      */
+    private function sincronizarCopiaDeFiltros(): void
+    {
+        if (! auth()->user()?->hasPermission('guias-internas.sincronizar')) return;
+
+        Artisan::call('guias-internas:sincronizar', [
+            '--desde' => $this->dateStart(),
+            '--hasta' => $this->dateEnd(),
+            '--locales' => $this->selectedLocalIds('origenLocals'),
+            '--estado' => filled($this->data['estado'] ?? null) ? (string) $this->data['estado'] : '-1',
+        ]);
+    }
+
     public function ultimaFechaConDatos(): ?string
     {
         $fecha = GuiaInterna::query()->max('fecha_emision');
@@ -411,6 +427,26 @@ class ReporteGuiasInternas extends Page implements HasTable
         $ids = $this->restrictLocalIdsToUser($selected);
 
         return array_values(array_intersect_key($this->localOptions, array_flip(array_map('strval', $ids))));
+    }
+
+    /**
+     * A diferencia de selectedLocalNames() (que resuelve a nombres, para
+     * filtrar la matriz local por guias.local_origen/local_destino), la
+     * sincronización necesita los IDs reales de Restaurant tal como los
+     * espera guias-internas:sincronizar. "Todos" se traduce a un arreglo
+     * vacío -- sin restricción de locales -- en vez de listar todos los IDs.
+     *
+     * @return array<int, string>
+     */
+    protected function selectedLocalIds(string $field): array
+    {
+        $selected = array_values(array_filter((array) ($this->data[$field] ?? []), fn ($value): bool => filled($value)));
+
+        if (in_array(self::ALL_LOCALES_OPTION, $selected, true)) {
+            return [];
+        }
+
+        return $this->restrictLocalIdsToUser($selected);
     }
 
     protected function metricColumn(): string
