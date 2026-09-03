@@ -48,9 +48,32 @@ class GuiasInternasHistoricoService
                     $sync->update(['paginas_procesadas' => $page, 'errores' => ++$failed]);
                     continue;
                 }
-                foreach ($result['rows'] ?? [] as $row) {
-                    $id = (string) ($row['id'] ?? ''); if ($id === '') continue; $seen[] = $id;
-                    try { $detail = $gateway->detalle($id); $this->guardar($sync, $row, $detail); $saved++; $details += count($detail['items'] ?? []); }
+                $rows = array_values(array_filter($result['rows'] ?? [], fn (array $row): bool => (string) ($row['id'] ?? '') !== ''));
+                foreach ($rows as $row) $seen[] = (string) $row['id'];
+
+                // Antes se pedía el detalle de cada guía una por una: si el
+                // gateway soporta hasta 4 sesiones concurrentes contra
+                // Restaurant (RESTAURANT_SESSION_POOL_SIZE) y aquí solo se
+                // usaba una a la vez, 3 de cada 4 quedaban ociosas -- esta
+                // es la razón real de que una sincronización grande tomara
+                // horas. detalles() pide TODA la página en paralelo; el
+                // propio gateway encola lo que exceda su pool, así que no
+                // hay riesgo de sobrecargar Restaurant más de lo permitido.
+                $idsDePagina = array_column($rows, 'id');
+                $detallesPorId = $gateway->detalles($idsDePagina);
+
+                foreach ($rows as $row) {
+                    $id = (string) $row['id'];
+                    $detail = $detallesPorId[$id] ?? null;
+                    if ($detail === null) {
+                        // No vino en el lote (timeout, fallo transitorio de
+                        // red): se reintenta individualmente una vez antes
+                        // de darla por fallida, igual que el comportamiento
+                        // anterior guía por guía.
+                        try { $detail = $gateway->detalle($id); }
+                        catch (\Throwable $e) { $failed++; $errors[] = "Guía {$id}: {$e->getMessage()}"; continue; }
+                    }
+                    try { $this->guardar($sync, $row, $detail); $saved++; $details += count($detail['items'] ?? []); }
                     catch (\Throwable $e) { $failed++; $errors[] = "Guía {$id}: {$e->getMessage()}"; }
                 }
                 $sync->update(['paginas_procesadas' => $page, 'cabeceras_guardadas' => $saved, 'detalles_guardados' => $details, 'errores' => $failed]);

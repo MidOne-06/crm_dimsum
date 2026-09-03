@@ -17,6 +17,45 @@ class GuiasInternasGatewayClient
     public function guias(array $filters): array { return $this->get('/api/guias', $filters); }
     public function contextoFiltros(): array { return $this->get('/api/contexto-filtros'); }
     public function detalle(string $id): array { return $this->get('/api/guias/' . $id); }
+
+    /**
+     * Trae el detalle de varias guías EN PARALELO en vez de una por una.
+     * El gateway mantiene un pool de RESTAURANT_SESSION_POOL_SIZE sesiones
+     * concurrentes contra Restaurant (4 por defecto) -- pedir los detalles
+     * en serie desperdicia 3 de cada 4 "carriles" disponibles y es la razón
+     * real de que sincronizar un rango grande tome horas en vez de minutos.
+     * Http::pool() abre todas las conexiones a la vez; el propio gateway ya
+     * encola lo que exceda su pool interno, así que no hay riesgo de
+     * sobrecargar Restaurant más de lo que el gateway ya permite.
+     *
+     * Una guía que falla en el pool (timeout, red, etc.) simplemente no
+     * aparece en el resultado -- el llamador es responsable de reintentarla
+     * individualmente si la necesita, igual que ya se hacía por guía.
+     *
+     * @param array<int, string> $ids
+     * @return array<string, array> detalle indexado por id; los que
+     *         fallaron no están presentes.
+     */
+    public function detalles(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('strval', $ids))));
+        if ($ids === []) return [];
+
+        $baseUrl = $this->baseUrl;
+        $responses = Http::pool(fn (\Illuminate\Http\Client\Pool $pool) => collect($ids)
+            ->map(fn (string $id) => $pool->as($id)->baseUrl($baseUrl)->timeout(90)->get('/api/guias/'.$id))
+            ->all());
+
+        $detalles = [];
+        foreach ($ids as $id) {
+            $response = $responses[$id] ?? null;
+            if (! $response instanceof \Illuminate\Http\Client\Response || $response->failed()) continue;
+            $body = $response->json();
+            if (is_array($body)) $detalles[$id] = $body;
+        }
+
+        return $detalles;
+    }
     public function locales(): array { return $this->get('/api/locals')['locals'] ?? []; }
     public function almacenes(string $local): array { return $this->get('/api/almacenes', ['local_id' => $local])['almacenes'] ?? []; }
     public function motivos(): array { return $this->get('/api/motivos')['motivos'] ?? []; }
