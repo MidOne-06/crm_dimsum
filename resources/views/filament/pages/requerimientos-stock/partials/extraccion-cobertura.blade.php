@@ -3,9 +3,10 @@
 @php($today = now()->startOfDay())
 @php($months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Setiembre', 'Octubre', 'Noviembre', 'Diciembre'])
 
+@php($resumenCobertura = $this->coverageSummary())
+
 <x-filament::section>
-    <x-slot name="heading">Todos los locales -- {{ $months[$coverageMonth - 1] }} {{ $coverageYear }}</x-slot>
-    <x-slot name="description">De un vistazo, sin filtrar local por local: verde = completo, ámbar = con fallos, vacío = sin extraer.</x-slot>
+    <x-slot name="heading">Resumen -- {{ $months[$coverageMonth - 1] }} {{ $coverageYear }}</x-slot>
     <x-slot name="afterHeader">
         <div class="flex items-center gap-2">
             <x-filament::icon-button icon="heroicon-o-chevron-left" label="Mes anterior" wire:click="coveragePrevMonth" size="sm" />
@@ -14,55 +15,23 @@
         </div>
     </x-slot>
 
-    @php($matrix = $this->coverageMatrix())
-    @php($matrixMonthStart = \Illuminate\Support\Carbon::create($coverageYear, $coverageMonth, 1))
-    @php($matrixDays = $matrixMonthStart->daysInMonth)
-
-    {{-- Misma estructura (local x día), solo más compacta: celdas y filas
-         más chicas, menos padding -- ningún dato deja de mostrarse. --}}
-    <div class="overflow-x-auto">
-        <table class="crm-coverage-matrix w-full border-collapse text-[10px] leading-none">
-            <thead>
-                <tr>
-                    <th class="sticky start-0 z-10 bg-white px-1.5 py-0.5 text-start font-medium text-gray-500 dark:bg-gray-900 dark:text-gray-400">Local</th>
-                    @for($day = 1; $day <= $matrixDays; $day++)
-                        <th class="text-center font-normal text-gray-400" style="width:13px">{{ $day }}</th>
-                    @endfor
-                    <th class="px-1.5 py-0.5 text-end font-medium text-gray-500 dark:text-gray-400">%</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach($locals as $local)
-                    @php($localId = (string) $local['id'])
-                    @php($row = $matrix[$localId] ?? [])
-                    @php($fullCount = collect($row)->filter(fn ($s) => $s === 'full')->count())
-                    @php($pct = $matrixDays > 0 ? (int) round(($fullCount / $matrixDays) * 100) : 0)
-                    <tr class="border-t border-gray-100 dark:border-white/5">
-                        <td class="sticky start-0 z-10 max-w-[9rem] truncate whitespace-nowrap bg-white px-1.5 py-px text-gray-700 dark:bg-gray-900 dark:text-gray-200" title="{{ $local['name'] }}">
-                            <button type="button" wire:click="$set('coverageLocalId', '{{ $localId }}')" class="hover:text-primary-600 hover:underline">{{ $local['name'] }}</button>
-                        </td>
-                        @for($day = 1; $day <= $matrixDays; $day++)
-                            @php($date = \Illuminate\Support\Carbon::create($coverageYear, $coverageMonth, $day))
-                            @php($status = $row[$date->toDateString()] ?? null)
-                            @php($future = $date->greaterThan($today))
-                            @php($color = $status === 'full' ? '#16a34a' : ($status === 'partial' ? '#d97706' : null))
-                            <td class="p-px text-center">
-                                <span title="{{ $local['name'] }} · {{ $date->format('d/m/Y') }} · {{ $status === 'full' ? 'Completo' : ($status === 'partial' ? 'Con fallos' : 'Falta') }}" class="mx-auto block h-2.5 w-2.5 rounded-[2px] {{ $color ? '' : ($future ? 'bg-gray-50 dark:bg-white/5' : 'border border-gray-300 dark:border-gray-600') }}" style="{{ $color ? 'background:'.$color : '' }}"></span>
-                            </td>
-                        @endfor
-                        <td class="px-1.5 py-px text-end tabular-nums {{ $pct === 100 ? 'text-success-600 dark:text-success-400' : ($pct === 0 ? 'text-gray-400' : 'text-warning-600 dark:text-warning-400') }}">{{ $pct }}%</td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
-    </div>
-
-    <div class="mt-3 flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-        <span class="flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-sm" style="background:#16a34a"></span> Completo</span>
-        <span class="flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-sm" style="background:#d97706"></span> Con fallos</span>
-        <span class="flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-sm border border-gray-300 dark:border-gray-600"></span> Falta</span>
-        <span class="ms-auto">Clic en un local para ver su calendario completo del año abajo.</span>
-    </div>
+    @if($resumenCobertura['conProblemas']->isEmpty())
+        <p class="text-sm font-medium text-success-600 dark:text-success-400">Los {{ $resumenCobertura['total'] }} locales están al día en {{ $months[$coverageMonth - 1] }} (hasta hoy).</p>
+    @else
+        <p class="mb-3 text-sm text-gray-600 dark:text-gray-300">{{ $resumenCobertura['total'] - $resumenCobertura['conProblemas']->count() }} de {{ $resumenCobertura['total'] }} locales al día. Con pendientes:</p>
+        <ul class="divide-y divide-gray-100 dark:divide-white/5">
+            @foreach($resumenCobertura['conProblemas'] as $item)
+                <li class="flex items-center justify-between gap-3 py-1.5 text-sm">
+                    <button type="button" wire:click="$set('coverageLocalId', '{{ $item['id'] }}')" class="font-medium text-gray-800 hover:text-primary-600 hover:underline dark:text-gray-100">{{ $item['name'] }}</button>
+                    <span class="shrink-0 text-xs text-gray-500 dark:text-gray-400">
+                        @if($item['partial'] > 0)<span class="text-warning-600 dark:text-warning-400">{{ $item['partial'] }} con fallos</span>@endif
+                        @if($item['partial'] > 0 && $item['missing'] > 0) · @endif
+                        @if($item['missing'] > 0)<span>{{ $item['missing'] }} sin extraer</span>@endif
+                    </span>
+                </li>
+            @endforeach
+        </ul>
+    @endif
 </x-filament::section>
 
 <x-filament::section>

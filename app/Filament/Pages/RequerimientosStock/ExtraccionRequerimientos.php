@@ -346,7 +346,7 @@ class ExtraccionRequerimientos extends Page implements HasTable
      *
      * @return array<string, array<string, 'full'|'partial'>>
      */
-    public function coverageMatrix(): array
+    protected function coverageMatrix(): array
     {
         $monthStart = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->startOfDay();
         $monthEnd = $monthStart->copy()->endOfMonth();
@@ -392,6 +392,52 @@ class ExtraccionRequerimientos extends Page implements HasTable
             });
 
         return $matrix;
+    }
+
+    /**
+     * Resumen de texto por local para el mes elegido -- reemplaza la matriz
+     * visual (local x día) que se probó y se sacó porque quedaba muy
+     * larga/ancha: mismo dato de fondo (coverageMatrix()), pero mostrado
+     * como una lista corta de "qué local tiene qué pendiente" en vez de una
+     * grilla de 32 filas. Solo cuenta días hasta hoy -- un día futuro del
+     * mes no es un "hueco", todavía no le tocaba.
+     *
+     * @return array{total: int, conProblemas: \Illuminate\Support\Collection<int, array{id: string, name: string, partial: int, missing: int, pct: int}>}
+     */
+    public function coverageSummary(): array
+    {
+        $matrix = $this->coverageMatrix();
+        $monthStart = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->startOfDay();
+        $monthEnd = $monthStart->copy()->endOfMonth()->min(now()->startOfDay());
+        $diasHastaHoy = max(1, $monthStart->diffInDays($monthEnd) + 1);
+
+        $items = collect($this->locals)
+            ->map(function (array $local) use ($matrix, $monthStart, $monthEnd, $diasHastaHoy): array {
+                $row = $matrix[(string) $local['id']] ?? [];
+                $full = $partial = $missing = 0;
+
+                foreach (CarbonPeriod::create($monthStart, $monthEnd) as $day) {
+                    $status = $row[$day->toDateString()] ?? null;
+                    match ($status) {
+                        'full' => $full++,
+                        'partial' => $partial++,
+                        default => $missing++,
+                    };
+                }
+
+                return [
+                    'id' => (string) $local['id'],
+                    'name' => (string) $local['name'],
+                    'partial' => $partial,
+                    'missing' => $missing,
+                    'pct' => (int) round(($full / $diasHastaHoy) * 100),
+                ];
+            });
+
+        return [
+            'total' => $items->count(),
+            'conProblemas' => $items->filter(fn (array $i): bool => $i['pct'] < 100)->sortBy('pct')->values(),
+        ];
     }
 
     /**
