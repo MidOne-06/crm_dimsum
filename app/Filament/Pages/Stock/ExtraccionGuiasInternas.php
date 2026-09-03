@@ -159,10 +159,6 @@ class ExtraccionGuiasInternas extends Page implements HasTable
         $end = (string) ($this->data['dateEnd'] ?? '');
         $locals = $this->restrictLocalIdsToUser($this->data['selectedLocals'] ?? []);
 
-        if ($this->hayExtraccionEnProgreso()) {
-            $this->resultError = 'Ya hay una extracción en progreso. Espera a que termine antes de iniciar otra.';
-            return;
-        }
         if ($start === '' || $end === '' || $end < $start) {
             $this->resultError = 'El rango de fechas no es válido.';
             return;
@@ -172,27 +168,53 @@ class ExtraccionGuiasInternas extends Page implements HasTable
             return;
         }
 
-        // OJO: aquí NO se lanza Process::start(). Se comprobó empíricamente
-        // (sleep de prueba, en el worker web Y por consola dentro del propio
-        // contenedor) que un hijo forkeado con Process::start() no sobrevive
-        // en este contenedor bajo NINGÚN padre -- no es un problema de
-        // PHP-FPM específicamente. El arranque real lo hace
-        // extracciones:despachar-pendientes (programado cada minuto), que
-        // usa BackgroundArtisan -- el mecanismo de `&` de shell que sí se
-        // comprobó que sobrevive. Esta acción solo encola.
+        // El arranque real lo hace extracciones:despachar-pendientes
+        // (programado cada minuto), que ahora despacha SincronizarGuiasInternasJob
+        // al contenedor `worker` -- esta acción solo encola. Se permite
+        // encolar aunque ya haya otra activa: el despachador toma una a la
+        // vez (la más vieja primero, ver despacharGuias()), así que esta
+        // espera su turno en vez de bloquear al usuario con el botón
+        // deshabilitado.
         $run = app(GuiasInternasHistoricoService::class)->iniciar($start, $end, $locals, auth()->id());
         $this->extraccionActualId = $run->id;
         $this->esperandoExtraccion = true;
         $this->cerrarFiltrosExtraccion();
-        Notification::make()->title('Extracción encolada')->body('Arranca en menos de un minuto.')->success()->send();
+        $enCola = $this->extraccionesActivas()->count();
+        Notification::make()
+            ->title('Extracción encolada')
+            ->body($enCola > 1 ? "Hay {$enCola} extracciones en cola; esta arrancará cuando le toque su turno." : 'Arranca en menos de un minuto.')
+            ->success()->send();
     }
 
     public function refreshExtraccion(): void
     {
-        $actual = $this->extraccionActual();
-        if ($actual && ! in_array($actual->estado, ['pendiente', 'en_progreso'], true)) {
+        if ($this->extraccionesActivas()->isEmpty()) {
             $this->esperandoExtraccion = false;
         }
+    }
+
+    /**
+     * Elimina una corrida que todavía no arrancó (estado 'pendiente') --
+     * sacarla de la cola antes de que le toque el turno, sin tener que
+     * esperar a que arranque para recién ahí poder "Detener"la.
+     */
+    public function eliminarDeCola(int $id): void
+    {
+        if (! auth()->user()?->hasPermission('guias-internas.sincronizar')) {
+            Notification::make()->title('No tienes permiso para modificar la cola.')->danger()->send();
+
+            return;
+        }
+
+        $run = GuiaInternaSincronizacion::whereKey($id)->where('estado', 'pendiente')->first();
+        if (! $run) {
+            Notification::make()->title('Ya no se puede eliminar')->body('Esta extracción ya arrancó o dejó de existir.')->warning()->send();
+
+            return;
+        }
+
+        $run->delete();
+        Notification::make()->title('Extracción eliminada de la cola')->success()->send();
     }
 
     /**

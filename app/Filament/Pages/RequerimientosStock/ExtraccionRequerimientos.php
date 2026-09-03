@@ -119,7 +119,24 @@ class ExtraccionRequerimientos extends Page implements HasTable
 
     public function hayExtraccionEnProgreso(): bool
     {
-        return RequerimientoStockSincronizacion::query()->whereIn('estado', ['pendiente', 'en_progreso'])->exists();
+        return RequerimientoStockSincronizacion::query()->where('estado', 'en_progreso')->exists();
+    }
+
+    /**
+     * Todas las corridas pendientes o en progreso, más antigua primero --
+     * el mismo orden en que DespacharSincronizacionesPendientes las va a
+     * tomar (::oldest('id')->first()). Reemplaza a "la corrida más
+     * reciente" (extraccionActual()) para que encolar varias no oculte las
+     * que ya estaban esperando su turno.
+     *
+     * @return \Illuminate\Support\Collection<int, RequerimientoStockSincronizacion>
+     */
+    public function extraccionesActivas(): \Illuminate\Support\Collection
+    {
+        return RequerimientoStockSincronizacion::query()
+            ->whereIn('estado', ['pendiente', 'en_progreso'])
+            ->oldest('id')
+            ->get();
     }
 
     public function iniciarExtraccion(): void
@@ -129,11 +146,6 @@ class ExtraccionRequerimientos extends Page implements HasTable
         $end = (string) ($this->data['dateEnd'] ?? '');
         $locals = $this->restrictLocalIdsToUser($this->data['selectedLocals'] ?? []);
 
-        if ($this->hayExtraccionEnProgreso()) {
-            $this->resultError = 'Ya hay una extracción en progreso. Espera a que termine antes de iniciar otra.';
-
-            return;
-        }
         if ($start === '' || $end === '' || $end < $start) {
             $this->resultError = 'El rango de fechas no es válido.';
 
@@ -147,7 +159,10 @@ class ExtraccionRequerimientos extends Page implements HasTable
 
         // Solo encola: el arranque real lo hace el despachador programado
         // (ver DespacharSincronizacionesPendientes) -- un fork lanzado
-        // directo desde este worker web no sobrevive en producción.
+        // directo desde este worker web no sobrevive en producción. Se
+        // permite encolar aunque ya haya otra en curso: el despachador solo
+        // toma una a la vez (la más vieja primero), así que esta espera su
+        // turno en vez de bloquear al usuario con el botón deshabilitado.
         $run = RequerimientoStockSincronizacion::create([
             'filtros' => [
                 'fecha_inicio' => $start, 'fecha_fin' => $end,
@@ -160,13 +175,16 @@ class ExtraccionRequerimientos extends Page implements HasTable
         $this->extraccionActualId = $run->id;
         $this->esperandoExtraccion = true;
         $this->cerrarFiltrosExtraccion();
-        Notification::make()->title('Extracción encolada')->body('Arranca en menos de un minuto.')->success()->send();
+        $enCola = $this->extraccionesActivas()->count();
+        Notification::make()
+            ->title('Extracción encolada')
+            ->body($enCola > 1 ? "Hay {$enCola} extracciones en cola; esta arrancará cuando le toque su turno." : 'Arranca en menos de un minuto.')
+            ->success()->send();
     }
 
     public function refreshExtraccion(): void
     {
-        $actual = $this->extraccionActual();
-        if ($actual && ! in_array($actual->estado, ['pendiente', 'en_progreso'], true)) {
+        if ($this->extraccionesActivas()->isEmpty()) {
             $this->esperandoExtraccion = false;
         }
     }
@@ -176,8 +194,35 @@ class ExtraccionRequerimientos extends Page implements HasTable
         return $this->extraccionActualId ? RequerimientoStockSincronizacion::find($this->extraccionActualId) : null;
     }
 
-    /** Detiene una extracción en curso: mata el proceso real y conserva el avance ya guardado. */
-    public function cancelarExtraccion(): void
+    /**
+     * Elimina una corrida que todavía no arrancó (estado 'pendiente') --
+     * el pedido explícito de poder sacar algo de la cola antes de que le
+     * toque el turno, sin tener que esperar a que arranque para recién ahí
+     * poder "Detener"la.
+     */
+    public function eliminarDeCola(int $id): void
+    {
+        if (! auth()->user()?->hasPermission('requerimientos-stock.reporte.sincronizar')) {
+            Notification::make()->title('No tienes permiso para modificar la cola.')->danger()->send();
+
+            return;
+        }
+
+        $run = RequerimientoStockSincronizacion::whereKey($id)->where('estado', 'pendiente')->first();
+        if (! $run) {
+            // Puede haber arrancado justo antes del clic (el despachador
+            // corre cada minuto) -- no es un error, solo ya no aplica.
+            Notification::make()->title('Ya no se puede eliminar')->body('Esta extracción ya arrancó o dejó de existir.')->warning()->send();
+
+            return;
+        }
+
+        $run->delete();
+        Notification::make()->title('Extracción eliminada de la cola')->success()->send();
+    }
+
+    /** Detiene una extracción en curso: coopera con el chequeo entre páginas/registros y conserva el avance ya guardado. */
+    public function cancelarExtraccion(int $id): void
     {
         if (! auth()->user()?->hasPermission('requerimientos-stock.reporte.sincronizar')) {
             Notification::make()->title('No tienes permiso para cancelar la extracción.')->danger()->send();
@@ -185,7 +230,7 @@ class ExtraccionRequerimientos extends Page implements HasTable
             return;
         }
 
-        $actual = $this->extraccionActual();
+        $actual = RequerimientoStockSincronizacion::find($id);
         if (! $actual || ! in_array($actual->estado, ['pendiente', 'en_progreso'], true)) {
             return;
         }
@@ -204,7 +249,6 @@ class ExtraccionRequerimientos extends Page implements HasTable
             'completado_en' => now(),
         ]);
 
-        $this->esperandoExtraccion = false;
         Notification::make()
             ->title('Extracción cancelada')
             ->body($matado ? 'El proceso se detuvo correctamente.' : 'Se marcó como cancelada; el proceso ya no estaba activo.')
