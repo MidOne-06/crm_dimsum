@@ -53,18 +53,7 @@ class ExtraccionGuiasInternas extends Page implements HasTable
     {
         $this->coverageYear = (int) now()->year;
 
-        // La pantalla de extracción debe abrir aun cuando Restaurant esté lento
-        // o temporalmente caído. Los locales ya sincronizados son suficientes
-        // para iniciar una corrida y se restringen nuevamente al ejecutar.
-        $this->locals = $this->scopeLocalsToUser(
-            GuiaInterna::query()->whereNotNull('local_origen_id')->whereNotNull('local_origen')
-                ->select('local_origen_id as id', 'local_origen as name')->distinct()
-                ->orderBy('local_origen')->get()->map(fn (GuiaInterna $guia): array => ['id' => (string) $guia->id, 'name' => $guia->name])->all()
-        );
-
-        if ($this->locals === []) {
-            $this->resultError = 'Aún no hay locales respaldados. Ejecuta la primera sincronización programada.';
-        }
+        $this->cargarLocalesRestaurant();
 
         $this->data = [
             'selectedLocals' => array_column($this->locals, 'id'),
@@ -89,12 +78,39 @@ class ExtraccionGuiasInternas extends Page implements HasTable
 
     public function abrirFiltrosExtraccion(): void
     {
+        $seleccionados = array_map('strval', $this->data['selectedLocals'] ?? []);
+        $this->cargarLocalesRestaurant();
+
+        if ($this->locals !== []) {
+            $localesVigentes = array_column($this->locals, 'id');
+            $this->data['selectedLocals'] = array_values(array_intersect($seleccionados, $localesVigentes));
+        }
+
         $this->dispatch('open-modal', id: 'filtros-extraccion-guias');
     }
 
     public function cerrarFiltrosExtraccion(): void
     {
         $this->dispatch('close-modal', id: 'filtros-extraccion-guias');
+    }
+
+    private function cargarLocalesRestaurant(): void
+    {
+        try {
+            $this->locals = collect($this->scopeLocalsToUser(app(GuiasInternasGatewayClient::class)->locales()))
+                ->map(fn (array $local): array => [
+                    'id' => (string) ($local['id'] ?? ''),
+                    'name' => (string) ($local['name'] ?? ''),
+                ])
+                ->filter(fn (array $local): bool => $local['id'] !== '' && $local['name'] !== '')
+                ->sortBy('name', SORT_NATURAL | SORT_FLAG_CASE)
+                ->values()
+                ->all();
+            $this->resultError = null;
+        } catch (Throwable) {
+            $this->locals = [];
+            $this->resultError = 'No se pudieron cargar los locales desde Restaurant. Intenta nuevamente.';
+        }
     }
 
     public function syncDateRange(string $start, string $end, string $preset = 'custom'): void
