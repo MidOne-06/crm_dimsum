@@ -2,12 +2,17 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\ExtraerKardexJob;
 use App\Models\GuiaInternaSincronizacion;
+use App\Models\KardexExtraccion;
+use App\Models\KardexExtraccionLocal;
 use App\Models\RequerimientoStockSincronizacion;
 use App\Models\SalidaStockSincronizacion;
 use App\Models\StockCuadreSoporte;
+use App\Models\VentaExtraccion;
 use App\Services\BackgroundArtisan;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Artisan;
 
 /**
  * Autocura corridas de sincronización histórica que quedaron huérfanas: el
@@ -33,7 +38,7 @@ class ReanudarExtraccionesHuerfanas extends Command
 {
     protected $signature = 'extracciones:reanudar-huerfanas {--minutos=10 : Minutos sin avance para considerar una corrida huérfana}';
 
-    protected $description = 'Detecta y relanza corridas de sincronización histórica (guías, salidas, stock actual, requerimientos) que quedaron huérfanas.';
+    protected $description = 'Detecta y relanza corridas de sincronización histórica (guías, salidas, stock actual, requerimientos, ventas, kardex) que quedaron huérfanas.';
 
     public function handle(): int
     {
@@ -44,6 +49,8 @@ class ReanudarExtraccionesHuerfanas extends Command
         $reanudadas += $this->reanudarSalidas($umbral);
         $reanudadas += $this->reanudarStockActual($umbral);
         $reanudadas += $this->reanudarRequerimientos($umbral);
+        $reanudadas += $this->reanudarVentas($umbral);
+        $reanudadas += $this->reanudarKardex($umbral);
 
         $this->info("Corridas huérfanas relanzadas: {$reanudadas}.");
 
@@ -114,6 +121,58 @@ class ReanudarExtraccionesHuerfanas extends Command
             }
             BackgroundArtisan::start(['requerimientos-stock:sincronizar-reporte', '--sync-id='.$run->id]);
             $this->line("requerimientos-stock: relanzada sync-id={$run->id}");
+        }
+
+        return $huerfanas->count();
+    }
+
+    /**
+     * Ventas no arranca con BackgroundArtisan -- corre sobre el sistema de
+     * colas real de Laravel (ventas-pages/ventas-details), así que "relanzar"
+     * es reencolar, no volver a lanzar un proceso de shell. Ya existe
+     * ventas:reanudar-extraccion para invocación manual, con su propia
+     * protección por locked_at (no reencola una venta que un worker sigue
+     * procesando de verdad ahora mismo) -- se reutiliza tal cual.
+     */
+    private function reanudarVentas($umbral): int
+    {
+        $huerfanas = VentaExtraccion::query()
+            ->whereIn('estado', ['pendiente', 'planificando', 'en_progreso'])
+            ->where('updated_at', '<', $umbral)
+            ->get();
+
+        foreach ($huerfanas as $run) {
+            Artisan::call('ventas:reanudar-extraccion', ['id' => $run->id]);
+            $this->line("ventas: relanzada id={$run->id}");
+        }
+
+        return $huerfanas->count();
+    }
+
+    /**
+     * Kardex también corre sobre colas reales (queue 'kardex'), no
+     * BackgroundArtisan. ExtraerKardexJob ya sabe reanudar una extracción
+     * 'en_progreso' (despacha un job por cada local aún 'pendiente') -- solo
+     * hace falta liberar los locales que quedaron 'en_progreso' con un lease
+     * (procesando_at) vencido antes de volver a despachar, para no competir
+     * con un job que de verdad sigue trabajando.
+     */
+    private function reanudarKardex($umbral): int
+    {
+        $huerfanas = KardexExtraccion::query()
+            ->whereIn('estado', ['pendiente', 'en_progreso'])
+            ->where('updated_at', '<', $umbral)
+            ->get();
+
+        foreach ($huerfanas as $run) {
+            KardexExtraccionLocal::query()
+                ->where('extraccion_id', $run->id)
+                ->where('estado', 'en_progreso')
+                ->where(fn ($query) => $query->whereNull('procesando_at')->orWhere('procesando_at', '<', $umbral))
+                ->update(['estado' => 'pendiente', 'procesando_at' => null]);
+
+            ExtraerKardexJob::dispatch($run->id)->onQueue('kardex');
+            $this->line("kardex: relanzada id={$run->id}");
         }
 
         return $huerfanas->count();
