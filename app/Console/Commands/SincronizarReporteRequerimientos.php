@@ -25,7 +25,9 @@ class SincronizarReporteRequerimientos extends Command
     {
         if (filled($this->option('sync-id'))) {
             $run = RequerimientoStockSincronizacion::find((int) $this->option('sync-id'));
-            if (! $run || $run->estado !== 'pendiente') {
+            // Acepta 'en_progreso' también: sincronizar() ya sabe reanudar
+            // desde donde se quedó (ver comentario en esa función).
+            if (! $run || ! in_array($run->estado, ['pendiente', 'en_progreso'], true)) {
                 return self::SUCCESS;
             }
 
@@ -64,11 +66,26 @@ class SincronizarReporteRequerimientos extends Command
     {
 
         $filters = (array) $run->filtros;
-        $page = 1;
-        $processed = 0;
-        $saved = 0;
-        $details = 0;
-        $failed = 0;
+
+        // Reanudación incremental, mismo motivo que Guías internas y Salidas
+        // de stock: si esta corrida ya estaba en_progreso con registros
+        // procesados (se cortó por un deploy, un reinicio de worker, etc.),
+        // continúa desde la página donde se quedó en vez de reprocesar todo
+        // desde cero. Se retoma desde el INICIO de esa página (no la fila
+        // exacta) -- hasta 99 filas ya guardadas se reprocesan de más, pero
+        // RequerimientoStockHistoricoService::sincronizar() hace updateOrCreate,
+        // así que es idempotente y no genera duplicados.
+        $reanudando = $run->estado === 'en_progreso' && $run->registros_procesados > 0;
+        if ($reanudando) {
+            $page = intdiv($run->registros_procesados, 100) + 1;
+            $processed = ($page - 1) * 100;
+            $saved = $run->cabeceras_guardadas;
+            $details = $run->detalles_guardados;
+            $failed = $run->errores;
+        } else {
+            $page = 1;
+            $processed = $saved = $details = $failed = 0;
+        }
         $errors = [];
 
         // NO se registra proceso_pid: esto corre en el worker compartido de
@@ -77,7 +94,9 @@ class SincronizarReporteRequerimientos extends Command
         // la UI lo mataría junto con cualquier otra cola que esté procesando
         // (ventas, stock actual). "Detener" solo marca 'cancelado'; el
         // chequeo de abajo entre páginas es lo que realmente para el trabajo.
-        $run->update(['estado' => 'en_progreso', 'iniciado_en' => now(), 'mensaje_error' => null]);
+        if (! $reanudando) {
+            $run->update(['estado' => 'en_progreso', 'iniciado_en' => now(), 'mensaje_error' => null]);
+        }
         $paginasFallidas = [];
         $cancelado = false;
 

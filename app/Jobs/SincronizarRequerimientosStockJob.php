@@ -46,7 +46,15 @@ class SincronizarRequerimientosStockJob implements ShouldQueue
         RequerimientoStockHistoricoService $historico,
     ): void {
         $run = RequerimientoStockSincronizacion::find($this->syncId);
-        if (! $run || $run->estado !== 'pendiente') return;
+        // Acepta 'en_progreso' además de 'pendiente': con la reanudación
+        // incremental de SincronizarReporteRequerimientos::sincronizar(), una
+        // corrida cortada a mitad de camino (deploy, reinicio de worker) ya
+        // sabe retomar desde donde quedó -- antes, esta guarda solo permitía
+        // 'pendiente', así que la única forma de reanudarla era ReanudarExtraccionesHuerfanas
+        // forzando el estado de vuelta a 'pendiente', lo que además perdía el
+        // progreso porque sincronizar() no distinguía una corrida nueva de
+        // una reanudada.
+        if (! $run || ! in_array($run->estado, ['pendiente', 'en_progreso'], true)) return;
 
         $lock = Cache::lock('requerimientos-stock:sync', 14400);
         if (! $lock->get()) {

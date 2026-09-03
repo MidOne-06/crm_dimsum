@@ -123,18 +123,16 @@ class ReanudarExtraccionesHuerfanas extends Command
 
     private function reanudarRequerimientos($umbral): int
     {
-        // El comando de requerimientos exige estado='pendiente' para
-        // arrancar (ver SincronizarReporteRequerimientos::handle), así que
-        // una corrida huérfana en 'en_progreso' primero se resetea.
+        // SincronizarReporteRequerimientos::sincronizar() ya sabe reanudar
+        // una corrida 'en_progreso' desde la página donde se quedó (mismo
+        // patrón que guías/salidas) -- ya no hace falta resetear el estado a
+        // 'pendiente' primero, lo que antes descartaba el progreso guardado.
         $huerfanas = RequerimientoStockSincronizacion::query()
             ->whereIn('estado', ['pendiente', 'en_progreso'])
             ->where('updated_at', '<', $umbral)
             ->get();
 
         foreach ($huerfanas as $run) {
-            if ($run->estado === 'en_progreso') {
-                $run->update(['estado' => 'pendiente']);
-            }
             SincronizarRequerimientosStockJob::dispatch($run->id);
             $this->line("requerimientos-stock: relanzada sync-id={$run->id}");
         }

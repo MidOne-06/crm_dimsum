@@ -58,6 +58,17 @@ Schedule::command('requerimientos-stock:sincronizar-reporte --desde='.$ventanaIn
   ->withoutOverlapping(180)
   ->runInBackground();
 
+// Kardex era el único módulo de extracción sin ningún automatismo -- dependía
+// 100% de que alguien entrara y presionara el botón a mano (hallazgo real de
+// la auditoría del 2026-09-03: última corrida con 2 días de antigüedad). Se
+// extrae el día ANTERIOR (ya cerrado/estable en Restaurant) una vez al día,
+// de madrugada, para no competir en horario pico con el resto de las
+// extracciones por el único worker de Kardex (1 réplica a propósito).
+Schedule::command('kardex:sincronizar-diario')
+  ->dailyAt('03:15')
+  ->withoutOverlapping(180)
+  ->runInBackground();
+
 // Autocura corridas huérfanas: si el proceso de un backfill muere (sesión
 // SSH cortada, servidor reiniciado) la fila queda en 'en_progreso' para
 // siempre y nadie la reintenta. Cada 10 min se detectan corridas estancadas

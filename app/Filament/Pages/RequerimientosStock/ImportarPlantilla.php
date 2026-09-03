@@ -225,7 +225,13 @@ class ImportarPlantilla extends Page implements HasTable
             ])
             ->paginated([10, 25, 50, 100])
             ->defaultPaginationPageOption(10)
-            ->poll('60s')
+            // Sin poll(): cada refresco vuelve a traer TODAS las páginas de
+            // plantillas de Restaurant para cada local asignado del usuario
+            // (ver allRowsForLocal/assignedLocalRecords) -- con varias
+            // pestañas abiertas eso compite innecesariamente por el mismo
+            // pool de sesiones de Restaurant.pe que el resto del sistema ya
+            // administra con cuidado. La tabla se refresca sola al filtrar o
+            // paginar; no hace falta un poll automático de fondo.
             ->emptyStateHeading('Sin plantillas');
     }
 
