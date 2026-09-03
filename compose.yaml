@@ -24,6 +24,16 @@ services:
       context: ${STOCK_GATEWAY_PATH:-../../API-TI}
     image: crm-dimsum-gateway:local
     restart: unless-stopped
+    # Igual que `scheduler`: server.js corre como PID 1 sin reaparentar
+    # procesos hijos -- las sesiones de Playwright (chrome-headless) que se
+    # cierran quedan como zombies sin cosechar. Encontrado el 2026-09-03
+    # tras varias corridas de guías internas que se quedaban colgadas horas
+    # sin avance (job "RUNNING" sin nunca llegar a "DONE", pese a que los
+    # timeouts HTTP del cliente están configurados) -- no se pudo confirmar
+    # con certeza que los zombies fueran la causa exacta, pero es la misma
+    # clase de problema ya visto y corregido acá, así que se aplica el mismo
+    # fix por las dudas.
+    init: true
     env_file:
       - ${STOCK_GATEWAY_PATH:-../../API-TI}/.env
     networks:
