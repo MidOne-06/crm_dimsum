@@ -50,6 +50,7 @@ class ExtraccionRequerimientos extends Page implements HasTable
     public string $activeDatePreset = 'last30';
     public string $coverageLocalId = '';
     public int $coverageYear;
+    public int $coverageMonth;
 
     public static function canAccess(): bool
     {
@@ -59,6 +60,7 @@ class ExtraccionRequerimientos extends Page implements HasTable
     public function mount(): void
     {
         $this->coverageYear = (int) now()->year;
+        $this->coverageMonth = (int) now()->month;
 
         try {
             $this->locals = $this->scopeLocalsToUser(
@@ -314,6 +316,82 @@ class ExtraccionRequerimientos extends Page implements HasTable
     public function coverageNextYear(): void
     {
         $this->coverageYear++;
+    }
+
+    public function coveragePrevMonth(): void
+    {
+        $anchor = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->subMonthNoOverflow();
+        $this->coverageYear = $anchor->year;
+        $this->coverageMonth = $anchor->month;
+    }
+
+    public function coverageNextMonth(): void
+    {
+        $anchor = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->addMonthNoOverflow();
+        $this->coverageYear = $anchor->year;
+        $this->coverageMonth = $anchor->month;
+    }
+
+    /**
+     * Cobertura de TODOS los locales a la vez para el mes/año elegidos --
+     * antes solo se podía ver un local por vez con coverageMap(), obligando
+     * a filtrar uno por uno para notar un hueco. Una sola pasada por las
+     * corridas completadas del período (no una consulta por local) arma una
+     * matriz local -> día -> estado, reutilizando el mismo criterio de
+     * coincidencia que coverageMap() (una corrida con "locales" vacío en
+     * filtros cubre a todos -- así son las sincronizaciones automáticas
+     * programadas; si trae una lista, se compara contra el id Y el nombre
+     * del local por las dudas, ya que corridas históricas guardaron una u
+     * otra cosa según el punto de entrada que las creó).
+     *
+     * @return array<string, array<string, 'full'|'partial'>>
+     */
+    public function coverageMatrix(): array
+    {
+        $monthStart = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->startOfDay();
+        $monthEnd = $monthStart->copy()->endOfMonth();
+
+        $matrix = [];
+        foreach ($this->locals as $local) {
+            $matrix[(string) $local['id']] = [];
+        }
+
+        RequerimientoStockSincronizacion::query()
+            ->whereIn('estado', ['completado', 'completado_con_errores'])
+            ->get()
+            ->each(function (RequerimientoStockSincronizacion $run) use (&$matrix, $monthStart, $monthEnd): void {
+                $filters = (array) $run->filtros;
+                $start = isset($filters['fecha_inicio']) ? Carbon::parse($filters['fecha_inicio']) : null;
+                $end = isset($filters['fecha_fin']) ? Carbon::parse($filters['fecha_fin']) : null;
+
+                if (! $start || ! $end || $start->gt($monthEnd) || $end->lt($monthStart)) {
+                    return;
+                }
+
+                $runLocales = array_map('strval', $filters['locales'] ?? []);
+                $periodStart = $start->max($monthStart);
+                $periodEnd = $end->min($monthEnd);
+                $status = $run->errores > 0 ? 'partial' : 'full';
+
+                foreach ($this->locals as $local) {
+                    $id = (string) $local['id'];
+                    $name = (string) ($local['name'] ?? '');
+                    $applies = $runLocales === [] || in_array($id, $runLocales, true) || in_array($name, $runLocales, true);
+
+                    if (! $applies) {
+                        continue;
+                    }
+
+                    foreach (CarbonPeriod::create($periodStart, $periodEnd) as $day) {
+                        $key = $day->toDateString();
+                        if (($matrix[$id][$key] ?? null) !== 'full') {
+                            $matrix[$id][$key] = $status;
+                        }
+                    }
+                }
+            });
+
+        return $matrix;
     }
 
     /**
