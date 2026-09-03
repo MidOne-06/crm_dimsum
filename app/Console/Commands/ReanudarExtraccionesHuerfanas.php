@@ -90,6 +90,21 @@ class ReanudarExtraccionesHuerfanas extends Command
         return $huerfanas->count();
     }
 
+    /**
+     * A diferencia de guías/salidas/requerimientos (que corren "--directo",
+     * síncrono, dentro del proceso lanzado por BackgroundArtisan), Stock
+     * Actual mantiene el lock de exclusión ('stock-actual:sincronizacion-
+     * completa') tomado durante TODA la corrida en modo --directo. Si ese
+     * proceso muere (justo el problema que resuelve este comando), el lock
+     * queda "fresco" -- se toma de nuevo con cada reintento y expira recién
+     * a las 4 horas -- así que relanzar en modo --directo aquí solo reinicia
+     * el mismo ciclo: cada intento vuelve a morir y deja un lock nuevo,
+     * nunca avanza. En modo normal (sin --directo), el comando solo
+     * despacha SincronizarStockActualJob a la cola 'stock-actual' y suelta
+     * el lock de inmediato -- el worker real (contenedor `worker`) hace el
+     * trabajo pesado, sobrevive independiente de este comando, y si muere a
+     * mitad de proceso el propio sistema de colas de Laravel lo reintenta.
+     */
     private function reanudarStockActual($umbral): int
     {
         $huerfanas = StockCuadreSoporte::query()
@@ -98,7 +113,7 @@ class ReanudarExtraccionesHuerfanas extends Command
             ->get();
 
         foreach ($huerfanas as $run) {
-            BackgroundArtisan::start(['stock-actual:sincronizar', '--directo', '--sync-id='.$run->id]);
+            Artisan::call('stock-actual:sincronizar', ['--sync-id' => $run->id]);
             $this->line("stock-actual: relanzada sync-id={$run->id}");
         }
 
