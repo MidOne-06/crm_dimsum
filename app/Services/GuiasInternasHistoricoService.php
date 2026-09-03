@@ -27,15 +27,40 @@ class GuiasInternasHistoricoService
         // guías válidas que solo coincidían en la columna equivocada.
         $filters = ['pagina' => 1, 'registros' => 50, 'fecha_inicio' => $desde, 'fecha_fin' => $hasta, 'estado' => $estado, 'filtro_por_fecha' => $filtroFecha];
         if ($locales !== []) $filters['locales'] = implode(',', $locales);
-        $sync->update(['estado' => 'en_progreso', 'iniciado_en' => now(), 'mensaje_error' => null]);
+        // Reanudación incremental: si esta corrida ya venía 'en_progreso' con
+        // páginas guardadas (el worker que la procesaba murió a mitad de
+        // camino -- deploy, redespliegue, recreación de contenedor), NO se
+        // reinicia desde la página 1. Antes, cada interrupción perdía TODO
+        // el avance y volvía a pedir páginas ya guardadas -- se comprobó en
+        // producción el mismo día: una corrida se reinició 3 veces por
+        // intervenciones de infraestructura, perdiendo horas de trabajo real
+        // cada vez. $seen se reconstruye desde lo que YA está guardado en
+        // BD para esta corrida (guia_interna.sincronizacion_id), no hace
+        // falta persistirlo aparte.
+        $reanudando = $sync->estado === 'en_progreso' && $sync->paginas_procesadas > 0 && $sync->paginas_total > 0;
+        $erroresPrevios = $reanudando ? $sync->errores : 0;
+        if (! $reanudando) $sync->update(['estado' => 'en_progreso', 'iniciado_en' => now(), 'mensaje_error' => null]);
         try {
-            // Solo la página 1 es indispensable: sin ella no sabemos cuántas
-            // páginas hay. El cliente ya reintenta 3 veces ante fallas
-            // transitorias (ver GuiasInternasGatewayClient::get); si aun así
-            // falla, no hay forma de continuar.
-            $first = $gateway->guias($filters); $total = (int) ($first['total'] ?? 0); $pages = max(1, (int) ceil($total / 50)); $sync->update(['paginas_total' => $pages]);
-            $saved = $details = $failed = 0; $seen = $errors = []; $paginasFallidas = []; $cancelada = false;
-            for ($page = 1; $page <= $pages; $page++) {
+            if ($reanudando) {
+                $pages = $sync->paginas_total;
+                $first = null;
+                $startPage = $sync->paginas_procesadas + 1;
+                $saved = $sync->cabeceras_guardadas;
+                $details = $sync->detalles_guardados;
+                $failed = $sync->errores;
+                $seen = GuiaInterna::query()->where('sincronizacion_id', $sync->id)->pluck('restaurant_id')->all();
+            } else {
+                // Solo la página 1 es indispensable: sin ella no sabemos
+                // cuántas páginas hay. El cliente ya reintenta 3 veces ante
+                // fallas transitorias (ver GuiasInternasGatewayClient::get);
+                // si aun así falla, no hay forma de continuar.
+                $first = $gateway->guias($filters); $total = (int) ($first['total'] ?? 0); $pages = max(1, (int) ceil($total / 50)); $sync->update(['paginas_total' => $pages]);
+                $startPage = 1;
+                $saved = $details = $failed = 0;
+                $seen = [];
+            }
+            $errors = []; $paginasFallidas = []; $cancelada = false;
+            for ($page = $startPage; $page <= $pages; $page++) {
                 // Cancelación cooperativa: al correr en un worker compartido
                 // (no un proceso propio con PID matable), "Detener" en la UI
                 // solo puede marcar el estado -- este chequeo entre páginas es
@@ -71,9 +96,14 @@ class GuiasInternasHistoricoService
             // Reconciliar (borrar lo que ya no existe en Restaurant) solo es
             // seguro si TODAS las páginas se leyeron: con páginas fallidas,
             // $seen está incompleto y borraríamos guías válidas que cayeron
-            // en una página que no pudimos leer esta vez.
-            $deleted = $paginasFallidas === [] && $estado === '-1' ? $this->reconciliar($desde, $hasta, $seen, $locales, $filtroFecha) : 0;
+            // en una página que no pudimos leer esta vez. Al reanudar, las
+            // páginas fallidas de un intento ANTERIOR (antes del punto de
+            // corte) ya no aparecen en $paginasFallidas -- $erroresPrevios
+            // es la única señal que queda de que hubo huecos antes de
+            // reanudar, así que también bloquea la reconciliación.
+            $deleted = $paginasFallidas === [] && $erroresPrevios === 0 && $estado === '-1' ? $this->reconciliar($desde, $hasta, $seen, $locales, $filtroFecha) : 0;
             if ($paginasFallidas !== []) $errors[] = 'Reconciliación omitida: páginas sin leer '.implode(',', $paginasFallidas).' (no se eliminó nada para evitar falsos positivos).';
+            elseif ($erroresPrevios > 0) $errors[] = 'Reconciliación omitida: un intento anterior de esta misma corrida tuvo '.$erroresPrevios.' error(es) antes de reanudar (no se eliminó nada para evitar falsos positivos).';
             $sync->update(['estado' => $errors === [] ? 'completado' : 'completado_con_errores', 'cabeceras_guardadas' => $saved, 'detalles_guardados' => $details, 'cabeceras_eliminadas' => $deleted, 'errores' => $failed, 'mensaje_error' => $errors === [] ? null : implode("\n", $errors), 'completado_en' => now()]);
             return compact('pages', 'saved', 'details', 'failed', 'deleted') + ['sincronizacion_id' => $sync->id, 'paginas_fallidas' => $paginasFallidas];
         } catch (\Throwable $e) { $sync->update(['estado' => 'fallido', 'mensaje_error' => $e->getMessage(), 'completado_en' => now()]); throw $e; }
