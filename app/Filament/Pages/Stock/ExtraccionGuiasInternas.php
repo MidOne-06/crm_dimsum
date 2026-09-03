@@ -43,6 +43,7 @@ class ExtraccionGuiasInternas extends Page implements HasTable
     public string $activeDatePreset = 'last30';
     public string $coverageLocalId = '';
     public int $coverageYear;
+    public int $coverageMonth;
 
     public static function canAccess(): bool
     {
@@ -52,6 +53,7 @@ class ExtraccionGuiasInternas extends Page implements HasTable
     public function mount(): void
     {
         $this->coverageYear = (int) now()->year;
+        $this->coverageMonth = (int) now()->month;
 
         $this->cargarLocalesRestaurant();
 
@@ -311,6 +313,122 @@ class ExtraccionGuiasInternas extends Page implements HasTable
 
     public function coveragePrevYear(): void { $this->coverageYear--; }
     public function coverageNextYear(): void { $this->coverageYear++; }
+
+    public function coveragePrevMonth(): void
+    {
+        $anchor = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->subMonthNoOverflow();
+        $this->coverageYear = $anchor->year;
+        $this->coverageMonth = $anchor->month;
+    }
+
+    public function coverageNextMonth(): void
+    {
+        $anchor = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->addMonthNoOverflow();
+        $this->coverageYear = $anchor->year;
+        $this->coverageMonth = $anchor->month;
+    }
+
+    /**
+     * Cobertura de TODOS los locales a la vez para el mes/año elegidos --
+     * mismo patrón que ExtraccionRequerimientos::coverageMatrix(). Una sola
+     * pasada por las corridas completadas del período (no una consulta por
+     * local); una corrida con "locales" vacío en filtros cubre a todos, y si
+     * trae una lista se compara contra el id Y el nombre del local por las
+     * dudas.
+     *
+     * @return array<string, array<string, 'full'|'partial'>>
+     */
+    protected function coverageMatrix(): array
+    {
+        $monthStart = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->startOfDay();
+        $monthEnd = $monthStart->copy()->endOfMonth()->startOfDay();
+
+        $matrix = [];
+        foreach ($this->locals as $local) {
+            $matrix[(string) $local['id']] = [];
+        }
+
+        GuiaInternaSincronizacion::query()
+            ->whereIn('estado', ['completado', 'completado_con_errores'])
+            ->get()
+            ->each(function (GuiaInternaSincronizacion $run) use (&$matrix, $monthStart, $monthEnd): void {
+                if (! $run->fecha_inicio || ! $run->fecha_fin || $run->fecha_inicio->gt($monthEnd) || $run->fecha_fin->lt($monthStart)) {
+                    return;
+                }
+
+                $runLocales = array_map('strval', $run->filtros['locales'] ?? []);
+                $periodStart = $run->fecha_inicio->copy()->max($monthStart);
+                $periodEnd = $run->fecha_fin->copy()->min($monthEnd);
+                $status = $run->errores > 0 ? 'partial' : 'full';
+
+                foreach ($this->locals as $local) {
+                    $id = (string) $local['id'];
+                    $name = (string) ($local['name'] ?? '');
+                    $applies = $runLocales === [] || in_array($id, $runLocales, true) || in_array($name, $runLocales, true);
+
+                    if (! $applies) {
+                        continue;
+                    }
+
+                    foreach (CarbonPeriod::create($periodStart, $periodEnd) as $day) {
+                        $key = $day->toDateString();
+                        if (($matrix[$id][$key] ?? null) !== 'full') {
+                            $matrix[$id][$key] = $status;
+                        }
+                    }
+                }
+            });
+
+        return $matrix;
+    }
+
+    /**
+     * Resumen de texto por local para el mes elegido -- mismo patrón que
+     * ExtraccionRequerimientos::coverageSummary(). Solo cuenta días hasta
+     * hoy -- un día futuro del mes no es un "hueco".
+     *
+     * startOfDay() en AMBOS extremos del rango antes de diffInDays(): sin
+     * esto, un mes 100% cubierto calcula 97% en vez de 100% (bug real
+     * encontrado y corregido hoy en la versión de Requerimientos -- ver
+     * ExtraccionRequerimientos::coverageSummary()).
+     *
+     * @return array{total: int, conProblemas: \Illuminate\Support\Collection<int, array{id: string, name: string, partial: int, missing: int, pct: int}>}
+     */
+    public function coverageSummary(): array
+    {
+        $matrix = $this->coverageMatrix();
+        $monthStart = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->startOfDay();
+        $monthEnd = $monthStart->copy()->endOfMonth()->startOfDay()->min(now()->startOfDay());
+        $diasHastaHoy = max(1, (int) $monthStart->diffInDays($monthEnd) + 1);
+
+        $items = collect($this->locals)
+            ->map(function (array $local) use ($matrix, $monthStart, $monthEnd, $diasHastaHoy): array {
+                $row = $matrix[(string) $local['id']] ?? [];
+                $full = $partial = $missing = 0;
+
+                foreach (CarbonPeriod::create($monthStart, $monthEnd) as $day) {
+                    $status = $row[$day->toDateString()] ?? null;
+                    match ($status) {
+                        'full' => $full++,
+                        'partial' => $partial++,
+                        default => $missing++,
+                    };
+                }
+
+                return [
+                    'id' => (string) $local['id'],
+                    'name' => (string) $local['name'],
+                    'partial' => $partial,
+                    'missing' => $missing,
+                    'pct' => (int) round(($full / $diasHastaHoy) * 100),
+                ];
+            });
+
+        return [
+            'total' => $items->count(),
+            'conProblemas' => $items->filter(fn (array $i): bool => $i['pct'] < 100)->sortBy('pct')->values(),
+        ];
+    }
 
     public function coverageMap(): array
     {

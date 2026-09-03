@@ -2,6 +2,38 @@
 @php($gaps = $this->coverageGaps())
 @php($today = now()->startOfDay())
 @php($months = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Setiembre','Octubre','Noviembre','Diciembre'])
+
+@php($resumenCobertura = $this->coverageSummary())
+
+<x-filament::section>
+    <x-slot name="heading">Resumen -- {{ $months[$coverageMonth - 1] }} {{ $coverageYear }}</x-slot>
+    <x-slot name="afterHeader">
+        <div class="flex items-center gap-2">
+            <x-filament::icon-button icon="heroicon-o-chevron-left" label="Mes anterior" wire:click="coveragePrevMonth" size="sm" />
+            <span class="w-32 text-center text-sm font-semibold text-gray-950 dark:text-white">{{ $months[$coverageMonth - 1] }} {{ $coverageYear }}</span>
+            <x-filament::icon-button icon="heroicon-o-chevron-right" label="Mes siguiente" wire:click="coverageNextMonth" size="sm" />
+        </div>
+    </x-slot>
+
+    @if($resumenCobertura['conProblemas']->isEmpty())
+        <p class="text-sm font-medium text-success-600 dark:text-success-400">Los {{ $resumenCobertura['total'] }} locales están al día en {{ $months[$coverageMonth - 1] }} (hasta hoy).</p>
+    @else
+        <p class="mb-3 text-sm text-gray-600 dark:text-gray-300">{{ $resumenCobertura['total'] - $resumenCobertura['conProblemas']->count() }} de {{ $resumenCobertura['total'] }} locales al día. Con pendientes:</p>
+        <ul class="divide-y divide-gray-100 dark:divide-white/5">
+            @foreach($resumenCobertura['conProblemas'] as $item)
+                <li class="flex items-center justify-between gap-3 py-1.5 text-sm">
+                    <button type="button" wire:click="$set('coverageLocalId', '{{ $item['id'] }}')" class="font-medium text-gray-800 hover:text-primary-600 hover:underline dark:text-gray-100">{{ $item['name'] }}</button>
+                    <span class="shrink-0 text-xs text-gray-500 dark:text-gray-400">
+                        @if($item['partial'] > 0)<span class="text-warning-600 dark:text-warning-400">{{ $item['partial'] }} con fallos</span>@endif
+                        @if($item['partial'] > 0 && $item['missing'] > 0) · @endif
+                        @if($item['missing'] > 0)<span>{{ $item['missing'] }} sin extraer</span>@endif
+                    </span>
+                </li>
+            @endforeach
+        </ul>
+    @endif
+</x-filament::section>
+
 <x-filament::section>
     <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
         <label class="w-full sm:w-72"><span class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">Local</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="coverageLocalId">@foreach($locals as $local)<option value="{{ $local['id'] }}">{{ $local['name'] }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
