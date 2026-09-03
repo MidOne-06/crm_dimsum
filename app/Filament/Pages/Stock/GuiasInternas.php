@@ -513,6 +513,7 @@ class GuiasInternas extends Page implements HasTable
             '--hasta' => $this->hasta,
             '--locales' => $this->localesOrigen,
             '--estado' => $this->estado ?? '-1',
+            '--filtro-fecha' => $this->fechaTipo,
         ]);
     }
 

@@ -15,10 +15,17 @@ class GuiasInternasHistoricoService
         return GuiaInternaSincronizacion::create(['fecha_inicio' => Carbon::parse($desde)->toDateString(), 'fecha_fin' => Carbon::parse($hasta)->toDateString(), 'estado' => 'pendiente', 'filtros' => ['locales' => array_values(array_map('strval', $locales))], 'iniciado_por' => $iniciadoPor]);
     }
 
-    public function sincronizar(GuiaInternaSincronizacion $sync, GuiasInternasGatewayClient $gateway, array $locales = [], string $estado = '-1'): array
+    public function sincronizar(GuiaInternaSincronizacion $sync, GuiasInternasGatewayClient $gateway, array $locales = [], string $estado = '-1', string $filtroFecha = '1'): array
     {
         $desde = $sync->fecha_inicio->toDateString(); $hasta = $sync->fecha_fin->toDateString(); $locales = array_values(array_filter($locales));
-        $filters = ['pagina' => 1, 'registros' => 50, 'fecha_inicio' => $desde, 'fecha_fin' => $hasta, 'estado' => $estado];
+        // '1' = fecha de emisión, '0' = fecha de traslado -- misma
+        // convención que Restaurant usa en filtroPorFecha. Debe viajar
+        // hasta el gateway (para pedir el rango correcto) Y hasta
+        // reconciliar() (para no borrar por una columna distinta de la que
+        // realmente se consultó): si desde/hasta se interpretan como
+        // traslado pero se reconcilia por emisión, se podrían eliminar
+        // guías válidas que solo coincidían en la columna equivocada.
+        $filters = ['pagina' => 1, 'registros' => 50, 'fecha_inicio' => $desde, 'fecha_fin' => $hasta, 'estado' => $estado, 'filtro_por_fecha' => $filtroFecha];
         if ($locales !== []) $filters['locales'] = implode(',', $locales);
         $sync->update(['estado' => 'en_progreso', 'iniciado_en' => now(), 'mensaje_error' => null]);
         try {
@@ -52,7 +59,7 @@ class GuiasInternasHistoricoService
             // seguro si TODAS las páginas se leyeron: con páginas fallidas,
             // $seen está incompleto y borraríamos guías válidas que cayeron
             // en una página que no pudimos leer esta vez.
-            $deleted = $paginasFallidas === [] && $estado === '-1' ? $this->reconciliar($desde, $hasta, $seen, $locales) : 0;
+            $deleted = $paginasFallidas === [] && $estado === '-1' ? $this->reconciliar($desde, $hasta, $seen, $locales, $filtroFecha) : 0;
             if ($paginasFallidas !== []) $errors[] = 'Reconciliación omitida: páginas sin leer '.implode(',', $paginasFallidas).' (no se eliminó nada para evitar falsos positivos).';
             $sync->update(['estado' => $errors === [] ? 'completado' : 'completado_con_errores', 'cabeceras_guardadas' => $saved, 'detalles_guardados' => $details, 'cabeceras_eliminadas' => $deleted, 'errores' => $failed, 'mensaje_error' => $errors === [] ? null : implode("\n", $errors), 'completado_en' => now()]);
             return compact('pages', 'saved', 'details', 'failed', 'deleted') + ['sincronizacion_id' => $sync->id, 'paginas_fallidas' => $paginasFallidas];
@@ -73,9 +80,10 @@ class GuiasInternasHistoricoService
         });
     }
 
-    private function reconciliar(string $desde, string $hasta, array $seen, array $locales = []): int
+    private function reconciliar(string $desde, string $hasta, array $seen, array $locales = [], string $filtroFecha = '1'): int
     {
-        $query = GuiaInterna::query()->whereBetween('fecha_emision', [Carbon::parse($desde)->startOfDay(), Carbon::parse($hasta)->endOfDay()]);
+        $columna = $filtroFecha === '0' ? 'fecha_traslado' : 'fecha_emision';
+        $query = GuiaInterna::query()->whereBetween($columna, [Carbon::parse($desde)->startOfDay(), Carbon::parse($hasta)->endOfDay()]);
         if ($locales !== []) $query->whereIn('local_origen_id', $locales); if ($seen !== []) $query->whereNotIn('restaurant_id', array_unique($seen)); return $query->delete();
     }
 

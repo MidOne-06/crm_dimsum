@@ -178,6 +178,12 @@ class ReporteGuiasInternas extends Page implements HasTable
             '--hasta' => $this->dateEnd(),
             '--locales' => $this->selectedLocalIds('origenLocals'),
             '--estado' => filled($this->data['estado'] ?? null) ? (string) $this->data['estado'] : '-1',
+            // El comando espera la convención de Restaurant ('1'=emisión,
+            // '0'=traslado), no el valor legible del selector de este
+            // formulario -- si no se traduce, la sincronización (y su
+            // reconciliación/borrado) terminaría operando siempre por
+            // emisión aunque el usuario haya elegido "Fecha de traslado".
+            '--filtro-fecha' => $this->dateColumn() === 'fecha_traslado' ? '0' : '1',
         ]);
     }
 
