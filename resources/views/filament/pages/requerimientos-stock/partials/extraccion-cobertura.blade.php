@@ -18,15 +18,17 @@
     @php($matrixMonthStart = \Illuminate\Support\Carbon::create($coverageYear, $coverageMonth, 1))
     @php($matrixDays = $matrixMonthStart->daysInMonth)
 
+    {{-- Misma estructura (local x día), solo más compacta: celdas y filas
+         más chicas, menos padding -- ningún dato deja de mostrarse. --}}
     <div class="overflow-x-auto">
-        <table class="crm-coverage-matrix w-full border-collapse text-xs">
+        <table class="crm-coverage-matrix w-full border-collapse text-[10px] leading-none">
             <thead>
                 <tr>
-                    <th class="sticky start-0 z-10 bg-white px-2 py-1 text-start font-medium text-gray-500 dark:bg-gray-900 dark:text-gray-400">Local</th>
+                    <th class="sticky start-0 z-10 bg-white px-1.5 py-0.5 text-start font-medium text-gray-500 dark:bg-gray-900 dark:text-gray-400">Local</th>
                     @for($day = 1; $day <= $matrixDays; $day++)
-                        <th class="px-0.5 py-1 text-center font-normal text-gray-400" style="width:18px">{{ $day }}</th>
+                        <th class="text-center font-normal text-gray-400" style="width:13px">{{ $day }}</th>
                     @endfor
-                    <th class="px-2 py-1 text-end font-medium text-gray-500 dark:text-gray-400">%</th>
+                    <th class="px-1.5 py-0.5 text-end font-medium text-gray-500 dark:text-gray-400">%</th>
                 </tr>
             </thead>
             <tbody>
@@ -36,7 +38,7 @@
                     @php($fullCount = collect($row)->filter(fn ($s) => $s === 'full')->count())
                     @php($pct = $matrixDays > 0 ? (int) round(($fullCount / $matrixDays) * 100) : 0)
                     <tr class="border-t border-gray-100 dark:border-white/5">
-                        <td class="sticky start-0 z-10 whitespace-nowrap bg-white px-2 py-0.5 text-gray-700 dark:bg-gray-900 dark:text-gray-200">
+                        <td class="sticky start-0 z-10 max-w-[9rem] truncate whitespace-nowrap bg-white px-1.5 py-px text-gray-700 dark:bg-gray-900 dark:text-gray-200" title="{{ $local['name'] }}">
                             <button type="button" wire:click="$set('coverageLocalId', '{{ $localId }}')" class="hover:text-primary-600 hover:underline">{{ $local['name'] }}</button>
                         </td>
                         @for($day = 1; $day <= $matrixDays; $day++)
@@ -44,11 +46,11 @@
                             @php($status = $row[$date->toDateString()] ?? null)
                             @php($future = $date->greaterThan($today))
                             @php($color = $status === 'full' ? '#16a34a' : ($status === 'partial' ? '#d97706' : null))
-                            <td class="p-0.5 text-center">
-                                <span title="{{ $local['name'] }} · {{ $date->format('d/m/Y') }} · {{ $status === 'full' ? 'Completo' : ($status === 'partial' ? 'Con fallos' : 'Falta') }}" class="mx-auto block h-3.5 w-3.5 rounded-[3px] {{ $color ? '' : ($future ? 'bg-gray-50 dark:bg-white/5' : 'border border-gray-300 dark:border-gray-600') }}" style="{{ $color ? 'background:'.$color : '' }}"></span>
+                            <td class="p-px text-center">
+                                <span title="{{ $local['name'] }} · {{ $date->format('d/m/Y') }} · {{ $status === 'full' ? 'Completo' : ($status === 'partial' ? 'Con fallos' : 'Falta') }}" class="mx-auto block h-2.5 w-2.5 rounded-[2px] {{ $color ? '' : ($future ? 'bg-gray-50 dark:bg-white/5' : 'border border-gray-300 dark:border-gray-600') }}" style="{{ $color ? 'background:'.$color : '' }}"></span>
                             </td>
                         @endfor
-                        <td class="px-2 py-0.5 text-end tabular-nums {{ $pct === 100 ? 'text-success-600 dark:text-success-400' : ($pct === 0 ? 'text-gray-400' : 'text-warning-600 dark:text-warning-400') }}">{{ $pct }}%</td>
+                        <td class="px-1.5 py-px text-end tabular-nums {{ $pct === 100 ? 'text-success-600 dark:text-success-400' : ($pct === 0 ? 'text-gray-400' : 'text-warning-600 dark:text-warning-400') }}">{{ $pct }}%</td>
                     </tr>
                 @endforeach
             </tbody>
