@@ -408,8 +408,13 @@ class ExtraccionRequerimientos extends Page implements HasTable
     {
         $matrix = $this->coverageMatrix();
         $monthStart = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->startOfDay();
-        $monthEnd = $monthStart->copy()->endOfMonth()->min(now()->startOfDay());
-        $diasHastaHoy = max(1, $monthStart->diffInDays($monthEnd) + 1);
+        // startOfDay() en ambos extremos, no solo en $monthStart: sin esto,
+        // $monthEnd quedaba en 23:59:59 (endOfMonth) y diffInDays() devolvía
+        // un float como 30.999999999988 en vez de 30 -- un mes 100% cubierto
+        // (31/31 días) terminaba mostrando 97%, no 100%, y el local aparecía
+        // como "con pendientes" sin tener ninguno de verdad.
+        $monthEnd = $monthStart->copy()->endOfMonth()->startOfDay()->min(now()->startOfDay());
+        $diasHastaHoy = max(1, (int) $monthStart->diffInDays($monthEnd) + 1);
 
         $items = collect($this->locals)
             ->map(function (array $local) use ($matrix, $monthStart, $monthEnd, $diasHastaHoy): array {
