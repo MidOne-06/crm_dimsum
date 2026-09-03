@@ -108,7 +108,16 @@
 
             <x-slot name="footerActions">
                 <x-filament::button color="gray" wire:click="cerrarFiltrosExtraccion">Cancelar</x-filament::button>
-                <x-filament::button type="submit" form="filtros-extraccion-guias-form" icon="heroicon-m-circle-stack" :disabled="$bloqueadoPorOtra">Iniciar extracción</x-filament::button>
+                {{--
+                    Mismo bug real que en Extracción de requerimientos: el
+                    prop que escribe el atributo HTML form="..." en
+                    x-filament::button es `form-id`, no `form` (ese otro solo
+                    alimenta el indicador de carga interno). Con `form="..."`
+                    este botón no quedaba asociado a ningún <form> real -- el
+                    clic no disparaba nada, siempre, no solo cuando había otra
+                    extracción en curso.
+                --}}
+                <x-filament::button type="submit" form-id="filtros-extraccion-guias-form" icon="heroicon-m-circle-stack" :disabled="$bloqueadoPorOtra">Iniciar extracción</x-filament::button>
             </x-slot>
         </x-filament::modal>
     </div>

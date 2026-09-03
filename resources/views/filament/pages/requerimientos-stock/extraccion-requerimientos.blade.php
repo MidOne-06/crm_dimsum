@@ -90,7 +90,19 @@
 
             <x-slot name="footerActions">
                 <x-filament::button color="gray" wire:click="cerrarFiltrosExtraccion">Cancelar</x-filament::button>
-                <x-filament::button type="submit" form="filtros-extraccion-requerimientos-form" icon="heroicon-m-circle-stack" :disabled="$bloqueadoPorOtra">Iniciar extracción</x-filament::button>
+                {{--
+                    El bug real detrás de "no pasa nada al presionar": el prop
+                    del componente x-filament::button que efectivamente
+                    escribe el atributo HTML form="..." es `form-id`, no
+                    `form` (ese otro solo alimenta el indicador de carga
+                    interno). Con `form="..."` este botón se renderizaba sin
+                    ningún atributo form en el HTML final y, al vivir en el
+                    slot footerActions (fuera del <form> de arriba), quedaba
+                    un <button type="submit"> sin ningún formulario al que
+                    enviar -- el clic no disparaba nada, en cualquier momento,
+                    con o sin otra extracción en curso.
+                --}}
+                <x-filament::button type="submit" form-id="filtros-extraccion-requerimientos-form" icon="heroicon-m-circle-stack" :disabled="$bloqueadoPorOtra">Iniciar extracción</x-filament::button>
             </x-slot>
         </x-filament::modal>
     </div>
