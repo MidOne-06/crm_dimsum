@@ -109,7 +109,22 @@ services:
     # que un redeploy de `scheduler` (donde antes corrían via
     # BackgroundArtisan) no interrumpa una sincronización histórica larga a
     # mitad de camino -- ver Bitácora en AGENTS.md.
-    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=ventas-pages,ventas-details,stock-actual,guias-internas,salidas-stock,requerimientos-stock,default", "--sleep=1", "--tries=4", "--timeout=720", "--max-time=3600"]
+    #
+    # --timeout=720 (encontrado el 2026-09-03, causa raíz real de los
+    # "stalls" de horas en guías internas #71/#80/#82): SincronizarGuiasInternasJob,
+    # SincronizarSalidasStockJob y SincronizarRequerimientosStockJob procesan
+    # TODAS las páginas de una corrida dentro de un solo handle() -- el
+    # $timeout=7200 de la clase Job es la intención real, pero el --timeout
+    # de la CLI de queue:work es el que Laravel realmente hace cumplir (con
+    # SIGKILL, vía un proceso hijo) y gana el valor más chico. Con
+    # --timeout=720 (12 min), una sola página lenta (muchos detalles, sesión
+    # de Restaurant.pe contendida) superaba ese límite y el worker mataba el
+    # proceso a la fuerza -- un SIGKILL no dispara el `finally` que libera el
+    # Cache::lock, así que quedaba huérfano hasta por 4h (su propio TTL) sin
+    # que nada lo notara aparte del aviso de "sin avance" en la UI. Subido a
+    # 3300s (55 min, justo debajo de --max-time) para dar margen real a una
+    # página lenta sin dejar de tener un techo ante un hang genuino.
+    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=ventas-pages,ventas-details,stock-actual,guias-internas,salidas-stock,requerimientos-stock,default", "--sleep=1", "--tries=4", "--timeout=3300", "--max-time=3600"]
     deploy:
       replicas: ${VENTAS_WORKER_REPLICAS:-0}
     volumes:
