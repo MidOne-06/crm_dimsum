@@ -1,8 +1,18 @@
 <?php
 
+use App\Models\ConfiguracionSincronizacion;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
+
+// Panel de Sincronización: cada uno de los 6 syncs automáticos de abajo se
+// puede prender/apagar desde /admin/sincronizacion sin tocar código ni
+// hacer un deploy -- ->when() hace que Laravel directamente NO dispare esa
+// tarea en el tick donde el módulo esté desactivado (no la ejecuta y aborta,
+// ni siquiera intenta correr). No afecta la reanudación de huérfanas ni el
+// arranque de extracciones que un usuario haya encolado a mano -- apagar el
+// automático no debe bloquear algo que alguien pidió explícitamente.
+$sincActivo = fn (string $modulo) => fn (): bool => ConfiguracionSincronizacion::activo($modulo);
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -37,17 +47,20 @@ $ventanaIncremental = fn (int $dias): string => now()->subDays($dias)->toDateStr
 Schedule::command('stock-actual:sincronizar --directo --desde='.$ventanaIncremental(3))
   ->everyThirtyMinutes()
   ->withoutOverlapping(180)
-  ->runInBackground();
+  ->runInBackground()
+  ->when($sincActivo('stock-actual'));
 
 Schedule::command('salidas-stock:sincronizar --desde='.$ventanaIncremental(3))
   ->hourly()
   ->withoutOverlapping(180)
-  ->runInBackground();
+  ->runInBackground()
+  ->when($sincActivo('salidas-stock'));
 
 Schedule::command('guias-internas:sincronizar --desde='.$ventanaIncremental(3))
   ->everyThirtyMinutes()
   ->withoutOverlapping(180)
-  ->runInBackground();
+  ->runInBackground()
+  ->when($sincActivo('guias-internas'));
 
 // El reporte de requerimientos consulta una copia local para que la matriz y
 // las exportaciones respondan de inmediato. Sin esta tarea, la copia quedaba
@@ -56,7 +69,8 @@ Schedule::command('guias-internas:sincronizar --desde='.$ventanaIncremental(3))
 Schedule::command('requerimientos-stock:sincronizar-reporte --desde='.$ventanaIncremental(3))
   ->everyThirtyMinutes()
   ->withoutOverlapping(180)
-  ->runInBackground();
+  ->runInBackground()
+  ->when($sincActivo('requerimientos-stock'));
 
 // Kardex era el único módulo de extracción sin ningún automatismo -- dependía
 // 100% de que alguien entrara y presionara el botón a mano (hallazgo real de
@@ -69,7 +83,8 @@ Schedule::command('requerimientos-stock:sincronizar-reporte --desde='.$ventanaIn
 Schedule::command('kardex:sincronizar-diario')
   ->dailyAt('00:05')
   ->withoutOverlapping(180)
-  ->runInBackground();
+  ->runInBackground()
+  ->when($sincActivo('kardex'));
 
 // Ventas era el único módulo (de los 5: Guías/Salidas/Requerimientos/Stock
 // Actual/Kardex ya tenían el suyo) sin NINGUNA sincronización incremental
@@ -82,7 +97,8 @@ Schedule::command('kardex:sincronizar-diario')
 Schedule::command('ventas:sincronizar-diario')
   ->dailyAt('00:00')
   ->withoutOverlapping(180)
-  ->runInBackground();
+  ->runInBackground()
+  ->when($sincActivo('ventas'));
 
 // Autocura corridas huérfanas: si el proceso de un backfill muere (sesión
 // SSH cortada, servidor reiniciado) la fila queda en 'en_progreso' para
