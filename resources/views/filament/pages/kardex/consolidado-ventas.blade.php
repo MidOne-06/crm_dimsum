@@ -34,7 +34,7 @@
             </form>
         </x-filament::section>
 
-        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <x-filament::section compact class="crm-kpi-card" style="--crm-kpi-color: #2563eb">
                 <span class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Unidades vendidas</span>
                 <p class="text-xl font-semibold text-primary-600 dark:text-primary-400">{{ number_format($summary['total_unidades'] ?? 0, 0) }}</p>
@@ -43,18 +43,23 @@
                 <span class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Productos con venta</span>
                 <p class="text-xl font-semibold text-warning-600 dark:text-warning-400">{{ number_format($summary['productos'] ?? 0) }}</p>
             </x-filament::section>
+            <x-filament::section compact class="crm-kpi-card" style="--crm-kpi-color: #8b5cf6">
+                <span class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Locales{{ $this->comparando() ? '' : ' con venta' }}</span>
+                <p class="text-xl font-semibold text-violet-600 dark:text-violet-400">{{ number_format($summary['locales'] ?? 0) }}</p>
+            </x-filament::section>
             @if($this->comparando())
-                <x-filament::section compact class="crm-kpi-card" style="--crm-kpi-color: #8b5cf6">
+                <x-filament::section compact class="crm-kpi-card" style="--crm-kpi-color: #0891b2">
                     <span class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Fechas comparadas</span>
-                    <p class="text-xl font-semibold text-violet-600 dark:text-violet-400">{{ number_format($summary['fechas'] ?? 0) }}</p>
-                </x-filament::section>
-            @else
-                <x-filament::section compact class="crm-kpi-card" style="--crm-kpi-color: #8b5cf6">
-                    <span class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Locales con venta</span>
-                    <p class="text-xl font-semibold text-violet-600 dark:text-violet-400">{{ number_format($summary['locales'] ?? 0) }}</p>
+                    <p class="text-xl font-semibold text-cyan-600 dark:text-cyan-400">{{ number_format($summary['fechas'] ?? 0) }}</p>
                 </x-filament::section>
             @endif
         </div>
+
+        @if($this->comparando() && ($summary['locales'] ?? 0) > 6)
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+                Mostrando {{ number_format($summary['locales']) }} locales x {{ number_format($summary['fechas'] ?? 0) }} fechas -- si la tabla queda muy ancha, elegí locales puntuales en el filtro "Locales" para acotarla.
+            </p>
+        @endif
 
         {{ $this->table }}
     </div>

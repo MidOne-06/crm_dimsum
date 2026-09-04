@@ -133,7 +133,7 @@ class ConsolidadoVentas extends Page implements HasTable
                 ['fecha' => $latest->copy()->subDay()->toDateString()],
                 ['fecha' => $latest->toDateString()],
             ],
-            'localComparar' => self::ALL_LOCALES_OPTION,
+            'localesComparar' => [],
         ]);
 
         $this->refreshSummary();
@@ -145,7 +145,7 @@ class ConsolidadoVentas extends Page implements HasTable
             ->components([
                 Toggle::make('compararFechas')
                     ->label('Comparar días específicos')
-                    ->hintIcon('heroicon-m-information-circle', 'En vez de un local por columna, cada columna es una de las fechas elegidas -- para un mismo local (o todos sumados).')
+                    ->hintIcon('heroicon-m-information-circle', 'Cada columna combina local y fecha -- para ver, por ejemplo, cuánto vendió el Local 2 el día 29 contra el día 30.')
                     ->live(),
                 Grid::make(['default' => 1, 'md' => 3])
                     ->visible(fn (Get $get): bool => ! $get('compararFechas'))
@@ -182,13 +182,15 @@ class ConsolidadoVentas extends Page implements HasTable
                             ->maxItems(self::MAX_FECHAS_COMPARAR)
                             ->reorderable(false)
                             ->columnSpan(1),
-                        Select::make('localComparar')
-                            ->label('Local')
-                            ->options($this->localSelectOptions())
-                            ->required()
+                        Select::make('localesComparar')
+                            ->label('Locales')
+                            ->options($this->localOptions)
+                            ->multiple()
                             ->native(false)
                             ->searchable()
-                            ->hintIcon('heroicon-m-information-circle', '"Todos los locales" suma la cadena completa por fecha.'),
+                            ->optionsLimit(10)
+                            ->placeholder('Todos los locales')
+                            ->hintIcon('heroicon-m-information-circle', 'Sin selección se muestran todos los locales, cada uno con su propia columna por fecha.'),
                     ]),
             ])
             ->statePath('data');
@@ -227,16 +229,16 @@ class ConsolidadoVentas extends Page implements HasTable
         if ($this->comparando()) {
             return $table
                 ->records(fn (int $page, int $recordsPerPage): LengthAwarePaginator => $this->paginate($this->buildComparativoRows(), $page, $recordsPerPage))
-                ->heading('Unidades vendidas por producto -- comparativo de fechas')
+                ->heading('Unidades vendidas por producto, local y fecha')
                 ->columns([
                     TextColumn::make('cod_interno')->label('Código'),
                     TextColumn::make('item_nombre')->label('Producto')->wrap(),
                     TextColumn::make('total')->label('Total')->numeric(0)->alignEnd()->color('primary'),
-                    ...$this->fechaColumns(),
+                    ...$this->comparativoColumns(),
                 ])
                 ->paginated([25, 50])
                 ->defaultPaginationPageOption(25)
-                ->emptyStateHeading('No hay ventas registradas para las fechas elegidas.');
+                ->emptyStateHeading('No hay ventas registradas para los locales y fechas elegidos.');
         }
 
         return $table
@@ -268,23 +270,17 @@ class ConsolidadoVentas extends Page implements HasTable
     {
         if ($this->comparando()) {
             $fechas = $this->fechasComparar();
-            $localComparar = $this->localComparar();
+            $localIds = $this->comparativoLocalIds();
             $query = $this->ventasBaseQuery()
                 ->whereIn('item_id', self::catalogoItemIds())
                 ->whereIn('fecha', $fechas)
-                ->when(
-                    $localComparar !== self::ALL_LOCALES_OPTION,
-                    fn (Builder $query): Builder => $query->where('local_id', $localComparar),
-                )
-                ->when(
-                    $localComparar === self::ALL_LOCALES_OPTION && auth()->user()?->isRestrictedToLocals(),
-                    fn (Builder $query): Builder => $query->whereIn('local_id', array_keys($this->localOptions)),
-                );
+                ->whereIn('local_id', $localIds);
 
             $this->summary = [
                 'total_unidades' => (float) (clone $query)->sum('salida'),
                 'productos' => (clone $query)->distinct('item_id')->count('item_id'),
                 'fechas' => count($fechas),
+                'locales' => count($localIds),
             ];
 
             return;
@@ -330,31 +326,31 @@ class ConsolidadoVentas extends Page implements HasTable
         });
     }
 
-    /** @return Collection<int, array<string, mixed>> */
+    /**
+     * Una columna por combinación local x fecha (agrupadas por local, para
+     * poder leer "local 2: día 29 vs día 30" en columnas contiguas) -- pedido
+     * explícito del usuario: la comparación de fechas no debe mezclar todos
+     * los locales en un solo número, tiene que discriminar por local.
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
     protected function buildComparativoRows(): Collection
     {
         $fechas = $this->fechasComparar();
-        $localComparar = $this->localComparar();
+        $localIds = $this->comparativoLocalIds();
 
         $sums = $this->ventasBaseQuery()
             ->whereIn('item_id', self::catalogoItemIds())
             ->whereIn('fecha', $fechas)
-            ->when(
-                $localComparar !== self::ALL_LOCALES_OPTION,
-                fn (Builder $query): Builder => $query->where('local_id', $localComparar),
-            )
-            ->when(
-                $localComparar === self::ALL_LOCALES_OPTION && auth()->user()?->isRestrictedToLocals(),
-                fn (Builder $query): Builder => $query->whereIn('local_id', array_keys($this->localOptions)),
-            )
-            ->selectRaw('item_id, fecha, COALESCE(SUM(salida), 0) AS total')
-            ->groupBy('item_id', 'fecha')
+            ->whereIn('local_id', $localIds)
+            ->selectRaw('item_id, local_id, fecha, COALESCE(SUM(salida), 0) AS total')
+            ->groupBy('item_id', 'local_id', 'fecha')
             ->get()
             ->groupBy('item_id');
 
-        return collect(self::CATALOGO)->map(function (array $producto) use ($sums, $fechas): array {
-            $porFecha = ($sums->get($producto['item_id']) ?? collect())
-                ->mapWithKeys(fn ($row): array => [Carbon::parse($row->fecha)->toDateString() => $row->total]);
+        return collect(self::CATALOGO)->map(function (array $producto) use ($sums, $fechas, $localIds): array {
+            $porLocalYFecha = ($sums->get($producto['item_id']) ?? collect())
+                ->mapWithKeys(fn ($row): array => [$row->local_id.'|'.Carbon::parse($row->fecha)->toDateString() => $row->total]);
 
             $row = [
                 'cod_interno' => $producto['code'],
@@ -362,10 +358,12 @@ class ConsolidadoVentas extends Page implements HasTable
                 'total' => 0.0,
             ];
 
-            foreach ($fechas as $index => $fecha) {
-                $valor = (float) ($porFecha[$fecha] ?? 0);
-                $row["fecha_{$index}"] = $valor;
-                $row['total'] += $valor;
+            foreach ($localIds as $li => $localId) {
+                foreach ($fechas as $fi => $fecha) {
+                    $valor = (float) ($porLocalYFecha[$localId.'|'.$fecha] ?? 0);
+                    $row["local_{$li}_fecha_{$fi}"] = $valor;
+                    $row['total'] += $valor;
+                }
             }
 
             return $row;
@@ -413,24 +411,33 @@ class ConsolidadoVentas extends Page implements HasTable
             ->all();
     }
 
-    protected function localComparar(): string
+    /** @return array<int, string|int> */
+    protected function comparativoLocalIds(): array
     {
-        $local = $this->data['localComparar'] ?? self::ALL_LOCALES_OPTION;
+        $values = array_values(array_filter((array) ($this->data['localesComparar'] ?? []), fn ($value): bool => filled($value)));
 
-        return $local === self::ALL_LOCALES_OPTION || array_key_exists($local, $this->localOptions)
-            ? (string) $local
-            : self::ALL_LOCALES_OPTION;
+        $ids = filled($values) ? $this->restrictLocalIdsToUser($values) : array_keys($this->localOptions);
+
+        return $ids !== [] ? $ids : array_keys($this->localOptions);
     }
 
     /** @return array<int, TextColumn> */
-    protected function fechaColumns(): array
+    protected function comparativoColumns(): array
     {
-        return collect($this->fechasComparar())
-            ->map(fn (string $fecha, int $index): TextColumn => TextColumn::make("fecha_{$index}")
-                ->label(Carbon::parse($fecha)->translatedFormat('d M'))
-                ->numeric(0)
-                ->alignEnd())
-            ->all();
+        $fechas = $this->fechasComparar();
+        $columns = [];
+
+        foreach ($this->comparativoLocalIds() as $li => $localId) {
+            foreach ($fechas as $fi => $fecha) {
+                $label = $this->compactLocalLabel($this->localOptions[$localId] ?? "Local {$localId}").' · '.Carbon::parse($fecha)->translatedFormat('d M');
+                $columns[] = TextColumn::make("local_{$li}_fecha_{$fi}")
+                    ->label($label)
+                    ->numeric(0)
+                    ->alignEnd();
+            }
+        }
+
+        return $columns;
     }
 
     /** @return array<int, TextColumn> */
@@ -486,9 +493,19 @@ class ConsolidadoVentas extends Page implements HasTable
     protected function exportColumnas(): array
     {
         if ($this->comparando()) {
-            return collect($this->fechasComparar())
-                ->map(fn (string $fecha, int $index): array => ['alias' => "fecha_{$index}", 'label' => Carbon::parse($fecha)->format('d/m/Y')])
-                ->all();
+            $fechas = $this->fechasComparar();
+            $columnas = [];
+
+            foreach ($this->comparativoLocalIds() as $li => $localId) {
+                foreach ($fechas as $fi => $fecha) {
+                    $columnas[] = [
+                        'alias' => "local_{$li}_fecha_{$fi}",
+                        'label' => ($this->localOptions[$localId] ?? "Local {$localId}").' -- '.Carbon::parse($fecha)->format('d/m/Y'),
+                    ];
+                }
+            }
+
+            return $columnas;
         }
 
         return collect($this->matrixLocalIds())
@@ -511,9 +528,8 @@ class ConsolidadoVentas extends Page implements HasTable
     {
         if ($this->comparando()) {
             $fechas = collect($this->fechasComparar())->map(fn (string $f): string => Carbon::parse($f)->format('d/m/Y'))->implode(', ');
-            $local = $this->localComparar() === self::ALL_LOCALES_OPTION ? 'Todos los locales' : ($this->localOptions[$this->localComparar()] ?? $this->localComparar());
 
-            return "Fechas: {$fechas} | Local: {$local}";
+            return "Fechas: {$fechas} | Locales: ".count($this->comparativoLocalIds());
         }
 
         $locales = filled($this->selectedLocalIds()) ? 'seleccionados' : 'todos';
