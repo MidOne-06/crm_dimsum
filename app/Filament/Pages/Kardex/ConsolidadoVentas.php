@@ -20,6 +20,7 @@ use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -38,9 +39,46 @@ class ConsolidadoVentas extends Page implements HasTable
 
     private const ALMACEN_PRINCIPAL = 'Almacen Principal';
 
+    private const UNIDAD_MEDIDA = 'UNIDAD';
+
     private const ALL_LOCALES_OPTION = '__all_locales__';
 
     private const MAX_FECHAS_COMPARAR = 6;
+
+    /**
+     * Catálogo fijo pedido por el usuario -- el consolidado siempre lista
+     * estos productos, en este orden exacto, tengan o no venta ese día
+     * (fila en cero, no desaparece). item_id confirmado contra la data real
+     * de kardex_movimientos (mismo nombre e id que ya usa el catálogo
+     * estándar de Promedios de venta, más las 6 bebidas que no estaban ahí).
+     *
+     * @var array<int, array{item_id: int, code: string, name: string}>
+     */
+    private const CATALOGO = [
+        ['item_id' => 153, 'code' => 'SM001', 'name' => 'SIU MAI TRADICIONAL'],
+        ['item_id' => 106, 'code' => 'SM002', 'name' => 'SIU MAI ESPECIAL'],
+        ['item_id' => 157, 'code' => 'SM003', 'name' => 'SIU MAI DE POLLO'],
+        ['item_id' => 147, 'code' => 'WK001', 'name' => 'WO TI KAO'],
+        ['item_id' => 137, 'code' => 'MP001', 'name' => 'MIN PAO DE POLLO'],
+        ['item_id' => 118, 'code' => 'MP002', 'name' => 'MIN PAO DE CERDO'],
+        ['item_id' => 159, 'code' => 'MP003', 'name' => 'MIN PAO DULCE'],
+        ['item_id' => 138, 'code' => 'MP004', 'name' => 'MIN PAO MIXTO'],
+        ['item_id' => 156, 'code' => 'ER001', 'name' => 'ENROLLADO PRIMAVERA'],
+        ['item_id' => 105, 'code' => 'AA003', 'name' => 'ALAS ASADAS'],
+        ['item_id' => 144, 'code' => 'AB001', 'name' => 'ALAS BROSTER'],
+        ['item_id' => 158, 'code' => 'KP001', 'name' => 'KAI PI'],
+        ['item_id' => 155, 'code' => 'WT001', 'name' => 'WANTAN'],
+        ['item_id' => 154, 'code' => 'SK001', 'name' => 'SIU KAO'],
+        ['item_id' => 143, 'code' => 'TP001', 'name' => 'TAYPAO'],
+        ['item_id' => 161, 'code' => 'CS001', 'name' => 'CHA SIU - 250 G'],
+        ['item_id' => 160, 'code' => 'CH001', 'name' => 'CHAUFA - 260 G'],
+        ['item_id' => 58, 'code' => 'IC001', 'name' => 'Inca Kola - 300 ML'],
+        ['item_id' => 72, 'code' => 'IC002', 'name' => 'Inca Kola - 600 ML'],
+        ['item_id' => 59, 'code' => 'CC001', 'name' => 'Coca Cola - 300 ML'],
+        ['item_id' => 71, 'code' => 'CC002', 'name' => 'Coca Cola - 600 ML'],
+        ['item_id' => 74, 'code' => 'CO002', 'name' => 'Chicha - 300 ML'],
+        ['item_id' => 78, 'code' => 'ASG002', 'name' => 'Agua - SAN MATEO 600 ML'],
+    ];
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-cube';
 
@@ -58,9 +96,6 @@ class ConsolidadoVentas extends Page implements HasTable
 
     /** @var array<string, string> */
     public array $localOptions = [];
-
-    /** @var array<string, string> */
-    public array $unidadOptions = [];
 
     public ?array $data = [];
 
@@ -87,14 +122,6 @@ class ConsolidadoVentas extends Page implements HasTable
             ->pluck('local_nombre', 'local_id')
             ->all());
 
-        $this->unidadOptions = (clone $base)
-            ->whereNotNull('unidad_medida')
-            ->where('unidad_medida', '!=', '')
-            ->distinct()
-            ->orderBy('unidad_medida')
-            ->pluck('unidad_medida', 'unidad_medida')
-            ->all();
-
         $latest = (clone $base)->max('fecha');
         $latest = $latest ? Carbon::parse($latest) : now();
 
@@ -107,7 +134,6 @@ class ConsolidadoVentas extends Page implements HasTable
                 ['fecha' => $latest->toDateString()],
             ],
             'localComparar' => self::ALL_LOCALES_OPTION,
-            'unidadMedida' => array_key_exists('UNIDAD', $this->unidadOptions) ? 'UNIDAD' : array_key_first($this->unidadOptions),
         ]);
 
         $this->refreshSummary();
@@ -129,11 +155,6 @@ class ConsolidadoVentas extends Page implements HasTable
                             ->required()
                             ->native(false)
                             ->displayFormat('d/m/Y'),
-                        Select::make('unidadMedida')
-                            ->label('Unidad de medida')
-                            ->options($this->unidadOptions)
-                            ->required()
-                            ->native(false),
                         Select::make('selectedLocals')
                             ->label('Locales')
                             ->options($this->localSelectOptions())
@@ -141,7 +162,8 @@ class ConsolidadoVentas extends Page implements HasTable
                             ->native(false)
                             ->searchable()
                             ->optionsLimit(10)
-                            ->placeholder('Selecciona locales o Todos'),
+                            ->placeholder('Todos los locales')
+                            ->columnSpan(2),
                     ]),
                 Grid::make(['default' => 1, 'md' => 2])
                     ->visible(fn (Get $get): bool => (bool) $get('compararFechas'))
@@ -160,21 +182,13 @@ class ConsolidadoVentas extends Page implements HasTable
                             ->maxItems(self::MAX_FECHAS_COMPARAR)
                             ->reorderable(false)
                             ->columnSpan(1),
-                        Grid::make(1)
-                            ->schema([
-                                Select::make('localComparar')
-                                    ->label('Local')
-                                    ->options($this->localSelectOptions())
-                                    ->required()
-                                    ->native(false)
-                                    ->searchable()
-                                    ->hintIcon('heroicon-m-information-circle', '"Todos los locales" suma la cadena completa por fecha.'),
-                                Select::make('unidadMedida')
-                                    ->label('Unidad de medida')
-                                    ->options($this->unidadOptions)
-                                    ->required()
-                                    ->native(false),
-                            ]),
+                        Select::make('localComparar')
+                            ->label('Local')
+                            ->options($this->localSelectOptions())
+                            ->required()
+                            ->native(false)
+                            ->searchable()
+                            ->hintIcon('heroicon-m-information-circle', '"Todos los locales" suma la cadena completa por fecha.'),
                     ]),
             ])
             ->statePath('data');
@@ -212,40 +226,42 @@ class ConsolidadoVentas extends Page implements HasTable
     {
         if ($this->comparando()) {
             return $table
-                ->query($this->comparativoQuery())
+                ->records(fn (int $page, int $recordsPerPage): LengthAwarePaginator => $this->paginate($this->buildComparativoRows(), $page, $recordsPerPage))
                 ->heading('Unidades vendidas por producto -- comparativo de fechas')
                 ->columns([
-                    TextColumn::make('cod_interno')->label('Código')->searchable(),
-                    TextColumn::make('item_nombre')->label('Producto')->searchable()->wrap(),
-                    TextColumn::make('unidad')->label('Unidad')->badge(),
+                    TextColumn::make('cod_interno')->label('Código'),
+                    TextColumn::make('item_nombre')->label('Producto')->wrap(),
+                    TextColumn::make('total')->label('Total')->numeric(0)->alignEnd()->color('primary'),
                     ...$this->fechaColumns(),
                 ])
-                ->defaultSort('cod_interno')
-                ->defaultKeySort(false)
-                ->paginated([10, 25, 50])
+                ->paginated([25, 50])
                 ->defaultPaginationPageOption(25)
                 ->emptyStateHeading('No hay ventas registradas para las fechas elegidas.');
         }
 
         return $table
-            ->query($this->matrixQuery())
+            ->records(fn (int $page, int $recordsPerPage): LengthAwarePaginator => $this->paginate($this->buildMatrixRows(), $page, $recordsPerPage))
             ->heading('Unidades vendidas por producto y local')
             ->columns([
-                TextColumn::make('cod_interno')->label('Código')->searchable(),
-                TextColumn::make('item_nombre')->label('Producto')->searchable()->wrap(),
-                TextColumn::make('total')
-                    ->label('Total')
-                    ->state(fn (KardexMovimiento $record): string => number_format((float) $record->total, 0))
-                    ->alignEnd()
-                    ->color('primary'),
-                TextColumn::make('unidad')->label('Unidad')->badge(),
+                TextColumn::make('cod_interno')->label('Código'),
+                TextColumn::make('item_nombre')->label('Producto')->wrap(),
+                TextColumn::make('total')->label('Total')->numeric(0)->alignEnd()->color('primary'),
                 ...$this->matrixLocalColumns(),
             ])
-            ->defaultSort('total', 'desc')
-            ->defaultKeySort(false)
-            ->paginated([10, 25, 50])
+            ->paginated([25, 50])
             ->defaultPaginationPageOption(25)
             ->emptyStateHeading('No hay ventas registradas para esta fecha.');
+    }
+
+    protected function paginate(Collection $rows, int $page, int $perPage): LengthAwarePaginator
+    {
+        return new LengthAwarePaginator(
+            $rows->forPage($page, $perPage)->values(),
+            $rows->count(),
+            $perPage,
+            $page,
+            ['path' => request()->url(), 'pageName' => 'consolidadoVentasPage'],
+        );
     }
 
     protected function refreshSummary(): void
@@ -254,6 +270,7 @@ class ConsolidadoVentas extends Page implements HasTable
             $fechas = $this->fechasComparar();
             $localComparar = $this->localComparar();
             $query = $this->ventasBaseQuery()
+                ->whereIn('item_id', self::catalogoItemIds())
                 ->whereIn('fecha', $fechas)
                 ->when(
                     $localComparar !== self::ALL_LOCALES_OPTION,
@@ -282,28 +299,45 @@ class ConsolidadoVentas extends Page implements HasTable
         ];
     }
 
-    protected function matrixQuery(): Builder
+    /** @return Collection<int, array<string, mixed>> */
+    protected function buildMatrixRows(): Collection
     {
-        $query = $this->ventasQuery()
-            ->selectRaw('MIN(id) AS id, MAX(cod_interno) AS cod_interno, item_id, MAX(item_nombre) AS item_nombre, MAX(unidad_medida) AS unidad, COALESCE(SUM(salida), 0) AS total')
+        $localIds = $this->matrixLocalIds();
+
+        $sums = $this->ventasQuery()
+            ->whereIn('item_id', self::catalogoItemIds())
+            ->selectRaw('item_id, local_id, COALESCE(SUM(salida), 0) AS total')
+            ->groupBy('item_id', 'local_id')
+            ->get()
             ->groupBy('item_id');
 
-        foreach ($this->matrixLocalIds() as $index => $localId) {
-            $query->selectRaw(
-                'COALESCE(SUM(CASE WHEN local_id = ? THEN salida ELSE 0 END), 0) AS local_'.$index,
-                [$localId],
-            );
-        }
+        return collect(self::CATALOGO)->map(function (array $producto) use ($sums, $localIds): array {
+            $porLocal = ($sums->get($producto['item_id']) ?? collect())->pluck('total', 'local_id');
 
-        return $query->orderByDesc('total');
+            $row = [
+                'cod_interno' => $producto['code'],
+                'item_nombre' => $producto['name'],
+                'total' => 0.0,
+            ];
+
+            foreach ($localIds as $index => $localId) {
+                $valor = (float) ($porLocal[$localId] ?? 0);
+                $row["local_{$index}"] = $valor;
+                $row['total'] += $valor;
+            }
+
+            return $row;
+        });
     }
 
-    protected function comparativoQuery(): Builder
+    /** @return Collection<int, array<string, mixed>> */
+    protected function buildComparativoRows(): Collection
     {
         $fechas = $this->fechasComparar();
         $localComparar = $this->localComparar();
 
-        $query = $this->ventasBaseQuery()
+        $sums = $this->ventasBaseQuery()
+            ->whereIn('item_id', self::catalogoItemIds())
             ->whereIn('fecha', $fechas)
             ->when(
                 $localComparar !== self::ALL_LOCALES_OPTION,
@@ -313,17 +347,29 @@ class ConsolidadoVentas extends Page implements HasTable
                 $localComparar === self::ALL_LOCALES_OPTION && auth()->user()?->isRestrictedToLocals(),
                 fn (Builder $query): Builder => $query->whereIn('local_id', array_keys($this->localOptions)),
             )
-            ->selectRaw('MIN(id) AS id, MAX(cod_interno) AS cod_interno, item_id, MAX(item_nombre) AS item_nombre, MAX(unidad_medida) AS unidad')
+            ->selectRaw('item_id, fecha, COALESCE(SUM(salida), 0) AS total')
+            ->groupBy('item_id', 'fecha')
+            ->get()
             ->groupBy('item_id');
 
-        foreach ($fechas as $index => $fecha) {
-            $query->selectRaw(
-                "COALESCE(SUM(CASE WHEN fecha = ?::date THEN salida ELSE 0 END), 0) AS fecha_{$index}",
-                [$fecha],
-            );
-        }
+        return collect(self::CATALOGO)->map(function (array $producto) use ($sums, $fechas): array {
+            $porFecha = ($sums->get($producto['item_id']) ?? collect())
+                ->mapWithKeys(fn ($row): array => [Carbon::parse($row->fecha)->toDateString() => $row->total]);
 
-        return $query;
+            $row = [
+                'cod_interno' => $producto['code'],
+                'item_nombre' => $producto['name'],
+                'total' => 0.0,
+            ];
+
+            foreach ($fechas as $index => $fecha) {
+                $valor = (float) ($porFecha[$fecha] ?? 0);
+                $row["fecha_{$index}"] = $valor;
+                $row['total'] += $valor;
+            }
+
+            return $row;
+        });
     }
 
     protected function ventasQuery(): Builder
@@ -346,7 +392,13 @@ class ConsolidadoVentas extends Page implements HasTable
             ->where('motivo', self::MOTIVO_VENTA)
             ->where('almacen', self::ALMACEN_PRINCIPAL)
             ->where('salida', '>', 0)
-            ->where('unidad_medida', $this->data['unidadMedida'] ?? 'UNIDAD');
+            ->where('unidad_medida', self::UNIDAD_MEDIDA);
+    }
+
+    /** @return array<int, int> */
+    protected static function catalogoItemIds(): array
+    {
+        return array_column(self::CATALOGO, 'item_id');
     }
 
     /** @return array<int, string> */
@@ -374,14 +426,10 @@ class ConsolidadoVentas extends Page implements HasTable
     protected function fechaColumns(): array
     {
         return collect($this->fechasComparar())
-            ->map(function (string $fecha, int $index): TextColumn {
-                $alias = "fecha_{$index}";
-
-                return TextColumn::make($alias)
-                    ->label(Carbon::parse($fecha)->translatedFormat('d M'))
-                    ->state(fn (KardexMovimiento $record): string => number_format((float) ($record->{$alias} ?? 0), 0))
-                    ->alignEnd();
-            })
+            ->map(fn (string $fecha, int $index): TextColumn => TextColumn::make("fecha_{$index}")
+                ->label(Carbon::parse($fecha)->translatedFormat('d M'))
+                ->numeric(0)
+                ->alignEnd())
             ->all();
     }
 
@@ -389,37 +437,26 @@ class ConsolidadoVentas extends Page implements HasTable
     protected function matrixLocalColumns(): array
     {
         return collect($this->matrixLocalIds())
-            ->map(function ($localId, int $index): TextColumn {
-                $alias = "local_{$index}";
-
-                return TextColumn::make($alias)
-                    ->label($this->compactLocalLabel($this->localOptions[$localId] ?? "Local {$localId}"))
-                    ->state(fn (KardexMovimiento $record): string => number_format((float) ($record->{$alias} ?? 0), 0))
-                    ->alignEnd();
-            })
+            ->map(fn ($localId, int $index): TextColumn => TextColumn::make("local_{$index}")
+                ->label($this->compactLocalLabel($this->localOptions[$localId] ?? "Local {$localId}"))
+                ->numeric(0)
+                ->alignEnd())
             ->all();
     }
 
-    /** @return array<int, string|int> */
+    /**
+     * Sin selección explícita, se muestran TODOS los locales del usuario
+     * como columna -- el catálogo ahora es fijo y corto (23 filas), así que
+     * una columna por local es legible (mismo criterio que ya usan las
+     * matrices de Requerimientos/Guías internas).
+     *
+     * @return array<int, string|int>
+     */
     protected function matrixLocalIds(): array
     {
         $selected = $this->selectedLocalIds();
 
-        return filled($selected) ? array_values($selected) : $this->defaultMatrixLocalIds();
-    }
-
-    /** @return array<int, string|int> */
-    protected function defaultMatrixLocalIds(): array
-    {
-        // Sin selección explícita, se muestran los 8 locales con más venta ese
-        // día -- una tabla con las 38 columnas de golpe sería ilegible.
-        return $this->ventasQuery()
-            ->selectRaw('local_id, COALESCE(SUM(salida), 0) AS ventas')
-            ->groupBy('local_id')
-            ->orderByDesc('ventas')
-            ->limit(8)
-            ->pluck('local_id')
-            ->all();
+        return filled($selected) ? array_values($selected) : array_keys($this->localOptions);
     }
 
     /** @return array<string, string> */
@@ -459,10 +496,10 @@ class ConsolidadoVentas extends Page implements HasTable
             ->all();
     }
 
-    /** @return Collection<int, object> */
+    /** @return Collection<int, array<string, mixed>> */
     protected function exportFilas(): Collection
     {
-        return $this->comparando() ? $this->comparativoQuery()->get() : $this->matrixQuery()->get();
+        return $this->comparando() ? $this->buildComparativoRows() : $this->buildMatrixRows();
     }
 
     protected function exportTitulo(): string
@@ -479,7 +516,7 @@ class ConsolidadoVentas extends Page implements HasTable
             return "Fechas: {$fechas} | Local: {$local}";
         }
 
-        $locales = filled($this->selectedLocalIds()) ? 'seleccionados' : 'top 8 con más venta';
+        $locales = filled($this->selectedLocalIds()) ? 'seleccionados' : 'todos';
 
         return 'Fecha: '.$this->fechaLabel().' | Locales: '.$locales;
     }
@@ -490,7 +527,7 @@ class ConsolidadoVentas extends Page implements HasTable
 
         $columnas = $this->exportColumnas();
         $filas = $this->exportFilas();
-        $lastCol = count($columnas) + 4;
+        $lastCol = count($columnas) + 3;
         $lastColLetter = Coordinate::stringFromColumnIndex($lastCol);
         $headerRow = 4;
 
@@ -507,9 +544,8 @@ class ConsolidadoVentas extends Page implements HasTable
 
         $sheet->setCellValue([1, $headerRow], 'Código');
         $sheet->setCellValue([2, $headerRow], 'Producto');
-        $sheet->setCellValue([3, $headerRow], 'Unidad');
         foreach ($columnas as $index => $columna) {
-            $sheet->setCellValue([$index + 4, $headerRow], $columna['label']);
+            $sheet->setCellValue([$index + 3, $headerRow], $columna['label']);
         }
         $sheet->setCellValue([$lastCol, $headerRow], 'Total');
 
@@ -520,32 +556,27 @@ class ConsolidadoVentas extends Page implements HasTable
 
         $rowNumber = $headerRow + 1;
         foreach ($filas as $fila) {
-            $sheet->setCellValue([1, $rowNumber], $fila->cod_interno);
-            $sheet->setCellValue([2, $rowNumber], $fila->item_nombre);
-            $sheet->setCellValue([3, $rowNumber], $fila->unidad);
-            $total = 0.0;
+            $sheet->setCellValue([1, $rowNumber], $fila['cod_interno']);
+            $sheet->setCellValue([2, $rowNumber], $fila['item_nombre']);
             foreach ($columnas as $index => $columna) {
-                $valor = (float) ($fila->{$columna['alias']} ?? 0);
-                $total += $valor;
-                $sheet->setCellValue([$index + 4, $rowNumber], $valor);
+                $sheet->setCellValue([$index + 3, $rowNumber], (float) ($fila[$columna['alias']] ?? 0));
             }
-            $sheet->setCellValue([$lastCol, $rowNumber], $total);
+            $sheet->setCellValue([$lastCol, $rowNumber], (float) $fila['total']);
             $rowNumber++;
         }
 
         $lastRow = max($headerRow, $rowNumber - 1);
         $sheet->getStyle("A{$headerRow}:{$lastColLetter}{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('FFD1D5DB'));
         if ($lastRow > $headerRow) {
-            $sheet->getStyle('D'.($headerRow + 1).":{$lastColLetter}{$lastRow}")->getNumberFormat()->setFormatCode('#,##0');
+            $sheet->getStyle('C'.($headerRow + 1).":{$lastColLetter}{$lastRow}")->getNumberFormat()->setFormatCode('#,##0');
             $sheet->getStyle("{$lastColLetter}".($headerRow + 1).":{$lastColLetter}{$lastRow}")->getFont()->setBold(true);
         }
-        $sheet->getColumnDimension('A')->setWidth(14);
-        $sheet->getColumnDimension('B')->setWidth(36);
-        $sheet->getColumnDimension('C')->setWidth(12);
-        foreach (range(4, $lastCol) as $index) {
-            $sheet->getColumnDimensionByColumn($index)->setWidth(14);
+        $sheet->getColumnDimension('A')->setWidth(12);
+        $sheet->getColumnDimension('B')->setWidth(30);
+        foreach (range(3, $lastCol) as $index) {
+            $sheet->getColumnDimensionByColumn($index)->setWidth(13);
         }
-        $sheet->freezePane('D'.($headerRow + 1));
+        $sheet->freezePane('C'.($headerRow + 1));
 
         $writer = new Xlsx($spreadsheet);
         $filename = 'consolidado-ventas-'.now()->format('Y-m-d_His').'.xlsx';

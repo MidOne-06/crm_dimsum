@@ -12,7 +12,7 @@
         th { background: #e5e7eb; font-weight: bold; text-align: center; }
         td.number { text-align: right; }
         td.total { font-weight: bold; background: #f8fafc; }
-        .code { width: 9%; } .item { width: 30%; } .unit { width: 8%; }
+        .code { width: 9%; } .item { width: 33%; }
     </style>
 </head>
 <body>
@@ -23,7 +23,6 @@
             <tr>
                 <th class="code">Código</th>
                 <th class="item">Producto</th>
-                <th class="unit">Unidad</th>
                 @foreach ($columnas as $columna)
                     <th>{{ $columna['label'] }}</th>
                 @endforeach
@@ -33,16 +32,12 @@
         <tbody>
             @foreach ($filas as $fila)
                 <tr>
-                    <td>{{ $fila->cod_interno }}</td>
-                    <td>{{ $fila->item_nombre }}</td>
-                    <td>{{ $fila->unidad }}</td>
-                    @php($total = 0)
+                    <td>{{ $fila['cod_interno'] }}</td>
+                    <td>{{ $fila['item_nombre'] }}</td>
                     @foreach ($columnas as $columna)
-                        @php($valor = (float) ($fila->{$columna['alias']} ?? 0))
-                        @php($total += $valor)
-                        <td class="number">{{ number_format($valor, 0) }}</td>
+                        <td class="number">{{ number_format((float) ($fila[$columna['alias']] ?? 0), 0) }}</td>
                     @endforeach
-                    <td class="number total">{{ number_format($total, 0) }}</td>
+                    <td class="number total">{{ number_format((float) $fila['total'], 0) }}</td>
                 </tr>
             @endforeach
         </tbody>
