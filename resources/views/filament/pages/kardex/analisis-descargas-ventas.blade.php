@@ -2,24 +2,12 @@
     @php($analysis = $this->analysis())
 
     <div class="space-y-6">
-        <x-filament::section collapsible class="crm-query-section">
-            <x-slot name="heading">Ventas por producto, local y fecha</x-slot>
-
-            <form wire:submit="search" class="space-y-4">
-                {{ $this->form }}
-
-                <x-filament::fieldset label="Rango de fecha" class="crm-filter-date">
-                    @include('filament.pages.kardex.partials.date-range-picker')
-                </x-filament::fieldset>
-
-                <div class="crm-form-actions">
-                    <p class="crm-query-hint">SALIDA, POR VENTA. · Almacén Principal · {{ $analysis['unidad'] ?: 'Unidad seleccionada' }}</p>
-                    <x-filament::button type="submit" icon="heroicon-m-chart-bar" wire:loading.attr="disabled" wire:target="search">
-                        Actualizar
-                    </x-filament::button>
-                </div>
-            </form>
-        </x-filament::section>
+        <div class="flex items-center justify-between gap-3">
+            <p class="crm-query-hint">SALIDA, POR VENTA. · Almacén Principal · {{ $analysis['unidad'] ?: 'Unidad seleccionada' }}</p>
+            <x-filament::button type="button" color="gray" icon="heroicon-o-adjustments-horizontal" wire:click="abrirFiltros">
+                Filtros
+            </x-filament::button>
+        </div>
 
         <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <x-filament::section compact class="crm-kpi-card" style="--crm-kpi-color: #d97706">
@@ -77,5 +65,31 @@
         @livewire(\App\Filament\Widgets\Kardex\DescargasVentasProductosLocalesChart::class, ['analysisFilters' => $analysis['comparisonFilters'] ?? []], key('kardex-descargas-productos-locales-'.md5(json_encode($analysis['comparisonFilters'] ?? []))))
 
         {{ $this->table }}
+
+        <x-filament::modal id="filtros-analisis-descargas-ventas" width="4xl" sticky-header sticky-footer>
+            <x-slot name="heading">Ventas por producto, local y fecha</x-slot>
+
+            <form id="filtros-analisis-descargas-ventas-form" wire:submit="search" class="space-y-4">
+                {{ $this->form }}
+
+                <x-filament::fieldset label="Rango de fecha" class="crm-filter-date">
+                    @include('filament.pages.kardex.partials.date-range-picker')
+                </x-filament::fieldset>
+            </form>
+
+            <x-slot name="footerActions">
+                <x-filament::button color="gray" wire:click="cerrarFiltros">Cancelar</x-filament::button>
+                <x-filament::button
+                    type="button"
+                    wire:click="search"
+                    x-on:click="$dispatch('close-modal', { id: 'filtros-analisis-descargas-ventas' })"
+                    icon="heroicon-m-chart-bar"
+                    wire:loading.attr="disabled"
+                    wire:target="search"
+                >
+                    Actualizar
+                </x-filament::button>
+            </x-slot>
+        </x-filament::modal>
     </div>
 </x-filament-panels::page>

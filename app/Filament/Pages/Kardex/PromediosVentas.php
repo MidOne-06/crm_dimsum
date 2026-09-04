@@ -268,6 +268,16 @@ class PromediosVentas extends Page implements HasTable
         $this->resetPage();
     }
 
+    public function abrirFiltros(): void
+    {
+        $this->dispatch('open-modal', id: 'filtros-promedios-ventas');
+    }
+
+    public function cerrarFiltros(): void
+    {
+        $this->dispatch('close-modal', id: 'filtros-promedios-ventas');
+    }
+
     public function table(Table $table): Table
     {
         return $table

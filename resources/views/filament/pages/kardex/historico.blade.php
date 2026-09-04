@@ -1,22 +1,10 @@
 <x-filament-panels::page>
     <div class="space-y-6">
-        <x-filament::section collapsible class="crm-query-section">
-            <x-slot name="heading">Filtros</x-slot>
-
-            <form wire:submit="search" class="space-y-4">
-                {{ $this->form }}
-
-                <x-filament::fieldset label="Rango de fecha" class="crm-filter-date">
-                    @include('filament.pages.kardex.partials.date-range-picker')
-                </x-filament::fieldset>
-
-                <div class="crm-form-actions">
-                    <x-filament::button type="submit" icon="heroicon-m-magnifying-glass" wire:loading.attr="disabled" wire:target="search">
-                        Consultar
-                    </x-filament::button>
-                </div>
-            </form>
-        </x-filament::section>
+        <div class="flex justify-end">
+            <x-filament::button type="button" color="gray" icon="heroicon-o-adjustments-horizontal" wire:click="abrirFiltros">
+                Filtros
+            </x-filament::button>
+        </div>
 
         @php($resumen = $this->resumen())
         <div class="grid grid-cols-3 gap-3">
@@ -35,5 +23,31 @@
         </div>
 
         {{ $this->table }}
+
+        <x-filament::modal id="filtros-kardex-historico" width="4xl" sticky-header sticky-footer>
+            <x-slot name="heading">Filtros</x-slot>
+
+            <form id="filtros-kardex-historico-form" wire:submit="search" class="space-y-4">
+                {{ $this->form }}
+
+                <x-filament::fieldset label="Rango de fecha" class="crm-filter-date">
+                    @include('filament.pages.kardex.partials.date-range-picker')
+                </x-filament::fieldset>
+            </form>
+
+            <x-slot name="footerActions">
+                <x-filament::button color="gray" wire:click="cerrarFiltros">Cancelar</x-filament::button>
+                <x-filament::button
+                    type="button"
+                    wire:click="search"
+                    x-on:click="$dispatch('close-modal', { id: 'filtros-kardex-historico' })"
+                    icon="heroicon-m-magnifying-glass"
+                    wire:loading.attr="disabled"
+                    wire:target="search"
+                >
+                    Consultar
+                </x-filament::button>
+            </x-slot>
+        </x-filament::modal>
     </div>
 </x-filament-panels::page>

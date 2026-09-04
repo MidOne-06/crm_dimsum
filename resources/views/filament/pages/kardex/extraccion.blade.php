@@ -35,31 +35,15 @@
         </x-filament::tabs>
 
         <div x-show="tab === 'nueva'" class="space-y-4">
-            <x-filament::section collapsible :collapsed="$this->hayExtraccionEnProgreso()" class="crm-query-section">
-                <x-slot name="heading">Filtros de extracción</x-slot>
+            <div class="flex justify-end">
+                <x-filament::button wire:click="abrirFiltrosExtraccion" icon="heroicon-o-adjustments-horizontal" :disabled="$this->hayExtraccionEnProgreso()">
+                    {{ $this->hayExtraccionEnProgreso() ? 'Ya hay una extracción en progreso…' : 'Configurar extracción' }}
+                </x-filament::button>
+            </div>
 
-                <form wire:submit.prevent="iniciarExtraccion" class="space-y-4">
-                    {{ $this->form }}
-
-                    <x-filament::fieldset label="Fecha">
-                        @include('filament.pages.kardex.partials.date-range-picker')
-                    </x-filament::fieldset>
-
-                    @if ($resultError)
-                        <p class="text-sm font-medium text-danger-600 dark:text-danger-400">{{ $resultError }}</p>
-                    @endif
-
-                    <div class="crm-form-actions">
-                        <x-filament::button
-                            type="submit"
-                            icon="heroicon-m-circle-stack"
-                            :disabled="$this->hayExtraccionEnProgreso() || ! auth()->user()?->hasPermission('kardex.extraccion.iniciar')"
-                        >
-                            {{ $this->hayExtraccionEnProgreso() ? 'Ya hay una extracción en progreso…' : 'Iniciar extracción' }}
-                        </x-filament::button>
-                    </div>
-                </form>
-            </x-filament::section>
+            @if ($resultError)
+                <p class="text-sm font-medium text-danger-600 dark:text-danger-400">{{ $resultError }}</p>
+            @endif
 
             @include('filament.pages.kardex.partials.extraccion-progreso')
         </div>
@@ -71,5 +55,34 @@
         <div x-show="tab === 'historial'" x-cloak>
             @include('filament.pages.kardex.partials.extraccion-historial')
         </div>
+
+        <x-filament::modal id="filtros-extraccion-kardex" width="4xl" sticky-header sticky-footer>
+            <x-slot name="heading">Filtros de extracción</x-slot>
+
+            <form id="filtros-extraccion-kardex-form" wire:submit.prevent="iniciarExtraccion" class="space-y-4">
+                {{ $this->form }}
+
+                <x-filament::fieldset label="Fecha">
+                    @include('filament.pages.kardex.partials.date-range-picker')
+                </x-filament::fieldset>
+
+                @if ($resultError)
+                    <p class="text-sm font-medium text-danger-600 dark:text-danger-400">{{ $resultError }}</p>
+                @endif
+            </form>
+
+            <x-slot name="footerActions">
+                <x-filament::button color="gray" wire:click="cerrarFiltrosExtraccion">Cancelar</x-filament::button>
+                {{-- El prop que escribe form="..." es `form-id`, no `form` -- ver la misma nota en Requerimientos/Guías internas. --}}
+                <x-filament::button
+                    type="submit"
+                    form-id="filtros-extraccion-kardex-form"
+                    icon="heroicon-m-circle-stack"
+                    :disabled="$this->hayExtraccionEnProgreso() || ! auth()->user()?->hasPermission('kardex.extraccion.iniciar')"
+                >
+                    Iniciar extracción
+                </x-filament::button>
+            </x-slot>
+        </x-filament::modal>
     </div>
 </x-filament-panels::page>

@@ -1,22 +1,10 @@
 <x-filament-panels::page>
     <div class="space-y-6">
-        <x-filament::section collapsible :collapsed="true" class="crm-query-section">
-            <x-slot name="heading">Cálculo de promedios</x-slot>
-
-            <form wire:submit="search" class="space-y-4">
-                {{ $this->form }}
-
-                <x-filament::fieldset label="Rango de fecha" class="crm-filter-date">
-                    @include('filament.pages.kardex.partials.date-range-picker')
-                </x-filament::fieldset>
-
-                <div class="flex justify-end">
-                    <x-filament::button type="submit" icon="heroicon-m-calculator" wire:loading.attr="disabled" wire:target="search">
-                        Calcular promedios
-                    </x-filament::button>
-                </div>
-            </form>
-        </x-filament::section>
+        <div class="flex justify-end">
+            <x-filament::button type="button" color="gray" icon="heroicon-o-adjustments-horizontal" wire:click="abrirFiltros">
+                Filtros
+            </x-filament::button>
+        </div>
 
         @if (($summary['stockout_days'] ?? 0) > 0)
             <div class="flex items-center gap-2 text-sm font-medium text-warning-700 dark:text-warning-300">
@@ -50,5 +38,31 @@
         </div>
 
         {{ $this->table }}
+
+        <x-filament::modal id="filtros-promedios-ventas" width="4xl" sticky-header sticky-footer>
+            <x-slot name="heading">Cálculo de promedios</x-slot>
+
+            <form id="filtros-promedios-ventas-form" wire:submit="search" class="space-y-4">
+                {{ $this->form }}
+
+                <x-filament::fieldset label="Rango de fecha" class="crm-filter-date">
+                    @include('filament.pages.kardex.partials.date-range-picker')
+                </x-filament::fieldset>
+            </form>
+
+            <x-slot name="footerActions">
+                <x-filament::button color="gray" wire:click="cerrarFiltros">Cancelar</x-filament::button>
+                <x-filament::button
+                    type="button"
+                    wire:click="search"
+                    x-on:click="$dispatch('close-modal', { id: 'filtros-promedios-ventas' })"
+                    icon="heroicon-m-calculator"
+                    wire:loading.attr="disabled"
+                    wire:target="search"
+                >
+                    Calcular promedios
+                </x-filament::button>
+            </x-slot>
+        </x-filament::modal>
     </div>
 </x-filament-panels::page>

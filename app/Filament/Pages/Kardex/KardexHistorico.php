@@ -160,6 +160,16 @@ class KardexHistorico extends Page implements HasTable
         $this->resetPage();
     }
 
+    public function abrirFiltros(): void
+    {
+        $this->dispatch('open-modal', id: 'filtros-kardex-historico');
+    }
+
+    public function cerrarFiltros(): void
+    {
+        $this->dispatch('close-modal', id: 'filtros-kardex-historico');
+    }
+
     public function table(Table $table): Table
     {
         return $table

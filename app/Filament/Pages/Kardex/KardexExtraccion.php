@@ -105,6 +105,16 @@ class KardexExtraccion extends Page
             ->statePath('data');
     }
 
+    public function abrirFiltrosExtraccion(): void
+    {
+        $this->dispatch('open-modal', id: 'filtros-extraccion-kardex');
+    }
+
+    public function cerrarFiltrosExtraccion(): void
+    {
+        $this->dispatch('close-modal', id: 'filtros-extraccion-kardex');
+    }
+
     public function syncDateRange(string $start, string $end, string $preset = 'custom'): void
     {
         $this->data['dateStart'] = $start;
