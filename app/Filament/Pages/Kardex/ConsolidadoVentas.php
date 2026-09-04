@@ -134,6 +134,8 @@ class ConsolidadoVentas extends Page implements HasTable
                 ['fecha' => $latest->toDateString()],
             ],
             'localesComparar' => [],
+            'sumarFechas' => false,
+            'ocultarLocalesSinVenta' => false,
         ]);
 
         $this->refreshSummary();
@@ -193,9 +195,27 @@ class ConsolidadoVentas extends Page implements HasTable
                             ->optionsLimit(10)
                             ->placeholder('Todos los locales')
                             ->hintIcon('heroicon-m-information-circle', 'Sin selección se muestran todos los locales, cada uno con su propia columna por fecha.'),
+                        Toggle::make('sumarFechas')
+                            ->label('Sumar las fechas en vez de mostrar cada una por columna')
+                            ->hintIcon('heroicon-m-information-circle', 'Con esto activado, cada local tiene una sola columna: la suma de todas las fechas elegidas.')
+                            ->columnSpanFull(),
+                        Toggle::make('ocultarLocalesSinVenta')
+                            ->label('Ocultar locales sin venta')
+                            ->hintIcon('heroicon-m-information-circle', 'Saca de la tabla los locales cuyo total del catálogo, en las fechas elegidas, da cero -- ojo: un local con hueco de sincronización esos días también da cero y se ocultaría igual.')
+                            ->columnSpanFull(),
                     ]),
             ])
             ->statePath('data');
+    }
+
+    public function abrirFiltros(): void
+    {
+        $this->dispatch('open-modal', id: 'filtros-consolidado-ventas');
+    }
+
+    public function cerrarFiltros(): void
+    {
+        $this->dispatch('close-modal', id: 'filtros-consolidado-ventas');
     }
 
     public function diaAnterior(): void
@@ -221,6 +241,11 @@ class ConsolidadoVentas extends Page implements HasTable
         return (bool) ($this->data['compararFechas'] ?? false);
     }
 
+    public function sumarFechas(): bool
+    {
+        return (bool) ($this->data['sumarFechas'] ?? false);
+    }
+
     public function fechaLabel(): string
     {
         return Carbon::parse($this->data['fecha'] ?? now())->translatedFormat('l d \d\e F, Y');
@@ -229,9 +254,13 @@ class ConsolidadoVentas extends Page implements HasTable
     public function table(Table $table): Table
     {
         if ($this->comparando()) {
+            $heading = $this->sumarFechas()
+                ? 'Unidades vendidas por producto y local -- suma de las fechas elegidas'
+                : 'Unidades vendidas por producto, local y fecha';
+
             return $table
                 ->records(fn (int $page, int $recordsPerPage): LengthAwarePaginator => $this->paginate($this->buildComparativoRows(), $page, $recordsPerPage))
-                ->heading('Unidades vendidas por producto, local y fecha')
+                ->heading($heading)
                 ->columns([
                     TextColumn::make('cod_interno')->label('Código'),
                     TextColumn::make('item_nombre')->label('Producto')->wrap(),
@@ -340,6 +369,7 @@ class ConsolidadoVentas extends Page implements HasTable
     {
         $fechas = $this->fechasComparar();
         $localIds = $this->comparativoLocalIds();
+        $sumar = $this->sumarFechas();
 
         $sums = $this->ventasBaseQuery()
             ->whereIn('item_id', self::catalogoItemIds())
@@ -350,7 +380,7 @@ class ConsolidadoVentas extends Page implements HasTable
             ->get()
             ->groupBy('item_id');
 
-        return collect(self::CATALOGO)->map(function (array $producto) use ($sums, $fechas, $localIds): array {
+        return collect(self::CATALOGO)->map(function (array $producto) use ($sums, $fechas, $localIds, $sumar): array {
             $porLocalYFecha = ($sums->get($producto['item_id']) ?? collect())
                 ->mapWithKeys(fn ($row): array => [$row->local_id.'|'.Carbon::parse($row->fecha)->toDateString() => $row->total]);
 
@@ -361,6 +391,17 @@ class ConsolidadoVentas extends Page implements HasTable
             ];
 
             foreach ($localIds as $li => $localId) {
+                if ($sumar) {
+                    $valor = 0.0;
+                    foreach ($fechas as $fecha) {
+                        $valor += (float) ($porLocalYFecha[$localId.'|'.$fecha] ?? 0);
+                    }
+                    $row["local_{$li}"] = $valor;
+                    $row['total'] += $valor;
+
+                    continue;
+                }
+
                 foreach ($fechas as $fi => $fecha) {
                     $valor = (float) ($porLocalYFecha[$localId.'|'.$fecha] ?? 0);
                     $row["local_{$li}_fecha_{$fi}"] = $valor;
@@ -425,23 +466,61 @@ class ConsolidadoVentas extends Page implements HasTable
             ->all();
     }
 
-    /** @return array<int, string|int> */
+    /**
+     * "Ocultar locales sin venta" saca de la lista cualquier local cuyo total
+     * del catálogo completo, sumando TODAS las fechas elegidas, dé cero --
+     * pedido explícito del usuario. Se calcula acá (no en buildComparativoRows)
+     * porque también achica qué columnas se generan, no solo qué se muestra.
+     *
+     * @return array<int, string|int>
+     */
     protected function comparativoLocalIds(): array
     {
         $values = array_values(array_filter((array) ($this->data['localesComparar'] ?? []), fn ($value): bool => filled($value)));
 
         $ids = filled($values) ? $this->restrictLocalIdsToUser($values) : array_keys($this->localOptions);
+        $ids = $ids !== [] ? $ids : array_keys($this->localOptions);
 
-        return $ids !== [] ? $ids : array_keys($this->localOptions);
+        if (! ($this->data['ocultarLocalesSinVenta'] ?? false)) {
+            return $ids;
+        }
+
+        $fechas = $this->fechasComparar();
+        if ($fechas === []) {
+            return $ids;
+        }
+
+        $conVenta = $this->ventasBaseQuery()
+            ->whereIn('item_id', self::catalogoItemIds())
+            ->whereIn('fecha', $fechas)
+            ->whereIn('local_id', $ids)
+            ->select('local_id')
+            ->groupBy('local_id')
+            ->havingRaw('SUM(salida) > 0')
+            ->pluck('local_id')
+            ->all();
+
+        return array_values(array_intersect($ids, $conVenta));
     }
 
     /** @return array<int, TextColumn> */
     protected function comparativoColumns(): array
     {
+        $localIds = $this->comparativoLocalIds();
+
+        if ($this->sumarFechas()) {
+            return collect($localIds)
+                ->map(fn ($localId, int $li): TextColumn => TextColumn::make("local_{$li}")
+                    ->label($this->compactLocalLabel($this->localOptions[$localId] ?? "Local {$localId}"))
+                    ->numeric(0)
+                    ->alignEnd())
+                ->all();
+        }
+
         $fechas = $this->fechasComparar();
         $columns = [];
 
-        foreach ($this->comparativoLocalIds() as $li => $localId) {
+        foreach ($localIds as $li => $localId) {
             foreach ($fechas as $fi => $fecha) {
                 $label = $this->compactLocalLabel($this->localOptions[$localId] ?? "Local {$localId}").' · '.Carbon::parse($fecha)->translatedFormat('d M');
                 $columns[] = TextColumn::make("local_{$li}_fecha_{$fi}")
@@ -507,10 +586,18 @@ class ConsolidadoVentas extends Page implements HasTable
     protected function exportColumnas(): array
     {
         if ($this->comparando()) {
+            $localIds = $this->comparativoLocalIds();
+
+            if ($this->sumarFechas()) {
+                return collect($localIds)
+                    ->map(fn ($localId, int $li): array => ['alias' => "local_{$li}", 'label' => $this->localOptions[$localId] ?? "Local {$localId}"])
+                    ->all();
+            }
+
             $fechas = $this->fechasComparar();
             $columnas = [];
 
-            foreach ($this->comparativoLocalIds() as $li => $localId) {
+            foreach ($localIds as $li => $localId) {
                 foreach ($fechas as $fi => $fecha) {
                     $columnas[] = [
                         'alias' => "local_{$li}_fecha_{$fi}",
@@ -535,15 +622,21 @@ class ConsolidadoVentas extends Page implements HasTable
 
     protected function exportTitulo(): string
     {
-        return $this->comparando() ? 'Consolidado de ventas -- comparativo de fechas' : 'Consolidado de ventas';
+        if (! $this->comparando()) {
+            return 'Consolidado de ventas';
+        }
+
+        return $this->sumarFechas() ? 'Consolidado de ventas -- suma de fechas elegidas' : 'Consolidado de ventas -- comparativo de fechas';
     }
 
     protected function exportSubtitulo(): string
     {
         if ($this->comparando()) {
             $fechas = collect($this->fechasComparar())->map(fn (string $f): string => Carbon::parse($f)->format('d/m/Y'))->implode(', ');
+            $modo = $this->sumarFechas() ? ' (sumadas)' : '';
+            $ocultos = ($this->data['ocultarLocalesSinVenta'] ?? false) ? ' (sin venta ocultos)' : '';
 
-            return "Fechas: {$fechas} | Locales: ".count($this->comparativoLocalIds());
+            return "Fechas{$modo}: {$fechas} | Locales{$ocultos}: ".count($this->comparativoLocalIds());
         }
 
         $locales = filled($this->selectedLocalIds()) ? 'seleccionados' : 'todos';
