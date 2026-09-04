@@ -2,10 +2,6 @@
 
 <x-filament-panels::page>
     <div class="space-y-4">
-        <p class="text-sm text-gray-500 dark:text-gray-400">
-            Activá o desactivá la sincronización automática de cada módulo sin tocar código. Apagar un módulo solo detiene su ciclo periódico -- las extracciones que inicies a mano desde su propia pantalla siguen funcionando igual.
-        </p>
-
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
             @foreach($modulos as $m)
                 <x-filament::section>
@@ -18,7 +14,10 @@
                     <x-slot name="afterHeader">
                         <label class="inline-flex cursor-pointer items-center gap-2">
                             <span class="text-xs font-medium {{ $m['activo'] ? 'text-success-600 dark:text-success-400' : 'text-gray-400' }}">{{ $m['activo'] ? 'Activo' : 'Apagado' }}</span>
-                            <span wire:click="toggle('{{ $m['modulo'] }}')" class="relative inline-flex h-5 w-9 items-center rounded-full transition {{ $m['activo'] ? 'bg-success-500' : 'bg-gray-300 dark:bg-gray-600' }}">
+                            <span
+                                wire:click="toggle('{{ $m['modulo'] }}')"
+                                wire:confirm="{{ $m['activo'] ? "¿Desactivar {$m['nombre']}? Las extracciones manuales siguen funcionando igual." : "¿Reactivar {$m['nombre']}?" }}"
+                                class="relative inline-flex h-5 w-9 items-center rounded-full transition {{ $m['activo'] ? 'bg-success-500' : 'bg-gray-300 dark:bg-gray-600' }}"
                                 <span class="inline-block h-4 w-4 transform rounded-full bg-white transition {{ $m['activo'] ? 'translate-x-4' : 'translate-x-0.5' }}"></span>
                             </span>
                         </label>
@@ -44,16 +43,16 @@
                                 </div>
                                 <p class="text-xs text-gray-600 dark:text-gray-300">{{ $m['ultima']['detalle'] }}</p>
                             @else
-                                <p class="text-xs text-gray-400">Todavía no hay ninguna corrida registrada.</p>
+                                <p class="text-xs text-gray-400">Sin corridas.</p>
                             @endif
                         </div>
 
                         @if(! $m['activo'] && $m['desactivado_en'])
-                            <p class="text-xs text-gray-400">Apagado por {{ $m['desactivado_por'] ?? 'alguien' }} el {{ $m['desactivado_en']->format('d/m/Y H:i') }}.</p>
+                            <p class="text-xs text-gray-400">Apagado por {{ $m['desactivado_por'] ?? 'alguien' }} · {{ $m['desactivado_en']->format('d/m/Y H:i') }}</p>
                         @endif
 
                         <button type="button" wire:click="verHistorial('{{ $m['modulo'] }}')" class="text-xs font-medium text-primary-600 hover:underline dark:text-primary-400">
-                            Ver historial completo →
+                            Historial →
                         </button>
                     </div>
                 </x-filament::section>

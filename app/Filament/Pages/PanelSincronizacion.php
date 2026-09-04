@@ -13,13 +13,8 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 
 /**
- * Pedido explícito del usuario: poder prender/apagar cada sincronización
- * automática desde la UI (sin editar código ni hacer un deploy), ver el
- * detalle de la última corrida de cada módulo, y un panel de estados único
- * en vez de tener que entrar a 6 pantallas distintas para saber qué está
- * pasando. El toggle solo controla el ciclo automático (routes/console.php,
- * vía ConfiguracionSincronizacion::activo()) -- nunca bloquea una extracción
- * que un usuario haya encolado a mano desde su propia pantalla de módulo.
+ * Toggle solo controla el ciclo automático (routes/console.php, vía
+ * ConfiguracionSincronizacion::activo()) -- no afecta extracciones manuales.
  */
 class PanelSincronizacion extends Page
 {
@@ -50,10 +45,10 @@ class PanelSincronizacion extends Page
 
         if ($config->activo) {
             $config->desactivar(auth()->user()?->name);
-            Notification::make()->title("Sincronización de {$config->nombre} desactivada")->body('El ciclo automático no volverá a correr hasta que la reactives. Las extracciones manuales siguen funcionando igual.')->warning()->send();
+            Notification::make()->title("{$config->nombre} desactivada")->warning()->send();
         } else {
             $config->activar();
-            Notification::make()->title("Sincronización de {$config->nombre} reactivada")->success()->send();
+            Notification::make()->title("{$config->nombre} reactivada")->success()->send();
         }
     }
 
