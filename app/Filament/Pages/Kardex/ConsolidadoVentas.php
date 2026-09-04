@@ -154,6 +154,7 @@ class ConsolidadoVentas extends Page implements HasTable
                             ->label('Fecha')
                             ->required()
                             ->native(false)
+                            ->format('Y-m-d')
                             ->displayFormat('d/m/Y'),
                         Select::make('selectedLocals')
                             ->label('Locales')
@@ -175,6 +176,7 @@ class ConsolidadoVentas extends Page implements HasTable
                                     ->label('Fecha')
                                     ->required()
                                     ->native(false)
+                                    ->format('Y-m-d')
                                     ->displayFormat('d/m/Y'),
                             ])
                             ->addActionLabel('Agregar fecha')
@@ -399,12 +401,24 @@ class ConsolidadoVentas extends Page implements HasTable
         return array_column(self::CATALOGO, 'item_id');
     }
 
-    /** @return array<int, string> */
+    /**
+     * El DatePicker de Filament, dentro de un Repeater, a veces devuelve el
+     * valor con la hora actual pegada (ej. "2026-08-30 11:02:20") en vez de
+     * una fecha limpia -- confirmado en vivo, no es un caso hipotético. El
+     * WHERE de la consulta igual matchea bien (Postgres castea el texto a
+     * `date` e ignora la hora), pero el cruce en PHP contra las filas ya
+     * agrupadas (que sí vuelven con fecha limpia, columna `date`) fallaba en
+     * silencio -- la clave no coincidía y esa fecha quedaba en cero en toda
+     * la tabla. Normalizar acá a Y-m-d cierra el problema en la fuente.
+     *
+     * @return array<int, string>
+     */
     protected function fechasComparar(): array
     {
         return collect($this->data['fechasComparar'] ?? [])
             ->pluck('fecha')
             ->filter(fn ($fecha): bool => filled($fecha))
+            ->map(fn ($fecha): string => Carbon::parse($fecha)->toDateString())
             ->unique()
             ->sort()
             ->values()
