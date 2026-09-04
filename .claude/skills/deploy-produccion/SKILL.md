@@ -1,6 +1,6 @@
 ---
 name: deploy-produccion
-description: Despliega CRM-DIMSUM (D:\DS-TI\CRM-DIMSUM\opm-digemid) y/o el gateway API-TI (D:\DS-TI\API-TI) a producción (2.25.104.73) de forma versionada y verificable. Úsalo SIEMPRE que el usuario pida desplegar, publicar, subir a producción, sincronizar producción, "que se reflejen los cambios", relanzar el proyecto en el servidor, o cualquier variante de llevar cambios del entorno de desarrollo local al servidor -- incluso si no menciona el nombre de los scripts o dice solo "sube esto" / "despliega". No uses este skill para trabajo puramente local (features, fixes, tests) que el usuario no haya pedido explícitamente llevar a producción.
+description: Despliega CRM-DIMSUM (D:\DS-TI\CRM-DIMSUM\opm-digemid) y/o el gateway API-TI (D:\DS-TI\API-TI) a producción (2.25.155.29) de forma versionada y verificable. Úsalo SIEMPRE que el usuario pida desplegar, publicar, subir a producción, sincronizar producción, "que se reflejen los cambios", relanzar el proyecto en el servidor, o cualquier variante de llevar cambios del entorno de desarrollo local al servidor -- incluso si no menciona el nombre de los scripts o dice solo "sube esto" / "despliega". No uses este skill para trabajo puramente local (features, fixes, tests) que el usuario no haya pedido explícitamente llevar a producción.
 ---
 
 # Despliegue versionado a producción
@@ -83,7 +83,7 @@ cambio en la infraestructura del propio script), el respaldo manual sigue el
 MISMO principio -- nunca te saltes el "clonar desde el remoto":
 
 ```bash
-ssh root@2.25.104.73 "rm -rf /tmp/crm-deploy && git clone --depth 1 https://github.com/MidOne-06/crm_dimsum.git /tmp/crm-deploy && rsync -a /tmp/crm-deploy/ /opt/crm-dimsum/ \
+ssh root@2.25.155.29 "rm -rf /tmp/crm-deploy && git clone --depth 1 https://github.com/MidOne-06/crm_dimsum.git /tmp/crm-deploy && rsync -a /tmp/crm-deploy/ /opt/crm-dimsum/ \
   --exclude='.git' --exclude='.env' --exclude='.env.docker' --exclude='storage' \
   --exclude='lang' --exclude='app/Support' --exclude='app/Filament/Exports' \
   --exclude='resources/views/filament/modals' --exclude='database/database.sqlite' \
@@ -109,7 +109,7 @@ working directory local.
 Después de reconstruir, confirma antes de dar el deploy por bueno:
 
 ```bash
-ssh root@2.25.104.73 "cd /opt/crm-dimsum && docker compose ps --format '{{.Name}}: {{.Status}}' && docker compose logs app --since 30s 2>&1 | grep -iE 'error|exception'; curl -s -o /dev/null -w 'admin http: %{http_code}\n' http://localhost:8080/admin/login"
+ssh root@2.25.155.29 "cd /opt/crm-dimsum && docker compose ps --format '{{.Name}}: {{.Status}}' && docker compose logs app --since 30s 2>&1 | grep -iE 'error|exception'; curl -s -o /dev/null -w 'admin http: %{http_code}\n' http://localhost:8080/admin/login"
 ```
 
 Todos los contenedores afectados deben quedar `healthy`/`Up`, sin errores en

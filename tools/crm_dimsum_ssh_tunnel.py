@@ -12,7 +12,7 @@ import threading
 import paramiko
 
 
-VPS_HOST = "2.25.104.73"
+VPS_HOST = "2.25.155.29"
 VPS_USER = "root"
 REMOTE_DB_HOST = "172.18.0.2"
 REMOTE_DB_PORT = 5432
