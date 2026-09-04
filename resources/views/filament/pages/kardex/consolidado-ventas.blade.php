@@ -17,9 +17,19 @@
                         <span></span>
                     @endif
 
-                    <x-filament::button type="submit" icon="heroicon-m-magnifying-glass" wire:loading.attr="disabled" wire:target="buscar">
-                        Consultar
-                    </x-filament::button>
+                    <div class="flex items-center gap-2">
+                        @if(auth()->user()?->hasPermission('kardex.consolidado-ventas.exportar'))
+                            <x-filament::button type="button" color="gray" icon="heroicon-m-arrow-down-tray" wire:click="exportarExcel" wire:loading.attr="disabled" wire:target="exportarExcel">
+                                Excel
+                            </x-filament::button>
+                            <x-filament::button type="button" color="gray" icon="heroicon-m-document-arrow-down" wire:click="exportarPdf" wire:loading.attr="disabled" wire:target="exportarPdf">
+                                PDF
+                            </x-filament::button>
+                        @endif
+                        <x-filament::button type="submit" icon="heroicon-m-magnifying-glass" wire:loading.attr="disabled" wire:target="buscar">
+                            Consultar
+                        </x-filament::button>
+                    </div>
                 </div>
             </form>
         </x-filament::section>

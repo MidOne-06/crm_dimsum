@@ -5,6 +5,8 @@ namespace App\Filament\Pages\Kardex;
 use App\Filament\Concerns\ScopesLocalsToUser;
 use App\Models\KardexMovimiento;
 use Carbon\Carbon;
+use Dompdf\Dompdf;
+use Dompdf\Options as DompdfOptions;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
@@ -18,6 +20,14 @@ use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ConsolidadoVentas extends Page implements HasTable
 {
@@ -433,5 +443,146 @@ class ConsolidadoVentas extends Page implements HasTable
     protected function compactLocalLabel(string $name): string
     {
         return str($name)->replaceStart('DIM SUM ', '')->toString();
+    }
+
+    /** @return array<int, array{alias: string, label: string}> */
+    protected function exportColumnas(): array
+    {
+        if ($this->comparando()) {
+            return collect($this->fechasComparar())
+                ->map(fn (string $fecha, int $index): array => ['alias' => "fecha_{$index}", 'label' => Carbon::parse($fecha)->format('d/m/Y')])
+                ->all();
+        }
+
+        return collect($this->matrixLocalIds())
+            ->map(fn ($localId, int $index): array => ['alias' => "local_{$index}", 'label' => $this->localOptions[$localId] ?? "Local {$localId}"])
+            ->all();
+    }
+
+    /** @return Collection<int, object> */
+    protected function exportFilas(): Collection
+    {
+        return $this->comparando() ? $this->comparativoQuery()->get() : $this->matrixQuery()->get();
+    }
+
+    protected function exportTitulo(): string
+    {
+        return $this->comparando() ? 'Consolidado de ventas -- comparativo de fechas' : 'Consolidado de ventas';
+    }
+
+    protected function exportSubtitulo(): string
+    {
+        if ($this->comparando()) {
+            $fechas = collect($this->fechasComparar())->map(fn (string $f): string => Carbon::parse($f)->format('d/m/Y'))->implode(', ');
+            $local = $this->localComparar() === self::ALL_LOCALES_OPTION ? 'Todos los locales' : ($this->localOptions[$this->localComparar()] ?? $this->localComparar());
+
+            return "Fechas: {$fechas} | Local: {$local}";
+        }
+
+        $locales = filled($this->selectedLocalIds()) ? 'seleccionados' : 'top 8 con más venta';
+
+        return 'Fecha: '.$this->fechaLabel().' | Locales: '.$locales;
+    }
+
+    public function exportarExcel(): StreamedResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('kardex.consolidado-ventas.exportar'), 403);
+
+        $columnas = $this->exportColumnas();
+        $filas = $this->exportFilas();
+        $lastCol = count($columnas) + 4;
+        $lastColLetter = Coordinate::stringFromColumnIndex($lastCol);
+        $headerRow = 4;
+
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Consolidado de ventas');
+
+        $sheet->mergeCells("A1:{$lastColLetter}1");
+        $sheet->setCellValue('A1', $this->exportTitulo());
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        $sheet->mergeCells("A2:{$lastColLetter}2");
+        $sheet->setCellValue('A2', $this->exportSubtitulo().' | Generado: '.now()->format('d/m/Y H:i'));
+
+        $sheet->setCellValue([1, $headerRow], 'Código');
+        $sheet->setCellValue([2, $headerRow], 'Producto');
+        $sheet->setCellValue([3, $headerRow], 'Unidad');
+        foreach ($columnas as $index => $columna) {
+            $sheet->setCellValue([$index + 4, $headerRow], $columna['label']);
+        }
+        $sheet->setCellValue([$lastCol, $headerRow], 'Total');
+
+        $headerRange = "A{$headerRow}:{$lastColLetter}{$headerRow}";
+        $sheet->getStyle($headerRange)->getFont()->setBold(true);
+        $sheet->getStyle($headerRange)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E5E7EB');
+        $sheet->getStyle($headerRange)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+        $rowNumber = $headerRow + 1;
+        foreach ($filas as $fila) {
+            $sheet->setCellValue([1, $rowNumber], $fila->cod_interno);
+            $sheet->setCellValue([2, $rowNumber], $fila->item_nombre);
+            $sheet->setCellValue([3, $rowNumber], $fila->unidad);
+            $total = 0.0;
+            foreach ($columnas as $index => $columna) {
+                $valor = (float) ($fila->{$columna['alias']} ?? 0);
+                $total += $valor;
+                $sheet->setCellValue([$index + 4, $rowNumber], $valor);
+            }
+            $sheet->setCellValue([$lastCol, $rowNumber], $total);
+            $rowNumber++;
+        }
+
+        $lastRow = max($headerRow, $rowNumber - 1);
+        $sheet->getStyle("A{$headerRow}:{$lastColLetter}{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('FFD1D5DB'));
+        if ($lastRow > $headerRow) {
+            $sheet->getStyle('D'.($headerRow + 1).":{$lastColLetter}{$lastRow}")->getNumberFormat()->setFormatCode('#,##0');
+            $sheet->getStyle("{$lastColLetter}".($headerRow + 1).":{$lastColLetter}{$lastRow}")->getFont()->setBold(true);
+        }
+        $sheet->getColumnDimension('A')->setWidth(14);
+        $sheet->getColumnDimension('B')->setWidth(36);
+        $sheet->getColumnDimension('C')->setWidth(12);
+        foreach (range(4, $lastCol) as $index) {
+            $sheet->getColumnDimensionByColumn($index)->setWidth(14);
+        }
+        $sheet->freezePane('D'.($headerRow + 1));
+
+        $writer = new Xlsx($spreadsheet);
+        $filename = 'consolidado-ventas-'.now()->format('Y-m-d_His').'.xlsx';
+
+        return response()->streamDownload(function () use ($writer, $spreadsheet): void {
+            try {
+                $writer->save('php://output');
+            } finally {
+                $spreadsheet->disconnectWorksheets();
+            }
+        }, $filename, ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+    }
+
+    public function exportarPdf(): StreamedResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('kardex.consolidado-ventas.exportar'), 403);
+
+        $options = new DompdfOptions();
+        $options->set('isRemoteEnabled', false);
+        $pdf = new Dompdf($options);
+        $pdf->setPaper('a4', 'landscape');
+        $pdf->loadHtml(view('filament.pages.kardex.consolidado-ventas-pdf', [
+            'titulo' => $this->exportTitulo(),
+            'subtitulo' => $this->exportSubtitulo(),
+            'columnas' => $this->exportColumnas(),
+            'filas' => $this->exportFilas(),
+        ])->render());
+        $pdf->render();
+
+        $filename = 'consolidado-ventas-'.now()->format('Y-m-d_His').'.pdf';
+
+        // streamDownload() evita que Livewire intente meter el PDF binario en
+        // el JSON de la respuesta AJAX del wire:click (mismo motivo que
+        // exportarExcel(); ver Reporte de requerimientos, que ya usa este
+        // mismo patrón).
+        return response()->streamDownload(function () use ($pdf): void {
+            echo $pdf->output();
+        }, $filename, ['Content-Type' => 'application/pdf']);
     }
 }
