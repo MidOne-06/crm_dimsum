@@ -11,7 +11,7 @@
 
         <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <x-filament::section compact class="crm-kpi-card" style="--crm-kpi-color: #d97706">
-                <span class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Ventas</span>
+                <span class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Unidades vendidas</span>
                 <p class="text-xl font-semibold text-warning-600 dark:text-warning-400">{{ number_format($analysis['descargas'] ?? 0, 0) }}</p>
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ $analysis['unidad'] ?: 'Sin unidad' }}</span>
             </x-filament::section>

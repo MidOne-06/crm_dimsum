@@ -16,6 +16,9 @@ abstract class DescargasVentasChart extends ChartWidget
 
     protected const ALMACEN_PRINCIPAL = 'Almacen Principal';
 
+    /** @see \App\Filament\Pages\Kardex\AnalisisDescargasVentas::CATEGORIAS_EXCLUIDAS */
+    protected const CATEGORIAS_EXCLUIDAS = ['DESCARTABLES', 'EXTRAS'];
+
     /** @var array<string, mixed> */
     public array $analysisFilters = [];
 
@@ -55,7 +58,8 @@ abstract class DescargasVentasChart extends ChartWidget
             ->whereBetween('fecha', [$start->toDateString(), $end->toDateString()])
             ->when(filled($selectedLocals), fn (Builder $query): Builder => $query->whereIn('local_id', $selectedLocals))
             ->when(filled($selectedProducts), fn (Builder $query): Builder => $query->whereIn('item_id', $selectedProducts))
-            ->when($categoria !== '', fn (Builder $query): Builder => $query->where('categoria', $categoria));
+            ->when($categoria !== '', fn (Builder $query): Builder => $query->where('categoria', $categoria))
+            ->when($categoria === '', fn (Builder $query): Builder => $query->whereNotIn('categoria', self::CATEGORIAS_EXCLUIDAS));
 
         if (auth()->user()?->isRestrictedToLocals() && blank($selectedLocals)) {
             $query->whereIn('local_id', auth()->user()->assignedLocalIds());

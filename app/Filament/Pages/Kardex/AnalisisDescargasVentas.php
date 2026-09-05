@@ -30,6 +30,21 @@ class AnalisisDescargasVentas extends Page implements HasTable
 
     private const ALL_LOCALES_OPTION = '__all_locales__';
 
+    /**
+     * `DESCARTABLES` (platos, envases) y `EXTRAS` (bolsas) también salen del
+     * almacén con motivo "SALIDA, POR VENTA." cuando un pedido lleva
+     * empaque -- pero no son productos que el cliente "compró", son insumo
+     * de despacho. Sin este filtro, un plato descartable competía en el
+     * ranking de más vendidos por encima de comida real (hallazgo real del
+     * usuario: "PLATO 15 PP BLANCO" #2 del ranking con 1.466 "ventas").
+     * Auditado contra la data real: ambas categorías son 100% empaque, sin
+     * ningún producto real mezclado (confirmado listando cada ítem de las
+     * dos categorías completas antes de excluirlas).
+     *
+     * @var array<int, string>
+     */
+    private const CATEGORIAS_EXCLUIDAS = ['DESCARTABLES', 'EXTRAS'];
+
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-chart-bar-square';
 
     protected static ?string $navigationLabel = 'Análisis de descargas';
@@ -267,7 +282,7 @@ class AnalisisDescargasVentas extends Page implements HasTable
                     ->numeric()
                     ->alignEnd(),
                 TextColumn::make('descargas')
-                    ->label('Ventas')
+                    ->label('Unidades')
                     ->state(fn (KardexMovimiento $record): string => number_format((float) $record->descargas, 0))
                     ->alignEnd()
                     ->color('warning'),
@@ -359,7 +374,12 @@ class AnalisisDescargasVentas extends Page implements HasTable
             ->whereDate('fecha', '<=', $end)
             ->when(filled($selectedLocals), fn (Builder $query): Builder => $query->whereIn('local_id', $selectedLocals))
             ->when(filled($unidad), fn (Builder $query): Builder => $query->where('unidad_medida', $unidad))
-            ->when(filled($categoria), fn (Builder $query): Builder => $query->where('categoria', $categoria));
+            ->when(filled($categoria), fn (Builder $query): Builder => $query->where('categoria', $categoria))
+            // Sin categoría elegida a propósito, se excluye empaque/insumo de
+            // despacho (ver comentario de CATEGORIAS_EXCLUIDAS) -- si el
+            // usuario elige explícitamente "Descartables" en el filtro,
+            // igual puede verlo, esto solo afecta a la vista general.
+            ->when(blank($categoria), fn (Builder $query): Builder => $query->whereNotIn('categoria', self::CATEGORIAS_EXCLUIDAS));
 
         if (auth()->user()?->isRestrictedToLocals() && blank($selectedLocals)) {
             $query->whereIn('local_id', array_keys($this->localOptions));
