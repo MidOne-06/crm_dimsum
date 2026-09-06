@@ -106,7 +106,7 @@ class MovimientosAlmacenes extends Page implements HasTable
                         DatePicker::make('hasta')->label('Hasta')->native(false)->required(),
                         Select::make('estado')->label('Estado')->options($this->estadoOptions())->native(),
                         Select::make('estado_recepcion')->label('Estado de recepción')->options($this->estadoRecepcionOptions())->native(),
-                        Select::make('locales')->label('Locales')->options(fn (): array => $this->localOptions())->multiple()->searchable()->native(false)->required()->live()
+                        Select::make('locales')->label('Locales')->options(fn (): array => $this->localSelectOptions())->multiple()->searchable()->native(false)->required()->live()
                             ->afterStateUpdated(function (Set $set): void {
                                 $set('almacen', null);
                                 $set('items', []);
@@ -127,10 +127,16 @@ class MovimientosAlmacenes extends Page implements HasTable
                     if ($desde > $hasta) [$desde, $hasta] = [$hasta, $desde];
 
                     $options = $this->localOptions();
+                    $requestedLocales = array_values((array) ($data['locales'] ?? []));
                     $this->desde = $desde;
                     $this->hasta = $hasta;
-                    $this->locales = $this->restrictLocalIdsToUser(array_values(array_filter((array) ($data['locales'] ?? []), fn (mixed $id): bool => array_key_exists((string) $id, $options))));
-                    $this->almacen = count($this->locales) === 1 && array_key_exists((string) ($data['almacen'] ?? ''), $this->almacenOptions($this->locales)) ? (string) $data['almacen'] : null;
+                    // El valor especial no viaja a Restaurant: se resuelve
+                    // contra el catálogo en vivo, ya limitado por permisos.
+                    $this->locales = in_array('__todos__', $requestedLocales, true)
+                        ? ['__todos__']
+                        : $this->restrictLocalIdsToUser(array_values(array_filter($requestedLocales, fn (mixed $id): bool => array_key_exists((string) $id, $options))));
+                    $selectedLocalIds = $this->selectedLocalIds($this->locales);
+                    $this->almacen = count($selectedLocalIds) === 1 && array_key_exists((string) ($data['almacen'] ?? ''), $this->almacenOptions($selectedLocalIds)) ? (string) $data['almacen'] : null;
                     $this->estado = array_key_exists((string) ($data['estado'] ?? ''), $this->estadoOptions()) ? (string) $data['estado'] : '1';
                     $this->estadoRecepcion = array_key_exists((string) ($data['estado_recepcion'] ?? ''), $this->estadoRecepcionOptions()) ? (string) $data['estado_recepcion'] : '-1';
                     $this->buscarSegun = in_array((string) ($data['buscar_segun'] ?? ''), ['1', '2'], true) ? (string) $data['buscar_segun'] : '2';
@@ -205,9 +211,29 @@ class MovimientosAlmacenes extends Page implements HasTable
         }
     }
 
+    /** @return array<string, string> */
+    private function localSelectOptions(): array
+    {
+        return ['__todos__' => 'Todos los locales'] + $this->localOptions();
+    }
+
+    /** @param array<int, string> $localIds @return array<int, string> */
+    private function selectedLocalIds(array $localIds): array
+    {
+        if (in_array('__todos__', $localIds, true)) {
+            return array_keys($this->localOptions());
+        }
+
+        return $this->restrictLocalIdsToUser(array_values(array_filter(
+            $localIds,
+            fn (mixed $id): bool => array_key_exists((string) $id, $this->localOptions()),
+        )));
+    }
+
     /** @param array<int, string> $localIds @return array<string, string> */
     private function almacenOptions(array $localIds): array
     {
+        $localIds = $this->selectedLocalIds($localIds);
         $localId = (string) (collect($localIds)->filter()->first() ?? '');
         if (count(array_filter($localIds)) !== 1 || $localId === '' || ! $this->localAllowedForUser($localId)) return [];
         try {
@@ -222,6 +248,7 @@ class MovimientosAlmacenes extends Page implements HasTable
     /** @param array<int, string> $localIds @return array<string, string> */
     private function itemOptions(string $search, array $localIds): array
     {
+        $localIds = $this->selectedLocalIds($localIds);
         $localId = (string) (collect($localIds)->filter()->first() ?? '');
         if (mb_strlen(trim($search)) < 2 || $localId === '' || ! $this->localAllowedForUser($localId)) return [];
         try {
@@ -276,7 +303,7 @@ class MovimientosAlmacenes extends Page implements HasTable
     private function gatewayFilters(): array
     {
         return [
-            'fecha_inicio' => $this->desde, 'fecha_fin' => $this->hasta, 'locales' => implode(',', $this->locales),
+            'fecha_inicio' => $this->desde, 'fecha_fin' => $this->hasta, 'locales' => implode(',', $this->selectedLocalIds($this->locales)),
             'items' => implode(',', $this->items), 'almacen' => $this->almacen ?? '-1', 'estado' => $this->estado,
             'estado_recepcion' => $this->estadoRecepcion, 'buscar_segun' => $this->buscarSegun,
         ];
