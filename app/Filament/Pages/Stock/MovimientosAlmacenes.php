@@ -53,6 +53,11 @@ class MovimientosAlmacenes extends Page implements HasTable
     public ?string $listError = null;
     /** @var array<string, string> */
     public array $remoteItemLabels = [];
+    /** @var array<string, array<string, mixed>> */
+    public array $remoteEditItems = [];
+    /** @var array<string, string> */
+    public array $remoteEditItemLabels = [];
+    public ?string $editLocalId = null;
 
     public static function canAccess(): bool
     {
@@ -201,6 +206,7 @@ class MovimientosAlmacenes extends Page implements HasTable
                         ->fillForm(fn (array $record): array => $this->edicionRestaurant($record))
                         ->schema([
                             Grid::make(['default' => 1, 'md' => 4])->schema([
+                                Hidden::make('local_id')->dehydrated(),
                                 TextInput::make('local')->label('Local')->disabled()->dehydrated(false),
                                 DateTimePicker::make('fecha')->label('Fecha de movimiento')->native(false)->seconds(false)->required(),
                                 TextInput::make('encargado')->label('Encargado del envío')->maxLength(160),
@@ -209,13 +215,26 @@ class MovimientosAlmacenes extends Page implements HasTable
                                 Select::make('almacen_destino')->label('Almacén de destino')->options(fn (): array => $this->almacenesEdicionOptions())->searchable()->native(false)->required()->columnSpan(['md' => 2]),
                                 TextInput::make('tipo_movimiento')->label('Tipo de movimiento')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
                                 Repeater::make('items')->label('Lista de ítems a mover entre almacenes')
-                                    ->addable(false)->deletable(false)->reorderable(false)->defaultItems(0)->columnSpanFull()
+                                    ->addable(true)->addActionLabel('Agregar ítem')->deletable(false)->reorderable(false)->defaultItems(0)->columnSpanFull()
                                     ->schema([
                                         Hidden::make('id')->dehydrated(),
+                                        Hidden::make('item_id')->dehydrated(),
+                                        Hidden::make('item_tipo')->dehydrated(),
+                                        Hidden::make('presentacion_id')->dehydrated(),
+                                        Hidden::make('unidadmedida_id')->dehydrated(),
+                                        Hidden::make('presentacion_cantidad')->dehydrated(),
+                                        Select::make('item_key')->label('Buscar ítem')->searchable()->native(false)->required()
+                                            ->getSearchResultsUsing(fn (string $search): array => $this->editItemOptions($search))
+                                            ->getOptionLabelUsing(fn (mixed $value): string => $this->remoteEditItemLabels[(string) $value] ?? '')
+                                            ->live()
+                                            ->afterStateUpdated(fn (?string $state, Set $set) => $this->fillEditItemFromKey((string) $state, $set))
+                                            ->columnSpan(['md' => 2]),
                                         TextInput::make('codigo')->label('Cód.')->disabled()->dehydrated(false),
                                         TextInput::make('descripcion')->label('Ítem')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
                                         TextInput::make('presentacion')->label('Presentación')->disabled()->dehydrated(false),
-                                        TextInput::make('cantidad')->label('Cant. a mover')->numeric()->minValue(0)->required(),
+                                        TextInput::make('cantidad')->label('Cant.')->numeric()->minValue(0)->required()->live()
+                                            ->afterStateUpdated(fn (mixed $state, Set $set) => $set('cantidad_a_mover', $state)),
+                                        TextInput::make('cantidad_a_mover')->label('Cant. a mover')->numeric()->minValue(0)->required()->live(),
                                         TextInput::make('unidad')->label('Unidad')->disabled()->dehydrated(false),
                                     ])->columns(['default' => 1, 'md' => 6])->itemLabel(fn (): string => ''),
                                 Textarea::make('observacion')->label('Observación')->rows(3)->maxLength(1000)->columnSpanFull(),
@@ -287,18 +306,86 @@ class MovimientosAlmacenes extends Page implements HasTable
     private function edicionRestaurant(array $record): array
     {
         $movimiento = app(MovimientosAlmacenesGatewayClient::class)->detalle((string) ($record['id'] ?? ''));
+        $this->editLocalId = (string) ($movimiento['editor']['localId'] ?? '');
+        $this->remoteEditItems = [];
+        $items = collect($movimiento['editor']['items'] ?? [])->map(function (array $item): array {
+            $item['item_id'] = (string) ($item['itemId'] ?? '');
+            $item['item_tipo'] = (string) ($item['itemTipo'] ?? '');
+            $item['presentacion_id'] = (string) ($item['presentacionId'] ?? '');
+            $item['unidadmedida_id'] = (string) ($item['unidadmedidaId'] ?? '');
+            $item['presentacion_cantidad'] = $item['presentacionCantidad'] ?? null;
+            $item['cantidad_a_mover'] = $item['cantidad'] ?? 0;
+            $item['item_key'] = $this->editItemKey($item);
+            $this->rememberEditItem($item);
+            return $item;
+        })->values()->all();
 
         return [
             'local' => $movimiento['editor']['local'] ?? $movimiento['localOrigen'] ?? '',
+            'local_id' => $this->editLocalId,
             'fecha' => $movimiento['fecha'] ?? null,
             'encargado' => $movimiento['encargado'] ?? '',
             'receptor' => $movimiento['receptor'] ?? '',
             'almacen_origen' => $movimiento['editor']['almacenOrigen']['id'] ?? '',
             'almacen_destino' => $movimiento['editor']['almacenDestino']['id'] ?? '',
             'tipo_movimiento' => $movimiento['editor']['tipo'] ?? '',
-            'items' => $movimiento['editor']['items'] ?? [],
+            'items' => $items,
             'observacion' => $movimiento['observacion'] ?? '',
         ];
+    }
+
+    /** @return array<string, string> */
+    private function editItemOptions(string $search): array
+    {
+        if (mb_strlen(trim($search)) < 2 || ! $this->editLocalId) return [];
+
+        try {
+            return collect(app(MovimientosAlmacenesGatewayClient::class)->items($search, $this->editLocalId))
+                ->mapWithKeys(function (array $item): array {
+                    $key = $this->editItemKey($item);
+                    $label = trim((filled($item['codigo'] ?? null) ? $item['codigo'].' · ' : '').($item['descripcion'] ?? '').(filled($item['presentacion'] ?? null) ? ' · '.$item['presentacion'] : ''));
+                    if ($key === '' || $label === '') return [];
+                    $this->rememberEditItem($item, $key, $label);
+                    return [$key => $label];
+                })->all();
+        } catch (Throwable) {
+            return [];
+        }
+    }
+
+    private function editItemKey(array $item): string
+    {
+        return implode(':', [
+            (string) ($item['item_tipo'] ?? $item['itemTipo'] ?? ''),
+            (string) ($item['id'] ?? $item['item_id'] ?? $item['itemId'] ?? ''),
+            (string) ($item['presentacion_id'] ?? $item['presentacionId'] ?? ''),
+            (string) ($item['unidadmedida_id'] ?? $item['unidadmedidaId'] ?? ''),
+        ]);
+    }
+
+    private function rememberEditItem(array $item, ?string $key = null, ?string $label = null): void
+    {
+        $key ??= $this->editItemKey($item);
+        if ($key === '') return;
+        $this->remoteEditItems[$key] = $item;
+        $this->remoteEditItemLabels[$key] = $label ?? trim((filled($item['codigo'] ?? null) ? $item['codigo'].' · ' : '').($item['descripcion'] ?? '').(filled($item['presentacion'] ?? null) ? ' · '.$item['presentacion'] : ''));
+    }
+
+    private function fillEditItemFromKey(string $key, Set $set): void
+    {
+        $item = $this->remoteEditItems[$key] ?? null;
+        if (! is_array($item)) return;
+        $set('item_id', (string) ($item['id'] ?? $item['item_id'] ?? ''));
+        $set('item_tipo', (string) ($item['item_tipo'] ?? ''));
+        $set('presentacion_id', (string) ($item['presentacion_id'] ?? ''));
+        $set('unidadmedida_id', (string) ($item['unidadmedida_id'] ?? ''));
+        $set('presentacion_cantidad', $item['presentacion_cantidad'] ?? null);
+        $set('codigo', (string) ($item['codigo'] ?? ''));
+        $set('descripcion', (string) ($item['descripcion'] ?? ''));
+        $set('presentacion', (string) ($item['presentacion'] ?? ''));
+        $set('unidad', (string) ($item['unidad'] ?? ''));
+        $set('cantidad', 1);
+        $set('cantidad_a_mover', 1);
     }
 
     /** @return array<string, string> */
