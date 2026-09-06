@@ -26,6 +26,23 @@ class MovimientosAlmacenesGatewayClient
         return $this->get('/api/movimientos/'.rawurlencode($id));
     }
 
+    public function anular(string $id): array
+    {
+        return $this->post('/api/movimientos/'.rawurlencode($id).'/anular');
+    }
+
+    /** @return array{content:string,contentType:string} */
+    public function reporte(string $id, string $variant): array
+    {
+        $response = Http::baseUrl($this->baseUrl)->timeout(180)->get('/api/reporte', ['id' => $id, 'variant' => $variant]);
+        if ($response->failed()) {
+            $body = $response->json();
+            throw new RuntimeException($body['error'] ?? 'No se pudo descargar el PDF del movimiento.');
+        }
+
+        return ['content' => $response->body(), 'contentType' => $response->header('Content-Type') ?: 'application/pdf'];
+    }
+
     /** @return array<string, mixed> */
     public function contextoFiltros(): array
     {
@@ -63,5 +80,17 @@ class MovimientosAlmacenesGatewayClient
 
             return is_array($body) ? $body : [];
         }, 2000);
+    }
+
+    /** @return array<string, mixed> */
+    private function post(string $path, array $payload = []): array
+    {
+        $response = Http::baseUrl($this->baseUrl)->timeout(120)->post($path, $payload);
+        $body = $response->json();
+        if ($response->failed()) {
+            throw new RuntimeException($body['error'] ?? 'No se pudo completar la operación en Restaurant.');
+        }
+
+        return is_array($body) ? $body : [];
     }
 }

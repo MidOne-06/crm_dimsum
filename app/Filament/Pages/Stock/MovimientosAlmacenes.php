@@ -9,6 +9,7 @@ use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Pages\Page;
+use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
@@ -183,6 +184,24 @@ class MovimientosAlmacenes extends Page implements HasTable
                         ->stickyModalHeader()
                         ->stickyModalFooter()
                         ->modalContent(fn (array $record) => view('filament.pages.stock.partials.movimiento-almacen-detalle-restaurant', $this->detalleRestaurant($record))),
+                    Action::make('anular')
+                        ->label('Anular movimiento')
+                        ->icon('heroicon-o-no-symbol')
+                        ->color('danger')
+                        ->visible(fn (array $record): bool => ($record['estado_codigo'] ?? '') === '1')
+                        ->requiresConfirmation()
+                        ->modalHeading('¿Anular este movimiento?')
+                        ->modalDescription('Restaurant revertirá este movimiento. Esta acción no se puede deshacer.')
+                        ->modalSubmitActionLabel('Anular movimiento')
+                        ->action(fn (array $record) => $this->anularMovimiento($record)),
+                    Action::make('descargar_pdf')
+                        ->label('Descargar en PDF')
+                        ->icon('heroicon-o-arrow-down-tray')
+                        ->action(fn (array $record) => $this->descargarMovimiento($record, 'normal')),
+                    Action::make('descargar_pdf_v2')
+                        ->label('Descargar en PDF V2')
+                        ->icon('heroicon-o-arrow-down-tray')
+                        ->action(fn (array $record) => $this->descargarMovimiento($record, 'sin_costos')),
                 ])
                     ->label('Operaciones')
                     ->icon('heroicon-o-cog-6-tooth')
@@ -212,6 +231,21 @@ class MovimientosAlmacenes extends Page implements HasTable
                 'error' => 'Restaurant no respondió al consultar el detalle de este movimiento.',
             ];
         }
+    }
+
+    public function anularMovimiento(array $record): void
+    {
+        app(MovimientosAlmacenesGatewayClient::class)->anular((string) ($record['id'] ?? ''));
+        Notification::make()->success()->title('Movimiento anulado')->body('Restaurant confirmó la anulación. La lista se actualizará en tiempo real.')->send();
+        $this->resetTable();
+    }
+
+    public function descargarMovimiento(array $record, string $variant): mixed
+    {
+        $reporte = app(MovimientosAlmacenesGatewayClient::class)->reporte((string) ($record['id'] ?? ''), $variant);
+        $suffix = $variant === 'sin_costos' ? '-sin-costos' : '';
+
+        return response()->streamDownload(fn () => print($reporte['content']), 'movimiento-'.($record['id'] ?? '').$suffix.'.pdf', ['Content-Type' => $reporte['contentType']]);
     }
 
     private function records(int $page, int $recordsPerPage): LengthAwarePaginator
