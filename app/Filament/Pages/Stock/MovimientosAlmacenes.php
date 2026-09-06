@@ -257,9 +257,14 @@ class MovimientosAlmacenes extends Page implements HasTable
 
     public function anularMovimiento(array $record): void
     {
-        app(MovimientosAlmacenesGatewayClient::class)->anular((string) ($record['id'] ?? ''));
-        Notification::make()->success()->title('Movimiento anulado')->body('Restaurant confirmó la anulación. La lista se actualizará en tiempo real.')->send();
-        $this->resetTable();
+        try {
+            app(MovimientosAlmacenesGatewayClient::class)->anular((string) ($record['id'] ?? ''));
+            Notification::make()->success()->title('Movimiento anulado')->body('Restaurant confirmó la anulación. La lista se actualizará en tiempo real.')->send();
+            $this->resetTable();
+        } catch (Throwable $exception) {
+            report($exception);
+            Notification::make()->danger()->title('No se pudo anular el movimiento')->body($exception->getMessage())->send();
+        }
     }
 
     /** @return array<string, mixed> */
@@ -278,9 +283,14 @@ class MovimientosAlmacenes extends Page implements HasTable
     /** @param array<string, mixed> $data */
     public function editarMovimiento(array $record, array $data): void
     {
-        app(MovimientosAlmacenesGatewayClient::class)->editar((string) ($record['id'] ?? ''), $data);
-        Notification::make()->success()->title('Movimiento actualizado')->body('Restaurant confirmó los cambios. La lista se actualizará en tiempo real.')->send();
-        $this->resetTable();
+        try {
+            app(MovimientosAlmacenesGatewayClient::class)->editar((string) ($record['id'] ?? ''), $data);
+            Notification::make()->success()->title('Movimiento actualizado')->body('Restaurant confirmó los cambios. La lista se actualizará en tiempo real.')->send();
+            $this->resetTable();
+        } catch (Throwable $exception) {
+            report($exception);
+            Notification::make()->danger()->title('No se pudo actualizar el movimiento')->body($exception->getMessage())->send();
+        }
     }
 
     public function descargarMovimiento(array $record, string $variant): mixed
