@@ -94,7 +94,7 @@ class StockConsolidado extends Page implements HasTable
             ])
             ->paginated([10, 25, 50, 100])
             ->defaultPaginationPageOption(10)
-            ->emptyStateHeading('Sin stock para los filtros seleccionados.');
+            ->emptyStateHeading($this->hasSearched ? 'Sin stock para los filtros seleccionados.' : 'Usa el botón "Filtros" para buscar.');
     }
 
     /** @return array<string, string> */
