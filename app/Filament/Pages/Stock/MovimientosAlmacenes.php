@@ -8,6 +8,9 @@ use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Pages\Page;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
@@ -184,6 +187,25 @@ class MovimientosAlmacenes extends Page implements HasTable
                         ->stickyModalHeader()
                         ->stickyModalFooter()
                         ->modalContent(fn (array $record) => view('filament.pages.stock.partials.movimiento-almacen-detalle-restaurant', $this->detalleRestaurant($record))),
+                    Action::make('editar')
+                        ->label('Editar movimiento')
+                        ->icon('heroicon-o-pencil-square')
+                        ->visible(fn (array $record): bool => (string) ($record['estado_codigo'] ?? '') === '1')
+                        ->modalHeading(fn (array $record): string => 'Editar movimiento #'.($record['id'] ?? ''))
+                        ->modalWidth('5xl')
+                        ->stickyModalHeader()
+                        ->stickyModalFooter()
+                        ->modalSubmitActionLabel('Guardar cambios')
+                        ->fillForm(fn (array $record): array => $this->edicionRestaurant($record))
+                        ->schema([
+                            Grid::make(['default' => 1, 'md' => 4])->schema([
+                                DateTimePicker::make('fecha')->label('Fecha')->native(false)->required()->columnSpan(['md' => 2]),
+                                TextInput::make('encargado')->label('Encargado')->maxLength(160)->columnSpan(['md' => 2]),
+                                TextInput::make('receptor')->label('Receptor')->maxLength(160)->columnSpan(['md' => 2]),
+                                Textarea::make('observacion')->label('Observación')->rows(3)->maxLength(1000)->columnSpanFull(),
+                            ]),
+                        ])
+                        ->action(fn (array $record, array $data) => $this->editarMovimiento($record, $data)),
                     Action::make('anular')
                         ->label('Anular movimiento')
                         ->icon('heroicon-o-no-symbol')
@@ -237,6 +259,27 @@ class MovimientosAlmacenes extends Page implements HasTable
     {
         app(MovimientosAlmacenesGatewayClient::class)->anular((string) ($record['id'] ?? ''));
         Notification::make()->success()->title('Movimiento anulado')->body('Restaurant confirmó la anulación. La lista se actualizará en tiempo real.')->send();
+        $this->resetTable();
+    }
+
+    /** @return array<string, mixed> */
+    private function edicionRestaurant(array $record): array
+    {
+        $movimiento = app(MovimientosAlmacenesGatewayClient::class)->detalle((string) ($record['id'] ?? ''));
+
+        return [
+            'fecha' => $movimiento['fecha'] ?? null,
+            'encargado' => $movimiento['encargado'] ?? '',
+            'receptor' => $movimiento['receptor'] ?? '',
+            'observacion' => $movimiento['observacion'] ?? '',
+        ];
+    }
+
+    /** @param array<string, mixed> $data */
+    public function editarMovimiento(array $record, array $data): void
+    {
+        app(MovimientosAlmacenesGatewayClient::class)->editar((string) ($record['id'] ?? ''), $data);
+        Notification::make()->success()->title('Movimiento actualizado')->body('Restaurant confirmó los cambios. La lista se actualizará en tiempo real.')->send();
         $this->resetTable();
     }
 
