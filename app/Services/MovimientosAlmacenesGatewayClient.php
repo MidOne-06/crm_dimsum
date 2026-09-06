@@ -68,6 +68,12 @@ class MovimientosAlmacenesGatewayClient
     }
 
     /** @return array<int, array<string, mixed>> */
+    public function almacenesTodos(): array
+    {
+        return $this->get('/api/almacenes-todos')['almacenes'] ?? [];
+    }
+
+    /** @return array<int, array<string, mixed>> */
     public function items(string $search, string $localId): array
     {
         return $this->get('/api/items', ['q' => $search, 'local_id' => $localId])['items'] ?? [];

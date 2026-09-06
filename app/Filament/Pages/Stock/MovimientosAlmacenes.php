@@ -205,8 +205,8 @@ class MovimientosAlmacenes extends Page implements HasTable
                                 DateTimePicker::make('fecha')->label('Fecha de movimiento')->native(false)->seconds(false)->required(),
                                 TextInput::make('encargado')->label('Encargado del envío')->maxLength(160),
                                 TextInput::make('receptor')->label('Receptor')->maxLength(160),
-                                TextInput::make('almacen_origen')->label('Almacén de origen')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
-                                TextInput::make('almacen_destino')->label('Almacén de destino')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
+                                Select::make('almacen_origen')->label('Almacén de origen')->options(fn (): array => $this->almacenesEdicionOptions())->searchable()->native(false)->required()->columnSpan(['md' => 2]),
+                                Select::make('almacen_destino')->label('Almacén de destino')->options(fn (): array => $this->almacenesEdicionOptions())->searchable()->native(false)->required()->columnSpan(['md' => 2]),
                                 TextInput::make('tipo_movimiento')->label('Tipo de movimiento')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
                                 Repeater::make('items')->label('Lista de ítems a mover entre almacenes')
                                     ->addable(false)->deletable(false)->reorderable(false)->defaultItems(0)->columnSpanFull()
@@ -293,12 +293,30 @@ class MovimientosAlmacenes extends Page implements HasTable
             'fecha' => $movimiento['fecha'] ?? null,
             'encargado' => $movimiento['encargado'] ?? '',
             'receptor' => $movimiento['receptor'] ?? '',
-            'almacen_origen' => $movimiento['editor']['almacenOrigen']['nombre'] ?? $movimiento['almacenOrigen'] ?? '',
-            'almacen_destino' => $movimiento['editor']['almacenDestino']['nombre'] ?? $movimiento['almacenDestino'] ?? '',
+            'almacen_origen' => $movimiento['editor']['almacenOrigen']['id'] ?? '',
+            'almacen_destino' => $movimiento['editor']['almacenDestino']['id'] ?? '',
             'tipo_movimiento' => $movimiento['editor']['tipo'] ?? '',
             'items' => $movimiento['editor']['items'] ?? [],
             'observacion' => $movimiento['observacion'] ?? '',
         ];
+    }
+
+    /** @return array<string, string> */
+    private function almacenesEdicionOptions(): array
+    {
+        try {
+            return collect(app(MovimientosAlmacenesGatewayClient::class)->almacenesTodos())
+                ->mapWithKeys(function (array $warehouse): array {
+                    $id = (string) ($warehouse['id'] ?? '');
+                    $name = trim((string) ($warehouse['name'] ?? ''));
+                    $local = trim((string) ($warehouse['localName'] ?? ''));
+                    if ($id === '' || $name === '' || $local === '') return [];
+
+                    return [$id => $local.' · '.$name];
+                })->all();
+        } catch (Throwable) {
+            return [];
+        }
     }
 
     /** @param array<string, mixed> $data */
