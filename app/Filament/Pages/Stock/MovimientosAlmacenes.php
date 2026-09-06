@@ -215,7 +215,7 @@ class MovimientosAlmacenes extends Page implements HasTable
                                 Select::make('almacen_destino')->label('Almacén de destino')->options(fn (): array => $this->almacenesEdicionOptions())->searchable()->native(false)->required()->columnSpan(['md' => 2]),
                                 TextInput::make('tipo_movimiento')->label('Tipo de movimiento')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
                                 Repeater::make('items')->label('Lista de ítems a mover entre almacenes')
-                                    ->addable(true)->addActionLabel('Agregar ítem')->deletable(false)->reorderable(false)->defaultItems(0)->columnSpanFull()
+                                    ->addable(true)->addActionLabel('Agregar ítem')->deletable(true)->minItems(1)->reorderable(false)->defaultItems(0)->columnSpanFull()
                                     ->schema([
                                         Hidden::make('id')->dehydrated(),
                                         Hidden::make('item_id')->dehydrated(),
