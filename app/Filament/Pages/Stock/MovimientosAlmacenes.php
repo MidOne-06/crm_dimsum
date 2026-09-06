@@ -7,6 +7,8 @@ use App\Services\MovimientosAlmacenesGatewayClient;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
@@ -192,16 +194,30 @@ class MovimientosAlmacenes extends Page implements HasTable
                         ->icon('heroicon-o-pencil-square')
                         ->visible(fn (array $record): bool => (string) ($record['estado_codigo'] ?? '') === '1')
                         ->modalHeading(fn (array $record): string => 'Editar movimiento #'.($record['id'] ?? ''))
-                        ->modalWidth('5xl')
+                        ->modalWidth('7xl')
                         ->stickyModalHeader()
                         ->stickyModalFooter()
                         ->modalSubmitActionLabel('Guardar cambios')
                         ->fillForm(fn (array $record): array => $this->edicionRestaurant($record))
                         ->schema([
                             Grid::make(['default' => 1, 'md' => 4])->schema([
-                                DateTimePicker::make('fecha')->label('Fecha')->native(false)->required()->columnSpan(['md' => 2]),
-                                TextInput::make('encargado')->label('Encargado')->maxLength(160)->columnSpan(['md' => 2]),
-                                TextInput::make('receptor')->label('Receptor')->maxLength(160)->columnSpan(['md' => 2]),
+                                TextInput::make('local')->label('Local')->disabled()->dehydrated(false),
+                                DateTimePicker::make('fecha')->label('Fecha de movimiento')->native(false)->seconds(false)->required(),
+                                TextInput::make('encargado')->label('Encargado del envío')->maxLength(160),
+                                TextInput::make('receptor')->label('Receptor')->maxLength(160),
+                                TextInput::make('almacen_origen')->label('Almacén de origen')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
+                                TextInput::make('almacen_destino')->label('Almacén de destino')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
+                                TextInput::make('tipo_movimiento')->label('Tipo de movimiento')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
+                                Repeater::make('items')->label('Lista de ítems a mover entre almacenes')
+                                    ->addable(false)->deletable(false)->reorderable(false)->defaultItems(0)->columnSpanFull()
+                                    ->schema([
+                                        Hidden::make('id')->dehydrated(),
+                                        TextInput::make('codigo')->label('Cód.')->disabled()->dehydrated(false),
+                                        TextInput::make('descripcion')->label('Ítem')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
+                                        TextInput::make('presentacion')->label('Presentación')->disabled()->dehydrated(false),
+                                        TextInput::make('cantidad')->label('Cant. a mover')->numeric()->minValue(0)->required(),
+                                        TextInput::make('unidad')->label('Unidad')->disabled()->dehydrated(false),
+                                    ])->columns(['default' => 1, 'md' => 6])->itemLabel(fn (): string => ''),
                                 Textarea::make('observacion')->label('Observación')->rows(3)->maxLength(1000)->columnSpanFull(),
                             ]),
                         ])
@@ -273,9 +289,14 @@ class MovimientosAlmacenes extends Page implements HasTable
         $movimiento = app(MovimientosAlmacenesGatewayClient::class)->detalle((string) ($record['id'] ?? ''));
 
         return [
+            'local' => $movimiento['editor']['local'] ?? $movimiento['localOrigen'] ?? '',
             'fecha' => $movimiento['fecha'] ?? null,
             'encargado' => $movimiento['encargado'] ?? '',
             'receptor' => $movimiento['receptor'] ?? '',
+            'almacen_origen' => $movimiento['editor']['almacenOrigen']['nombre'] ?? $movimiento['almacenOrigen'] ?? '',
+            'almacen_destino' => $movimiento['editor']['almacenDestino']['nombre'] ?? $movimiento['almacenDestino'] ?? '',
+            'tipo_movimiento' => $movimiento['editor']['tipo'] ?? '',
+            'items' => $movimiento['editor']['items'] ?? [],
             'observacion' => $movimiento['observacion'] ?? '',
         ];
     }
