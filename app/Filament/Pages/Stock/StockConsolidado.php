@@ -50,11 +50,6 @@ class StockConsolidado extends Page implements HasTable
         $this->resetTable();
     }
 
-    protected function getHeaderActions(): array
-    {
-        return [$this->filtrosModalAction()];
-    }
-
     public function table(Table $table): Table
     {
         return $table
@@ -79,6 +74,17 @@ class StockConsolidado extends Page implements HasTable
             ], layout: FiltersLayout::AboveContentCollapsible)
             ->filtersFormColumns(['default' => 1, 'md' => 2, 'xl' => 4])
             ->headerActions([
+                // La página implementa HasTable, y en ese caso Filament solo
+                // imprime <x-filament-actions::modals /> (el slot que renderiza
+                // el contenido del modal) desde la vista de la TABLA, no desde
+                // la página -- ver vendor/filament/filament/.../page/index.blade.php
+                // línea ~134: el slot de acciones de página se salta por completo
+                // cuando `$this instanceof HasTable`. Registrar "Filtros" como
+                // getHeaderActions() de la página (como estaba antes) hacía que
+                // el botón se viera pero mountAction() no tuviera dónde pintar
+                // el modal -- el clic no hacía nada, sin ningún error visible ni
+                // en logs. Registrarlo acá, en la tabla, sí tiene su modal.
+                $this->filtrosModalAction(),
                 Action::make('exportarExcel')
                     ->label('Exportar Excel')
                     ->icon('heroicon-o-arrow-down-tray')
