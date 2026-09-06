@@ -21,6 +21,12 @@ class MovimientosAlmacenesGatewayClient
     }
 
     /** @return array<string, mixed> */
+    public function detalle(string $id): array
+    {
+        return $this->get('/api/movimientos/'.rawurlencode($id));
+    }
+
+    /** @return array<string, mixed> */
     public function contextoFiltros(): array
     {
         return $this->get('/api/contexto-filtros');

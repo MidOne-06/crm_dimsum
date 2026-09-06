@@ -5,6 +5,7 @@ namespace App\Filament\Pages\Stock;
 use App\Filament\Concerns\ScopesLocalsToUser;
 use App\Services\MovimientosAlmacenesGatewayClient;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Pages\Page;
@@ -15,6 +16,8 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
+use Filament\Support\Enums\Alignment;
+use Filament\Support\Enums\Width;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Throwable;
 
@@ -167,9 +170,48 @@ class MovimientosAlmacenes extends Page implements HasTable
                 TextColumn::make('estado')->label('Estado')->badge()->color(fn (array $record): string => $record['estado_codigo'] === '1' ? 'success' : 'gray'),
                 TextColumn::make('estado_recepcion')->label('Estado recepción')->badge()->color(fn (array $record): string => in_array($record['estado_recepcion_codigo'], ['1', '2'], true) ? 'success' : 'gray'),
             ])
+            ->recordActions([
+                ActionGroup::make([
+                    Action::make('detalle')
+                        ->label('Ver movimiento entre almacenes')
+                        ->icon('heroicon-o-eye')
+                        ->modalHeading(fn (array $record): string => 'Movimiento entre almacenes #'.($record['id'] ?? ''))
+                        ->modalWidth('7xl')
+                        ->modalAlignment(Alignment::Start)
+                        ->modalSubmitAction(false)
+                        ->modalCancelActionLabel('Cerrar')
+                        ->stickyModalHeader()
+                        ->stickyModalFooter()
+                        ->modalContent(fn (array $record) => view('filament.pages.stock.partials.movimiento-almacen-detalle-restaurant', $this->detalleRestaurant($record))),
+                ])
+                    ->label('Operaciones')
+                    ->icon('heroicon-o-cog-6-tooth')
+                    ->tooltip('Operaciones del movimiento')
+                    ->color('gray')
+                    ->dropdownPlacement('bottom-end')
+                    ->dropdownWidth(Width::Medium),
+            ])
             ->paginated([10, 25, 50, 100])
             ->defaultPaginationPageOption(25)
             ->emptyStateHeading('No hay movimientos entre almacenes en Restaurant con los filtros seleccionados.');
+    }
+
+    /** @return array{movimiento: array<string, mixed>, error: ?string} */
+    private function detalleRestaurant(array $record): array
+    {
+        try {
+            return [
+                'movimiento' => app(MovimientosAlmacenesGatewayClient::class)->detalle((string) ($record['id'] ?? '')),
+                'error' => null,
+            ];
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return [
+                'movimiento' => [],
+                'error' => 'Restaurant no respondió al consultar el detalle de este movimiento.',
+            ];
+        }
     }
 
     private function records(int $page, int $recordsPerPage): LengthAwarePaginator
