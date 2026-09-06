@@ -18,6 +18,7 @@
                                 wire:click="toggle('{{ $m['modulo'] }}')"
                                 wire:confirm="{{ $m['activo'] ? "¿Desactivar {$m['nombre']}? Las extracciones manuales siguen funcionando igual." : "¿Reactivar {$m['nombre']}?" }}"
                                 class="relative inline-flex h-5 w-9 items-center rounded-full transition {{ $m['activo'] ? 'bg-success-500' : 'bg-gray-300 dark:bg-gray-600' }}"
+                            >
                                 <span class="inline-block h-4 w-4 transform rounded-full bg-white transition {{ $m['activo'] ? 'translate-x-4' : 'translate-x-0.5' }}"></span>
                             </span>
                         </label>
