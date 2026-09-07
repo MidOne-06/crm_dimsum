@@ -100,6 +100,20 @@ Schedule::command('ventas:sincronizar-diario')
   ->runInBackground()
   ->when($sincActivo('ventas'));
 
+// Directiva de Transferencia: corre a las 03:00 -- después de que Kardex
+// (00:05) ya recalculó el saldo en tiempo real de la madrugada, y con
+// margen suficiente antes del corte real de despacho (el usuario definió
+// que todos los locales deben recibir su mercadería como máximo a las
+// 12pm, así que la sugerencia tiene que estar lista mucho antes de eso
+// para dar tiempo a producción + transporte). A esta hora todavía no
+// existe ninguna venta del día en curso -- por diseño (ver
+// DirectivaTransferenciaService) usa el promedio histórico del MISMO día
+// de la semana, no una extrapolación del día de hoy.
+Schedule::command('directiva-transferencia:calcular')
+  ->dailyAt('03:00')
+  ->withoutOverlapping(60)
+  ->runInBackground();
+
 // Autocura corridas huérfanas: si el proceso de un backfill muere (sesión
 // SSH cortada, servidor reiniciado) la fila queda en 'en_progreso' para
 // siempre y nadie la reintenta. Cada 10 min se detectan corridas estancadas
