@@ -83,7 +83,7 @@ class MoverEntreAlmacenes extends Page
     {
         return $schema->components([
             Section::make('Datos del movimiento')->compact()->schema([
-                Grid::make(['default' => 1, 'md' => 2, 'xl' => 12])->schema([
+                Grid::make(['default' => 1, 'md' => 2, 'xl' => 15])->schema([
                     Select::make('local_id')->label('Local')->options(fn (): array => $this->localOptions())->native(false)->searchable()->required()->live()->columnSpan(['xl' => 2])
                         ->afterStateUpdated(function (?string $state, Set $set): void {
                             $origin = array_key_first($this->originOptionsFor((string) $state)) ?? '';
@@ -94,8 +94,8 @@ class MoverEntreAlmacenes extends Page
                             $this->clearPreview();
                         }),
                     DateTimePicker::make('fecha')->label('Fecha de movimiento')->seconds(false)->native(false)->maxDate(now())->required()->columnSpan(['xl' => 2]),
-                    TextInput::make('encargado')->label('Encargado del envío')->maxLength(160)->required()->live(onBlur: true)->columnSpan(['xl' => 3]),
-                    TextInput::make('receptor')->label('Receptor')->maxLength(160)->columnSpan(['xl' => 3]),
+                    TextInput::make('encargado')->label('Encargado del envío')->maxLength(160)->required()->live(onBlur: true)->columnSpan(['xl' => 2]),
+                    TextInput::make('receptor')->label('Receptor')->maxLength(160)->columnSpan(['xl' => 2]),
                     Select::make('almacen_origen')->label('Almacén de origen')->options(fn (): array => $this->originOptions())->native(false)->searchable()->required()->live()->columnSpan(['xl' => 2])
                         ->afterStateUpdated(function (?string $state, Set $set): void {
                             $set('almacen_destino', array_key_first($this->destinationOptionsFor((string) $state)) ?? '');
@@ -103,7 +103,7 @@ class MoverEntreAlmacenes extends Page
                             $this->itemLookup = [];
                             $this->clearPreview();
                         }),
-                    Select::make('almacen_destino')->label('Almacén de destino')->options(fn (): array => $this->destinationOptions())->native(false)->searchable()->required()->columnSpan(['xl' => 6]),
+                    Select::make('almacen_destino')->label('Almacén de destino')->options(fn (): array => $this->destinationOptions())->native(false)->searchable()->required()->columnSpan(['xl' => 3]),
                     TextInput::make('tipo_movimiento')->label('Tipo de movimiento')->disabled()->dehydrated(false)->columnSpan(['xl' => 2]),
                 ]),
             ]),
