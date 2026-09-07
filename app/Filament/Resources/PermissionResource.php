@@ -94,7 +94,7 @@ class PermissionResource extends Resource
                 Tables\Columns\TextColumn::make('name')->label('Permiso')->searchable()->sortable()->weight('medium')->limit(42)->tooltip(fn (Permission $record): string => $record->name),
                 Tables\Columns\TextColumn::make('slug')->label('Identificador')->searchable()->copyable()->limit(42)->tooltip(fn (Permission $record): string => $record->slug),
                 Tables\Columns\TextColumn::make('module')->label('Módulo')->badge()->color('info')->sortable(),
-                Tables\Columns\TextColumn::make('roles_count')->label('Roles')->counts('roles')->alignCenter()->sortable(),
+                Tables\Columns\TextColumn::make('roles.name')->label('Roles')->badge()->separator(',')->limitList(2)->expandableLimitedList()->placeholder('Sin roles asignados'),
                 Tables\Columns\IconColumn::make('is_system')->label('Base')->boolean()->alignCenter(),
             ])
             ->defaultSort('module')
