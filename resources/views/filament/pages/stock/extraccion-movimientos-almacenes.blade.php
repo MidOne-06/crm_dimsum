@@ -1,4 +1,10 @@
-@php($resumen = $this->resumenGeneral())
+@php
+    $resumen = $this->resumenGeneral();
+    // La vista recibe las propiedades antes de ejecutar el primer método del
+    // componente. Tomamos el valor ya normalizado para no renderizar el
+    // centinela de una sesión Livewire anterior.
+    $coverageYear = $this->coverageYear;
+@endphp
 @php($activas = $this->extraccionesActivas())
 
 <x-filament-panels::page>

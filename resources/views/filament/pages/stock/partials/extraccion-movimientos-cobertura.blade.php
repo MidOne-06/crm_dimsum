@@ -3,6 +3,8 @@
 @php($today = now()->startOfDay())
 @php($months = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Setiembre','Octubre','Noviembre','Diciembre'])
 @php($resumenCobertura = $this->coverageSummary())
+@php($coverageYear = $this->coverageYear)
+@php($coverageMonth = $this->coverageMonth)
 
 <x-filament::section>
     <x-slot name="heading">Resumen — {{ $months[$coverageMonth - 1] }} {{ $coverageYear }}</x-slot>
