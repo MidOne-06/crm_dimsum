@@ -351,7 +351,9 @@ class GuiasInternas extends Page implements HasTable
                                 ]),
                             Textarea::make('observacion')->label('Anotaciones')->rows(2)->maxLength(1000)->columnSpanFull(),
                         ])
-                        ->action(fn (Collection $records, array $data): void => $this->confirmarCanjeGuias($records, $data)),
+                        ->action(function (Collection $records, array $data): void {
+                            $this->confirmarCanjeGuias($records, $data);
+                        }),
                     BulkAction::make('agrupar_guias')
                         ->label('Agrupar selección')
                         ->icon('heroicon-o-rectangle-stack')
