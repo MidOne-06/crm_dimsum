@@ -77,11 +77,11 @@ class PermissionResource extends Resource
                         ->live(onBlur: true)
                         ->afterStateUpdated(fn (?string $state, callable $set) => $set('slug', Str::slug((string) $state, '.'))),
                     TextInput::make('slug')->label('Identificador')->required()->regex('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/')->unique(ignoreRecord: true)->maxLength(120),
-                    Select::make('module')->label('Módulo')->options([
-                        'Seguridad' => 'Seguridad',
-                        'Apariencia' => 'Apariencia',
-                        'Stock Actual' => 'Stock Actual',
-                    ])->native(false),
+                    Select::make('module')->label('Módulo')
+                        ->options(fn (): array => Permission::query()->whereNotNull('module')->distinct()->orderBy('module')->pluck('module', 'module')->all())
+                        ->native(false)->searchable()->createOptionForm([
+                            TextInput::make('module')->label('Nuevo módulo')->required(),
+                        ])->createOptionUsing(fn (array $data): string => $data['module']),
                 ])
                 ->columns(['default' => 1, 'md' => 2]),
         ]);
@@ -94,13 +94,22 @@ class PermissionResource extends Resource
                 Tables\Columns\TextColumn::make('name')->label('Permiso')->searchable()->sortable()->weight('medium')->limit(42)->tooltip(fn (Permission $record): string => $record->name),
                 Tables\Columns\TextColumn::make('slug')->label('Identificador')->searchable()->copyable()->limit(42)->tooltip(fn (Permission $record): string => $record->slug),
                 Tables\Columns\TextColumn::make('module')->label('Módulo')->badge()->color('info')->sortable(),
-                Tables\Columns\TextColumn::make('roles.name')->label('Roles')->badge()->separator(',')->limitList(2)->expandableLimitedList()->placeholder('Sin roles asignados'),
+                // Sin límite: `expandableLimitedList()` solo funciona junto con
+                // `listWithLineBreaks()`, no con `badge()` -- TextColumn corta
+                // el array ANTES de renderizar el HTML apenas hay más ítems que
+                // el límite, sin importar el modal/expandible, así que "Mostrar
+                // N más" quedaba sin nada real que mostrar al hacer clic (ver
+                // vendor/filament/tables/src/Columns/TextColumn.php). Esta
+                // tabla nunca tiene más de 5 roles en total, así que mostrarlos
+                // todos siempre es seguro (no es el caso de, por ejemplo, la
+                // columna de locales de Usuarios, que sí puede tener decenas).
+                Tables\Columns\TextColumn::make('roles.name')->label('Roles')->badge()->separator(',')->placeholder('Sin roles asignados'),
                 Tables\Columns\IconColumn::make('is_system')->label('Base')->boolean()->alignCenter(),
             ])
             ->defaultSort('module')
             ->recordTitleAttribute('name')
             ->actions([
-                EditAction::make()->iconButton()->tooltip('Editar permiso'),
+                EditAction::make()->iconButton()->tooltip('Editar permiso')->modalWidth('2xl')->stickyModalHeader()->stickyModalFooter()->modalSubmitActionLabel('Guardar')->modalCancelActionLabel('Cancelar'),
                 DeleteAction::make()->iconButton()->tooltip('Eliminar permiso'),
             ]);
     }
@@ -109,8 +118,6 @@ class PermissionResource extends Resource
     {
         return [
             'index' => Pages\ListPermissions::route('/'),
-            'create' => Pages\CreatePermission::route('/create'),
-            'edit' => Pages\EditPermission::route('/{record}/edit'),
         ];
     }
 }

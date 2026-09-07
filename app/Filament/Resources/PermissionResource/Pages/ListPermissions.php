@@ -9,5 +9,17 @@ use Filament\Resources\Pages\ListRecords;
 class ListPermissions extends ListRecords
 {
     protected static string $resource = PermissionResource::class;
-    protected function getHeaderActions(): array { return [CreateAction::make()->label('Nuevo permiso')]; }
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            CreateAction::make()
+                ->label('Nuevo permiso')
+                ->modalWidth('2xl')
+                ->stickyModalHeader()
+                ->stickyModalFooter()
+                ->modalSubmitActionLabel('Guardar')
+                ->modalCancelActionLabel('Cancelar'),
+        ];
+    }
 }

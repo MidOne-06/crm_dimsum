@@ -162,7 +162,16 @@ class UserResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('name')->label('Nombre')->searchable()->sortable()->weight('medium')->limit(42)->tooltip(fn (User $record): string => $record->name),
                 Tables\Columns\TextColumn::make('email')->label('Correo')->searchable()->sortable()->copyable()->limit(42)->tooltip(fn (User $record): string => $record->email),
-                Tables\Columns\TextColumn::make('roles.name')->label('Roles')->badge()->separator(',')->limitList(2)->expandableLimitedList(),
+                // Sin límite: como en PermissionResource, `expandableLimitedList()`
+                // no funciona junto con `badge()` en esta versión de Filament
+                // (corta el array antes de renderizar, "Mostrar N más" no
+                // revelaba nada real al hacer clic). Un usuario nunca tiene más
+                // de 5 roles en este sistema, así que mostrarlos todos es
+                // seguro -- a diferencia de Locales, que sí puede tener
+                // decenas y por eso se deja con el límite (el "Mostrar más"
+                // ahí sigue teniendo el mismo problema, pendiente de resolver
+                // con un modal dedicado en vez de esta lista inline).
+                Tables\Columns\TextColumn::make('roles.name')->label('Roles')->badge()->separator(','),
                 Tables\Columns\TextColumn::make('locals.local_nombre')->label('Locales')->badge()->color('gray')->separator(',')->limitList(2)->expandableLimitedList()->placeholder('Todos'),
                 Tables\Columns\IconColumn::make('is_active')->label('Activo')->boolean()->alignCenter(),
                 Tables\Columns\TextColumn::make('updated_at')->label('Actualizado')->dateTime('d/m/Y H:i')->sortable()->toggleable(),
