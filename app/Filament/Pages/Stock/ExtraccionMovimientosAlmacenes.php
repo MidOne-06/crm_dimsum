@@ -8,6 +8,7 @@ use App\Models\MovimientoAlmacenDetalle;
 use App\Models\MovimientoAlmacenSincronizacion;
 use App\Services\MovimientosAlmacenesGatewayClient;
 use App\Services\MovimientosAlmacenesHistoricoService;
+use Carbon\CarbonPeriod;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -19,6 +20,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
+use Illuminate\Support\Carbon;
 use Throwable;
 
 class ExtraccionMovimientosAlmacenes extends Page implements HasTable
@@ -39,6 +41,9 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
     public array $data = [];
     public ?string $resultError = null;
     public ?int $extraccionActualId = null;
+    public string $coverageLocalId = '';
+    public int $coverageYear;
+    public int $coverageMonth;
 
     public static function canAccess(): bool
     {
@@ -47,6 +52,8 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
 
     public function mount(): void
     {
+        $this->coverageYear = (int) now()->year;
+        $this->coverageMonth = (int) now()->month;
         $this->cargarLocales();
         $this->data = [
             'selectedLocals' => array_column($this->locals, 'id'),
@@ -56,6 +63,7 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
             'estadoRecepcion' => '-1',
         ];
         $this->extraccionActualId = MovimientoAlmacenSincronizacion::query()->latest('id')->value('id');
+        $this->coverageLocalId = (string) ($this->locals[0]['id'] ?? '');
     }
 
     public function form(Schema $schema): Schema
@@ -157,7 +165,179 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
             'detalles' => MovimientoAlmacenDetalle::count(),
             'corridas' => MovimientoAlmacenSincronizacion::count(),
             'fallidas' => MovimientoAlmacenSincronizacion::where('estado', 'fallido')->count(),
+            'coveragePercent' => $this->coveragePercent(),
         ];
+    }
+
+    public function coveragePrevYear(): void
+    {
+        $this->coverageYear--;
+    }
+
+    public function coverageNextYear(): void
+    {
+        $this->coverageYear++;
+    }
+
+    public function coveragePrevMonth(): void
+    {
+        $anchor = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->subMonthNoOverflow();
+        $this->coverageYear = $anchor->year;
+        $this->coverageMonth = $anchor->month;
+    }
+
+    public function coverageNextMonth(): void
+    {
+        $anchor = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->addMonthNoOverflow();
+        $this->coverageYear = $anchor->year;
+        $this->coverageMonth = $anchor->month;
+    }
+
+    /** @return array<string, array<string, 'full'|'partial'>> */
+    protected function coverageMatrix(): array
+    {
+        $monthStart = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->startOfDay();
+        $monthEnd = $monthStart->copy()->endOfMonth()->startOfDay();
+        $matrix = [];
+
+        foreach ($this->locals as $local) {
+            $matrix[(string) $local['id']] = [];
+        }
+
+        MovimientoAlmacenSincronizacion::query()
+            ->whereIn('estado', ['completado', 'completado_con_errores'])
+            ->get()
+            ->each(function (MovimientoAlmacenSincronizacion $run) use (&$matrix, $monthStart, $monthEnd): void {
+                if (! $run->fecha_inicio || ! $run->fecha_fin || $run->fecha_inicio->gt($monthEnd) || $run->fecha_fin->lt($monthStart)) {
+                    return;
+                }
+
+                $runLocales = array_map('strval', $run->filtros['locales'] ?? []);
+                $periodStart = $run->fecha_inicio->copy()->max($monthStart);
+                $periodEnd = $run->fecha_fin->copy()->min($monthEnd);
+                $status = $run->errores > 0 ? 'partial' : 'full';
+
+                foreach ($this->locals as $local) {
+                    $id = (string) $local['id'];
+                    $name = (string) ($local['name'] ?? '');
+                    $applies = $runLocales === [] || in_array($id, $runLocales, true) || in_array($name, $runLocales, true);
+
+                    if (! $applies) {
+                        continue;
+                    }
+
+                    foreach (CarbonPeriod::create($periodStart, $periodEnd) as $day) {
+                        $key = $day->toDateString();
+                        if (($matrix[$id][$key] ?? null) !== 'full') {
+                            $matrix[$id][$key] = $status;
+                        }
+                    }
+                }
+            });
+
+        return $matrix;
+    }
+
+    /** @return array{total: int, conProblemas: \Illuminate\Support\Collection} */
+    public function coverageSummary(): array
+    {
+        $matrix = $this->coverageMatrix();
+        $monthStart = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->startOfDay();
+        $monthEnd = $monthStart->copy()->endOfMonth()->startOfDay()->min(now()->startOfDay());
+        $daysUntilToday = max(1, (int) $monthStart->diffInDays($monthEnd) + 1);
+
+        $items = collect($this->locals)->map(function (array $local) use ($matrix, $monthStart, $monthEnd, $daysUntilToday): array {
+            $row = $matrix[(string) $local['id']] ?? [];
+            $full = $partial = $missing = 0;
+
+            foreach (CarbonPeriod::create($monthStart, $monthEnd) as $day) {
+                match ($row[$day->toDateString()] ?? null) {
+                    'full' => $full++,
+                    'partial' => $partial++,
+                    default => $missing++,
+                };
+            }
+
+            return [
+                'id' => (string) $local['id'],
+                'name' => (string) $local['name'],
+                'partial' => $partial,
+                'missing' => $missing,
+                'pct' => (int) round(($full / $daysUntilToday) * 100),
+            ];
+        });
+
+        return [
+            'total' => $items->count(),
+            'conProblemas' => $items->filter(fn (array $item): bool => $item['pct'] < 100)->sortBy('pct')->values(),
+        ];
+    }
+
+    public function coverageMap(): array
+    {
+        if ($this->coverageLocalId === '') {
+            return [];
+        }
+
+        $yearStart = Carbon::create($this->coverageYear, 1, 1);
+        $yearEnd = Carbon::create($this->coverageYear, 12, 31);
+        $coverage = [];
+
+        MovimientoAlmacenSincronizacion::query()
+            ->whereIn('estado', ['completado', 'completado_con_errores'])
+            ->get()
+            ->filter(function (MovimientoAlmacenSincronizacion $run) use ($yearStart, $yearEnd): bool {
+                $runLocales = array_map('strval', $run->filtros['locales'] ?? []);
+
+                return $run->fecha_inicio
+                    && $run->fecha_fin
+                    && $run->fecha_inicio->lte($yearEnd)
+                    && $run->fecha_fin->gte($yearStart)
+                    && ($runLocales === [] || in_array($this->coverageLocalId, $runLocales, true));
+            })
+            ->each(function (MovimientoAlmacenSincronizacion $run) use (&$coverage, $yearStart, $yearEnd): void {
+                foreach (CarbonPeriod::create($run->fecha_inicio->copy()->max($yearStart), $run->fecha_fin->copy()->min($yearEnd)) as $day) {
+                    $key = $day->toDateString();
+                    if (($coverage[$key] ?? null) !== 'full') {
+                        $coverage[$key] = $run->errores > 0 ? 'partial' : 'full';
+                    }
+                }
+            });
+
+        return $coverage;
+    }
+
+    public function coverageGaps(): array
+    {
+        $map = $this->coverageMap();
+        $start = Carbon::create($this->coverageYear, 1, 1);
+        $end = Carbon::create($this->coverageYear, 12, 31)->min(now());
+        $gaps = [];
+        $gapStart = null;
+
+        foreach (CarbonPeriod::create($start, $end) as $day) {
+            if (! isset($map[$day->toDateString()]) && $gapStart === null) {
+                $gapStart = $day->copy();
+            }
+            if (isset($map[$day->toDateString()]) && $gapStart !== null) {
+                $gaps[] = ['start' => $gapStart->toDateString(), 'end' => $day->copy()->subDay()->toDateString()];
+                $gapStart = null;
+            }
+        }
+
+        if ($gapStart !== null) {
+            $gaps[] = ['start' => $gapStart->toDateString(), 'end' => $end->toDateString()];
+        }
+
+        return $gaps;
+    }
+
+    private function coveragePercent(): int
+    {
+        $start = Carbon::create($this->coverageYear, 1, 1);
+        $end = Carbon::create($this->coverageYear, 12, 31)->min(now());
+
+        return (int) round((collect($this->coverageMap())->where('full')->count() / max(1, $start->diffInDays($end) + 1)) * 100);
     }
 
     public function table(Table $table): Table
