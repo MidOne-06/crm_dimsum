@@ -337,7 +337,11 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
         $start = Carbon::create($this->coverageYear, 1, 1);
         $end = Carbon::create($this->coverageYear, 12, 31)->min(now());
 
-        return (int) round((collect($this->coverageMap())->where('full')->count() / max(1, $start->diffInDays($end) + 1)) * 100);
+        $daysCovered = collect($this->coverageMap())
+            ->filter(fn (string $status): bool => $status === 'full')
+            ->count();
+
+        return (int) round(($daysCovered / max(1, $start->diffInDays($end) + 1)) * 100);
     }
 
     public function table(Table $table): Table
