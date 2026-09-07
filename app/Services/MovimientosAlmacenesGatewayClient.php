@@ -37,6 +37,18 @@ class MovimientosAlmacenesGatewayClient
         return $this->post('/api/movimientos/'.rawurlencode($id).'/editar', $payload);
     }
 
+    /** @param array<string, mixed> $payload */
+    public function previsualizarNuevo(array $payload): array
+    {
+        return $this->post('/api/nuevo/previsualizar', $payload);
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function crear(array $payload): array
+    {
+        return $this->post('/api/nuevo/guardar', $payload);
+    }
+
     /** @return array{content:string,contentType:string} */
     public function reporte(string $id, string $variant): array
     {
