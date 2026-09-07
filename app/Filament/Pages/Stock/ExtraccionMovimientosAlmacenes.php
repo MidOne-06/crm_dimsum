@@ -215,7 +215,7 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
                 $runLocales = array_map('strval', $run->filtros['locales'] ?? []);
                 $periodStart = $run->fecha_inicio->copy()->max($monthStart);
                 $periodEnd = $run->fecha_fin->copy()->min($monthEnd);
-                $status = $run->errores > 0 ? 'partial' : 'full';
+                $status = $this->coverageStatus($run);
 
                 foreach ($this->locals as $local) {
                     $id = (string) $local['id'];
@@ -299,7 +299,7 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
                 foreach (CarbonPeriod::create($run->fecha_inicio->copy()->max($yearStart), $run->fecha_fin->copy()->min($yearEnd)) as $day) {
                     $key = $day->toDateString();
                     if (($coverage[$key] ?? null) !== 'full') {
-                        $coverage[$key] = $run->errores > 0 ? 'partial' : 'full';
+                        $coverage[$key] = $this->coverageStatus($run);
                     }
                 }
             });
@@ -330,6 +330,20 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
         }
 
         return $gaps;
+    }
+
+    /**
+     * Una corrida limitada a un estado o a una recepción no representa todos
+     * los movimientos de ese día. Se muestra como parcial aunque Restaurant
+     * haya respondido sin errores, para no ocultar un hueco de cobertura.
+     */
+    private function coverageStatus(MovimientoAlmacenSincronizacion $run): string
+    {
+        $filters = (array) $run->filtros;
+        $allStates = (string) ($filters['estado'] ?? '-1') === '-1';
+        $allReceipts = (string) ($filters['estado_recepcion'] ?? '-1') === '-1';
+
+        return $run->errores === 0 && $allStates && $allReceipts ? 'full' : 'partial';
     }
 
     private function coveragePercent(): int
