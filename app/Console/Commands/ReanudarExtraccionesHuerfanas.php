@@ -4,9 +4,11 @@ namespace App\Console\Commands;
 
 use App\Jobs\ExtraerKardexJob;
 use App\Jobs\SincronizarGuiasInternasJob;
+use App\Jobs\SincronizarMovimientosAlmacenesJob;
 use App\Jobs\SincronizarRequerimientosStockJob;
 use App\Jobs\SincronizarSalidasStockJob;
 use App\Models\GuiaInternaSincronizacion;
+use App\Models\MovimientoAlmacenSincronizacion;
 use App\Models\KardexExtraccion;
 use App\Models\KardexExtraccionLocal;
 use App\Models\RequerimientoStockSincronizacion;
@@ -41,7 +43,7 @@ class ReanudarExtraccionesHuerfanas extends Command
 {
     protected $signature = 'extracciones:reanudar-huerfanas {--minutos=10 : Minutos sin avance para considerar una corrida huérfana}';
 
-    protected $description = 'Detecta y relanza corridas de sincronización histórica (guías, salidas, stock actual, requerimientos, ventas, kardex) que quedaron huérfanas.';
+    protected $description = 'Detecta y relanza corridas de sincronización histórica que quedaron huérfanas.';
 
     public function handle(): int
     {
@@ -49,6 +51,7 @@ class ReanudarExtraccionesHuerfanas extends Command
         $reanudadas = 0;
 
         $reanudadas += $this->reanudarGuias($umbral);
+        $reanudadas += $this->reanudarMovimientosAlmacenes($umbral);
         $reanudadas += $this->reanudarSalidas($umbral);
         $reanudadas += $this->reanudarStockActual($umbral);
         $reanudadas += $this->reanudarRequerimientos($umbral);
@@ -86,6 +89,21 @@ class ReanudarExtraccionesHuerfanas extends Command
         foreach ($huerfanas as $run) {
             SincronizarSalidasStockJob::dispatch($run->id);
             $this->line("salidas-stock: relanzada sync-id={$run->id}");
+        }
+
+        return $huerfanas->count();
+    }
+
+    private function reanudarMovimientosAlmacenes($umbral): int
+    {
+        $huerfanas = MovimientoAlmacenSincronizacion::query()
+            ->whereIn('estado', ['pendiente', 'en_progreso'])
+            ->where('updated_at', '<', $umbral)
+            ->get();
+
+        foreach ($huerfanas as $run) {
+            SincronizarMovimientosAlmacenesJob::dispatch($run->id);
+            $this->line("movimientos-almacenes: relanzada sync-id={$run->id}");
         }
 
         return $huerfanas->count();

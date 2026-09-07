@@ -3,8 +3,10 @@
 namespace App\Console\Commands;
 
 use App\Jobs\SincronizarGuiasInternasJob;
+use App\Jobs\SincronizarMovimientosAlmacenesJob;
 use App\Jobs\SincronizarRequerimientosStockJob;
 use App\Models\GuiaInternaSincronizacion;
+use App\Models\MovimientoAlmacenSincronizacion;
 use App\Models\RequerimientoStockSincronizacion;
 use Illuminate\Console\Command;
 
@@ -26,12 +28,13 @@ class DespacharSincronizacionesPendientes extends Command
 {
     protected $signature = 'extracciones:despachar-pendientes';
 
-    protected $description = 'Arranca las corridas de extracción creadas desde la web que siguen en pendiente (guías internas y requerimientos de stock).';
+    protected $description = 'Arranca las corridas de extracción creadas desde la web que siguen en pendiente.';
 
     public function handle(): int
     {
         $despachadas = 0;
         $despachadas += $this->despacharGuias();
+        $despachadas += $this->despacharMovimientosAlmacenes();
         $despachadas += $this->despacharRequerimientos();
 
         if ($despachadas > 0) {
@@ -73,6 +76,16 @@ class DespacharSincronizacionesPendientes extends Command
         SincronizarRequerimientosStockJob::dispatch($run->id);
         $this->line("requerimientos-stock: despachada sync-id={$run->id}");
 
+        return 1;
+    }
+
+    private function despacharMovimientosAlmacenes(): int
+    {
+        if (MovimientoAlmacenSincronizacion::query()->where('estado', 'en_progreso')->exists()) return 0;
+        $run = MovimientoAlmacenSincronizacion::query()->where('estado', 'pendiente')->oldest('id')->first();
+        if (! $run) return 0;
+        SincronizarMovimientosAlmacenesJob::dispatch($run->id);
+        $this->line("movimientos-almacenes: despachada sync-id={$run->id}");
         return 1;
     }
 }
