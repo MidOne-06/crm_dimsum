@@ -77,9 +77,18 @@ class PermissionResource extends Resource
                         ->live(onBlur: true)
                         ->afterStateUpdated(fn (?string $state, callable $set) => $set('slug', Str::slug((string) $state, '.'))),
                     TextInput::make('slug')->label('Identificador')->required()->regex('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/')->unique(ignoreRecord: true)->maxLength(120),
+                    // Sin ->searchable(): combinado con ->options(closure) obliga
+                    // a Filament a resolver las opciones por una llamada Livewire
+                    // asíncrona (getOptionsForJs) en vez de incrustarlas directo
+                    // en el render inicial -- esa llamada fallaba en producción
+                    // ("Unexpected token '<' ... is not valid JSON" en consola,
+                    // la respuesta volvía como HTML en vez de JSON) y dejaba el
+                    // campo mostrando el valor letra por letra. Con ~10 módulos
+                    // en total no hace falta buscador; las opciones se resuelven
+                    // en el propio render de PHP, sin ida y vuelta por Livewire.
                     Select::make('module')->label('Módulo')
                         ->options(fn (): array => Permission::query()->whereNotNull('module')->distinct()->orderBy('module')->pluck('module', 'module')->all())
-                        ->native(false)->searchable()->createOptionForm([
+                        ->native(false)->createOptionForm([
                             TextInput::make('module')->label('Nuevo módulo')->required(),
                         ])->createOptionUsing(fn (array $data): string => $data['module']),
                 ])
