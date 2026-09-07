@@ -42,8 +42,11 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
     public ?string $resultError = null;
     public ?int $extraccionActualId = null;
     public string $coverageLocalId = '';
-    public int $coverageYear;
-    public int $coverageMonth;
+    // Los snapshots Livewire creados antes de incorporar la cobertura no
+    // contienen estos campos. Valores centinela evitan un Typed property error
+    // mientras se hidrata dicho snapshot y se normalizan antes de renderizar.
+    public int $coverageYear = 0;
+    public int $coverageMonth = 0;
 
     public static function canAccess(): bool
     {
@@ -52,8 +55,7 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
 
     public function mount(): void
     {
-        $this->coverageYear = (int) now()->year;
-        $this->coverageMonth = (int) now()->month;
+        $this->initializeCoveragePeriod();
         $this->cargarLocales();
         $this->data = [
             'selectedLocals' => array_column($this->locals, 'id'),
@@ -160,6 +162,8 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
 
     public function resumenGeneral(): array
     {
+        $this->initializeCoveragePeriod();
+
         return [
             'movimientos' => MovimientoAlmacenHistorico::count(),
             'detalles' => MovimientoAlmacenDetalle::count(),
@@ -171,16 +175,19 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
 
     public function coveragePrevYear(): void
     {
+        $this->initializeCoveragePeriod();
         $this->coverageYear--;
     }
 
     public function coverageNextYear(): void
     {
+        $this->initializeCoveragePeriod();
         $this->coverageYear++;
     }
 
     public function coveragePrevMonth(): void
     {
+        $this->initializeCoveragePeriod();
         $anchor = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->subMonthNoOverflow();
         $this->coverageYear = $anchor->year;
         $this->coverageMonth = $anchor->month;
@@ -188,6 +195,7 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
 
     public function coverageNextMonth(): void
     {
+        $this->initializeCoveragePeriod();
         $anchor = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->addMonthNoOverflow();
         $this->coverageYear = $anchor->year;
         $this->coverageMonth = $anchor->month;
@@ -196,6 +204,7 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
     /** @return array<string, array<string, 'full'|'partial'>> */
     protected function coverageMatrix(): array
     {
+        $this->initializeCoveragePeriod();
         $monthStart = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->startOfDay();
         $monthEnd = $monthStart->copy()->endOfMonth()->startOfDay();
         $matrix = [];
@@ -241,6 +250,7 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
     /** @return array{total: int, conProblemas: \Illuminate\Support\Collection} */
     public function coverageSummary(): array
     {
+        $this->initializeCoveragePeriod();
         $matrix = $this->coverageMatrix();
         $monthStart = Carbon::create($this->coverageYear, $this->coverageMonth, 1)->startOfDay();
         $monthEnd = $monthStart->copy()->endOfMonth()->startOfDay()->min(now()->startOfDay());
@@ -275,6 +285,7 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
 
     public function coverageMap(): array
     {
+        $this->initializeCoveragePeriod();
         if ($this->coverageLocalId === '') {
             return [];
         }
@@ -309,6 +320,7 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
 
     public function coverageGaps(): array
     {
+        $this->initializeCoveragePeriod();
         $map = $this->coverageMap();
         $start = Carbon::create($this->coverageYear, 1, 1);
         $end = Carbon::create($this->coverageYear, 12, 31)->min(now());
@@ -348,6 +360,7 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
 
     private function coveragePercent(): int
     {
+        $this->initializeCoveragePeriod();
         $start = Carbon::create($this->coverageYear, 1, 1);
         $end = Carbon::create($this->coverageYear, 12, 31)->min(now());
 
@@ -356,6 +369,17 @@ class ExtraccionMovimientosAlmacenes extends Page implements HasTable
             ->count();
 
         return (int) round(($daysCovered / max(1, $start->diffInDays($end) + 1)) * 100);
+    }
+
+    private function initializeCoveragePeriod(): void
+    {
+        if ($this->coverageYear < 2000) {
+            $this->coverageYear = (int) now()->year;
+        }
+
+        if ($this->coverageMonth < 1 || $this->coverageMonth > 12) {
+            $this->coverageMonth = (int) now()->month;
+        }
     }
 
     public function table(Table $table): Table
