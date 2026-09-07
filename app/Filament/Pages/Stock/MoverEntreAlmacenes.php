@@ -39,6 +39,8 @@ class MoverEntreAlmacenes extends Page
     public array $locals = [];
     /** @var array<int, array<string, string>> */
     public array $warehouses = [];
+    /** @var array<int, array<string, string>> */
+    public array $movementTypes = [];
     /** @var array<string, array<string, mixed>> */
     public array $itemLookup = [];
     /** @var array<string, mixed> */
@@ -58,6 +60,7 @@ class MoverEntreAlmacenes extends Page
         try {
             $this->locals = $this->scopeLocalsToUser($this->gateway()->locales());
             $this->warehouses = $this->gateway()->almacenesTodos();
+            $this->movementTypes = $this->gateway()->tiposMovimiento();
             $context = $this->gateway()->contextoFiltros();
             $localId = (string) ($context['local_id'] ?? '');
             if (! $this->localAllowed($localId)) $localId = (string) ($this->locals[0]['id'] ?? '');
@@ -69,7 +72,7 @@ class MoverEntreAlmacenes extends Page
                 'receptor' => '',
                 'almacen_origen' => $origin,
                 'almacen_destino' => array_key_first($this->destinationOptionsFor($origin)) ?? '',
-                'tipo_movimiento' => 'TRASLADO',
+                'tipo_movimiento' => (string) ($this->movementTypes[0]['id'] ?? ''),
                 'observacion' => '',
                 'items' => [],
             ]);
@@ -104,7 +107,7 @@ class MoverEntreAlmacenes extends Page
                             $this->clearPreview();
                         }),
                     Select::make('almacen_destino')->label('Almacén de destino')->options(fn (): array => $this->destinationOptions())->native(false)->searchable()->required()->columnSpan(['xl' => 3]),
-                    TextInput::make('tipo_movimiento')->label('Tipo de movimiento')->disabled()->dehydrated(false)->columnSpan(['xl' => 2]),
+                    Select::make('tipo_movimiento')->label('Tipo de movimiento')->options(fn (): array => $this->movementTypeOptions())->native(false)->required()->columnSpan(['xl' => 2]),
                 ]),
             ]),
             Section::make('Lista de ítems a mover entre almacenes')->compact()->schema([
@@ -174,6 +177,8 @@ class MoverEntreAlmacenes extends Page
     public function originOptions(): array { return $this->originOptionsFor((string) ($this->data['local_id'] ?? '')); }
     /** @return array<string, string> */
     public function destinationOptions(): array { return $this->destinationOptionsFor((string) ($this->data['almacen_origen'] ?? '')); }
+    /** @return array<string, string> */
+    public function movementTypeOptions(): array { return collect($this->movementTypes)->mapWithKeys(fn (array $row): array => [(string) ($row['id'] ?? '') => (string) ($row['nombre'] ?? '')])->filter()->all(); }
     /** @return array<string, string> */
     private function originOptionsFor(string $localId): array
     {
