@@ -43,6 +43,18 @@ class MovimientosAlmacenesGatewayClient
         return $this->post('/api/nuevo/guardar', $payload);
     }
 
+    /** Hidrata en Restaurant el canje de guías sin registrar ningún movimiento. */
+    public function prepararCanjeGuias(array $ids): array
+    {
+        return $this->post('/api/guias-importadas', ['ids' => $ids]);
+    }
+
+    /** Registra en Restaurant el movimiento que canjea las guías seleccionadas. */
+    public function canjearGuias(array $payload): array
+    {
+        return $this->post('/api/guias-importadas/canjear', $payload);
+    }
+
     /** @return array{content:string,contentType:string} */
     public function reporte(string $id, string $variant): array
     {

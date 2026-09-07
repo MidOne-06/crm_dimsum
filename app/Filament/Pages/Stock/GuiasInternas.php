@@ -4,13 +4,18 @@ namespace App\Filament\Pages\Stock;
 
 use App\Filament\Concerns\ScopesLocalsToUser;
 use App\Services\GuiasInternasGatewayClient;
+use App\Services\MovimientosAlmacenesGatewayClient;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\DateTimePicker;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -33,33 +38,62 @@ class GuiasInternas extends Page implements HasTable
     use ScopesLocalsToUser;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-document-text';
+
     protected static ?string $navigationLabel = 'Listado de guías';
+
     protected static ?string $title = 'Guías internas';
+
     protected static string|\UnitEnum|null $navigationGroup = 'Guías internas';
+
     protected static ?int $navigationSort = 10;
+
     protected string $view = 'filament.pages.stock.guias-internas';
 
     public string $desde = '';
+
     public string $hasta = '';
+
     public string $activeDatePreset = 'last30';
+
     public string $fechaTipo = '1';
+
     public string $buscarSegun = '1';
+
     public ?string $restaurantLocalId = null;
+
     /** @var array<int, string> */
     public array $localesOrigen = [];
+
     /** @var array<int, string> */
     public array $items = [];
+
     public ?string $almacen = null;
+
     public ?string $serie = null;
+
     public ?string $numero = null;
+
     public ?string $codigo = null;
+
     public ?string $motivo = null;
+
     public ?string $estado = '1';
+
     public ?string $listError = null;
+
     /** @var array<string, string> */
     public array $remoteItemLabels = [];
 
-    public static function canAccess(): bool { return (bool) auth()->user()?->hasPermission('guias-internas.view'); }
+    /** @var array<string, string> */
+    public array $canjeDestinos = [];
+
+    /** @var array<string, string> */
+    public array $canjeTiposMovimiento = [];
+
+    public static function canAccess(): bool
+    {
+        return (bool) auth()->user()?->hasPermission('guias-internas.view');
+    }
 
     public function mount(): void
     {
@@ -68,13 +102,22 @@ class GuiasInternas extends Page implements HasTable
             if ($localId !== '' && array_key_exists($localId, $this->restaurantLocalesOptions()) && $this->localAllowedForUser($localId)) {
                 $this->restaurantLocalId = $localId;
             }
-        } catch (\Throwable) {
+        } catch (Throwable) {
             // La copia local sigue siendo consultable si Restaurant no responde durante el montaje.
         }
 
         $this->restablecerFiltrosRestaurant();
     }
-    public function setDateRange(string $start, string $end, ?string $preset = 'custom'): void { $this->desde = $start; $this->hasta = $end; $this->activeDatePreset = $preset ?: 'custom'; $this->resetPage(); $this->resetTable(); }
+
+    public function setDateRange(string $start, string $end, ?string $preset = 'custom'): void
+    {
+        $this->desde = $start;
+        $this->hasta = $end;
+        $this->activeDatePreset = $preset ?: 'custom';
+        $this->resetPage();
+        $this->resetTable();
+    }
+
     /** Refresca la tabla desde Restaurant; no escribe en la copia local. */
     public function actualizarListado(): void
     {
@@ -247,31 +290,31 @@ class GuiasInternas extends Page implements HasTable
             TextColumn::make('estado')->label('Estado')->badge()->color(fn (array $record) => ($record['estado_codigo'] ?? '') === '1' ? 'success' : 'gray'),
         ])->recordActions([
             ActionGroup::make([
-            Action::make('detalle')->label('Ver guía interna')->icon('heroicon-o-eye')->visible(fn () => auth()->user()?->hasPermission('guias-internas.ver-detalle'))
-                ->modalHeading(fn (array $record) => 'Guía interna #'.($record['id'] ?? ''))
-                ->modalWidth('7xl')->modalAlignment(Alignment::Start)->modalSubmitAction(false)->modalCancelActionLabel('Cerrar')->stickyModalHeader()->stickyModalFooter()
-                ->modalContent(fn (array $record) => view('filament.pages.stock.partials.guia-interna-detalle-restaurant', $this->detalleRestaurant($record))),
-            Action::make('anular')->label('Anular guía interna')->icon('heroicon-o-no-symbol')->color('danger')
-                ->visible(fn (array $record) => ($record['estado_codigo'] ?? '') === '1' && (bool) auth()->user()?->hasPermission('guias-internas.anular'))
-                ->requiresConfirmation()->modalHeading('¿Anular esta guía interna?')->modalDescription('Esta operación se realizará en Restaurant y no se puede deshacer.')
-                ->modalWidth('lg')->stickyModalHeader()->stickyModalFooter()
-                ->schema([Checkbox::make('devolver_cantidades')->label('Devolver las cantidades adquiridas')->default(true)])
-                ->action(fn (array $record, array $data) => $this->anularGuia($record, (bool) ($data['devolver_cantidades'] ?? true))),
-            ActionGroup::make([
-                $this->downloadAction('trabajo', 'Descargar guía interna de trabajo'),
-                $this->downloadAction('guia', 'Descargar guía interna'),
-                $this->downloadAction('guia_v2', 'Descargar guía interna V2'),
-                $this->downloadAction('guia_sin_precio', 'Descargar guía interna (sin precio)'),
-                $this->downloadAction('guia_v2_sin_precio', 'Descargar guía interna V2 (sin precio)'),
-                $this->downloadAction('matricial', 'Descargar guía interna matricial'),
-                $this->downloadAction('imprimir_matricial', 'Imprimir guía interna matricial'),
-                $this->downloadAction('csv', 'Descargar guía interna CSV'),
-            ])
-                ->label('Descargar')
-                ->icon('heroicon-o-arrow-down-tray')
-                ->dropdownWidth(Width::Medium)
-                ->dropdownPlacement('left-start')
-                ->visible(fn () => auth()->user()?->hasPermission('guias-internas.descargar')),
+                Action::make('detalle')->label('Ver guía interna')->icon('heroicon-o-eye')->visible(fn () => auth()->user()?->hasPermission('guias-internas.ver-detalle'))
+                    ->modalHeading(fn (array $record) => 'Guía interna #'.($record['id'] ?? ''))
+                    ->modalWidth('7xl')->modalAlignment(Alignment::Start)->modalSubmitAction(false)->modalCancelActionLabel('Cerrar')->stickyModalHeader()->stickyModalFooter()
+                    ->modalContent(fn (array $record) => view('filament.pages.stock.partials.guia-interna-detalle-restaurant', $this->detalleRestaurant($record))),
+                Action::make('anular')->label('Anular guía interna')->icon('heroicon-o-no-symbol')->color('danger')
+                    ->visible(fn (array $record) => ($record['estado_codigo'] ?? '') === '1' && (bool) auth()->user()?->hasPermission('guias-internas.anular'))
+                    ->requiresConfirmation()->modalHeading('¿Anular esta guía interna?')->modalDescription('Esta operación se realizará en Restaurant y no se puede deshacer.')
+                    ->modalWidth('lg')->stickyModalHeader()->stickyModalFooter()
+                    ->schema([Checkbox::make('devolver_cantidades')->label('Devolver las cantidades adquiridas')->default(true)])
+                    ->action(fn (array $record, array $data) => $this->anularGuia($record, (bool) ($data['devolver_cantidades'] ?? true))),
+                ActionGroup::make([
+                    $this->downloadAction('trabajo', 'Descargar guía interna de trabajo'),
+                    $this->downloadAction('guia', 'Descargar guía interna'),
+                    $this->downloadAction('guia_v2', 'Descargar guía interna V2'),
+                    $this->downloadAction('guia_sin_precio', 'Descargar guía interna (sin precio)'),
+                    $this->downloadAction('guia_v2_sin_precio', 'Descargar guía interna V2 (sin precio)'),
+                    $this->downloadAction('matricial', 'Descargar guía interna matricial'),
+                    $this->downloadAction('imprimir_matricial', 'Imprimir guía interna matricial'),
+                    $this->downloadAction('csv', 'Descargar guía interna CSV'),
+                ])
+                    ->label('Descargar')
+                    ->icon('heroicon-o-arrow-down-tray')
+                    ->dropdownWidth(Width::Medium)
+                    ->dropdownPlacement('left-start')
+                    ->visible(fn () => auth()->user()?->hasPermission('guias-internas.descargar')),
             ])->icon('heroicon-o-cog-6-tooth')->tooltip('Operaciones de guía')->color('gray')->dropdownPlacement('bottom-end')->dropdownWidth('xs'),
         ])
             ->bulkActions([
@@ -279,8 +322,36 @@ class GuiasInternas extends Page implements HasTable
                     BulkAction::make('canjear_por_movimiento')
                         ->label('Canjear por movimiento interno')
                         ->icon('heroicon-o-arrow-path-rounded-square')
-                        ->url(fn (Collection $records): string => 'https://corporaciondimsum.restaurant.pe/restaurant/logistica.html#!/movimientoalmacen/canjeguias/'.implode(',', $records->pluck('id')->filter()->all()))
-                        ->openUrlInNewTab(),
+                        ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('movimientos-almacenes.crear'))
+                        ->modalHeading('Canjear guías por movimiento interno')
+                        ->modalWidth('7xl')
+                        ->stickyModalHeader()
+                        ->stickyModalFooter()
+                        ->modalSubmitActionLabel('Confirmar recepción')
+                        ->modalCancelActionLabel('Cancelar')
+                        ->fillForm(fn (Collection $records): array => $this->canjeGuiasForm($records))
+                        ->schema([
+                            Hidden::make('ids')->dehydrated(),
+                            Grid::make(['default' => 1, 'md' => 4])->schema([
+                                TextInput::make('local')->label('Local')->disabled()->dehydrated(false),
+                                DateTimePicker::make('fecha')->label('Fecha de movimiento')->native(false)->seconds(false)->required(),
+                                TextInput::make('encargado')->label('Encargado del envío')->maxLength(160)->required(),
+                                TextInput::make('receptor')->label('Receptor')->maxLength(160),
+                                TextInput::make('almacen_origen')->label('Almacén de origen')->disabled()->dehydrated(),
+                                Select::make('almacen_destino')->label('Almacén de destino')->options(fn (): array => $this->canjeDestinos)->native(false)->searchable()->required()->columnSpan(['md' => 2]),
+                                Select::make('tipo_movimiento')->label('Tipo de movimiento')->options(fn (): array => $this->canjeTiposMovimiento)->native()->required(),
+                            ]),
+                            Repeater::make('items')->label('Ítems importados de las guías')->addable(false)->deletable(false)->reorderable(false)->itemNumbers(false)->columns(['default' => 1, 'md' => 5])->columnSpanFull()
+                                ->schema([
+                                    TextInput::make('codigo')->label('Cód.')->disabled()->dehydrated(false),
+                                    TextInput::make('descripcion')->label('Ítem')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
+                                    TextInput::make('presentacion')->label('Presentación')->disabled()->dehydrated(false),
+                                    TextInput::make('cantidad')->label('Cant. a mover')->disabled()->dehydrated(false),
+                                    TextInput::make('unidad')->label('Unidad')->disabled()->dehydrated(false),
+                                ]),
+                            Textarea::make('observacion')->label('Anotaciones')->rows(2)->maxLength(1000)->columnSpanFull(),
+                        ])
+                        ->action(fn (Collection $records, array $data): void => $this->confirmarCanjeGuias($records, $data)),
                     BulkAction::make('agrupar_guias')
                         ->label('Agrupar selección')
                         ->icon('heroicon-o-rectangle-stack')
@@ -383,7 +454,7 @@ class GuiasInternas extends Page implements HasTable
                 ->mapWithKeys(fn (array $local): array => [(string) ($local['id'] ?? '') => (string) ($local['name'] ?? '')])
                 ->filter(fn (string $name, string $id): bool => $id !== '' && $name !== '')
                 ->all();
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return [];
         }
     }
@@ -391,17 +462,21 @@ class GuiasInternas extends Page implements HasTable
     /** @param array<int, string> $localIds @return array<string, string> */
     private function restaurantWarehouseOptions(array $localIds): array
     {
-        if (count(array_filter($localIds)) !== 1) return [];
+        if (count(array_filter($localIds)) !== 1) {
+            return [];
+        }
 
         $localId = (string) (collect($localIds)->filter()->first() ?? $this->restaurantLocalId ?? '');
-        if ($localId === '' || ! $this->localAllowedForUser($localId)) return [];
+        if ($localId === '' || ! $this->localAllowedForUser($localId)) {
+            return [];
+        }
 
         try {
             return collect(app(GuiasInternasGatewayClient::class)->almacenes($localId))
                 ->mapWithKeys(fn (array $warehouse): array => [(string) ($warehouse['id'] ?? '') => (string) ($warehouse['name'] ?? '')])
                 ->filter(fn (string $name, string $id): bool => $id !== '' && $name !== '')
                 ->all();
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return [];
         }
     }
@@ -414,7 +489,7 @@ class GuiasInternas extends Page implements HasTable
                 ->mapWithKeys(fn (array $motivo): array => [(string) ($motivo['id'] ?? '') => (string) ($motivo['name'] ?? '')])
                 ->filter(fn (string $name, string $id): bool => $id !== '' && $name !== '')
                 ->all();
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return [];
         }
     }
@@ -427,7 +502,7 @@ class GuiasInternas extends Page implements HasTable
                 ->mapWithKeys(fn (array $estado): array => [(string) ($estado['id'] ?? '') => (string) ($estado['name'] ?? '')])
                 ->filter(fn (string $name, string $id): bool => $id !== '' && $name !== '')
                 ->all();
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return ['-1' => 'Todos', '1' => 'Activa', '2' => 'Importada', '0' => 'Anulada', '3' => 'Agrupada', '4' => 'Sin Facturar'];
         }
     }
@@ -437,14 +512,18 @@ class GuiasInternas extends Page implements HasTable
     {
         $search = trim($search);
         $localId = (string) (collect($localIds)->filter()->first() ?? $this->restaurantLocalId ?? '');
-        if (mb_strlen($search) < 2 || $localId === '' || ! $this->localAllowedForUser($localId)) return [];
+        if (mb_strlen($search) < 2 || $localId === '' || ! $this->localAllowedForUser($localId)) {
+            return [];
+        }
 
         try {
             $options = collect(app(GuiasInternasGatewayClient::class)->items($search, $localId))
                 ->mapWithKeys(function (array $item): array {
                     $key = $this->itemValue($item['item_tipo'] ?? '', $item['id'] ?? $item['item_id'] ?? '');
                     $label = trim((filled($item['codigo'] ?? null) ? $item['codigo'].' · ' : '').($item['descripcion'] ?? $item['item_descripcion'] ?? ''));
-                    if ($key === ':' || $label === '') return [];
+                    if ($key === ':' || $label === '') {
+                        return [];
+                    }
                     $this->remoteItemLabels[$key] = $label;
 
                     return [$key => $label];
@@ -452,7 +531,7 @@ class GuiasInternas extends Page implements HasTable
                 ->all();
 
             return $options;
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return [];
         }
     }
@@ -520,7 +599,8 @@ class GuiasInternas extends Page implements HasTable
     {
         $reporte = app(GuiasInternasGatewayClient::class)->reporte((string) ($record['id'] ?? ''), $variant);
         $extension = $variant === 'csv' ? 'csv' : 'pdf';
-        return response()->streamDownload(fn () => print($reporte['content']), 'guia-interna-'.($record['serie'] ?? '').'-'.($record['correlativo'] ?? '').'.'.$extension, ['Content-Type' => $reporte['contentType']]);
+
+        return response()->streamDownload(fn () => print ($reporte['content']), 'guia-interna-'.($record['serie'] ?? '').'-'.($record['correlativo'] ?? '').'.'.$extension, ['Content-Type' => $reporte['contentType']]);
     }
 
     public function exportarExcel(): mixed
@@ -530,7 +610,7 @@ class GuiasInternas extends Page implements HasTable
         $reporte = app(GuiasInternasGatewayClient::class)->exportarExcel($this->gatewayFilters());
 
         return response()->streamDownload(
-            fn () => print($reporte['content']),
+            fn () => print ($reporte['content']),
             'Informe_guiaremision_'.now()->format('Y-m-d_His').'.xlsx',
             ['Content-Type' => $reporte['contentType']],
         );
@@ -583,6 +663,76 @@ class GuiasInternas extends Page implements HasTable
             'item_ids' => implode('-', array_column($itemPairs, 'id')),
             'item_tipos' => implode('-', array_column($itemPairs, 'tipo')),
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private function canjeGuiasForm(Collection $records): array
+    {
+        abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.crear'), 403);
+
+        $ids = $records->pluck('id')->map(fn (mixed $id): string => (string) $id)->filter(fn (string $id): bool => ctype_digit($id))->unique()->values()->all();
+        $canje = app(MovimientosAlmacenesGatewayClient::class)->prepararCanjeGuias($ids);
+        $localId = (string) ($canje['localId'] ?? '');
+        abort_unless($this->localAllowedForUser($localId), 403);
+
+        $this->canjeDestinos = collect($canje['destinos'] ?? [])
+            ->mapWithKeys(fn (array $row): array => [(string) ($row['id'] ?? '') => (string) ($row['nombre'] ?? '')])
+            ->filter()
+            ->all();
+        $this->canjeTiposMovimiento = collect($canje['tipos'] ?? [])
+            ->mapWithKeys(fn (array $row): array => [(string) ($row['id'] ?? '') => (string) ($row['nombre'] ?? '')])
+            ->filter()
+            ->all();
+
+        return [
+            'ids' => $ids,
+            'local' => (string) ($canje['local'] ?? ''),
+            'fecha' => $canje['fecha'] ?? now()->seconds(0)->format('Y-m-d H:i:s'),
+            'encargado' => (string) ($canje['encargado'] ?? ''),
+            'receptor' => (string) ($canje['receptor'] ?? ''),
+            'almacen_origen' => (string) ($canje['almacenOrigen']['nombre'] ?? ''),
+            'almacen_destino' => (string) ($canje['almacenDestino']['id'] ?? ''),
+            'tipo_movimiento' => (string) ($canje['tipoMovimiento'] ?? ''),
+            'items' => array_values((array) ($canje['items'] ?? [])),
+            'observacion' => (string) ($canje['observacion'] ?? ''),
+        ];
+    }
+
+    /** @param array<string, mixed> $data */
+    private function confirmarCanjeGuias(Collection $records, array $data): void
+    {
+        abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.crear'), 403);
+
+        $ids = $records->pluck('id')->map(fn (mixed $id): string => (string) $id)->filter(fn (string $id): bool => ctype_digit($id))->unique()->values()->all();
+        if ($ids === []) {
+            Notification::make()->danger()->title('No se pudo canjear las guías')->body('Selecciona al menos una guía interna válida.')->send();
+
+            return;
+        }
+
+        try {
+            // Nunca se confía en los IDs editables del formulario: el gateway
+            // vuelve a leer e hidratar estas guías desde Restaurant antes de
+            // registrar el movimiento.
+            $result = app(MovimientosAlmacenesGatewayClient::class)->canjearGuias([
+                'ids' => $ids,
+                'fecha' => $data['fecha'] ?? null,
+                'encargado' => $data['encargado'] ?? '',
+                'receptor' => $data['receptor'] ?? '',
+                'almacen_destino' => $data['almacen_destino'] ?? '',
+                'tipo_movimiento' => $data['tipo_movimiento'] ?? '',
+                'observacion' => $data['observacion'] ?? '',
+                'confirmar' => true,
+            ]);
+            $id = (string) ($result['id'] ?? '');
+            Notification::make()->success()->title('Recepción confirmada en Restaurant')
+                ->body($id !== '' ? "Restaurant registró el movimiento #{$id} y vinculó las guías seleccionadas." : 'Restaurant registró el movimiento y vinculó las guías seleccionadas.')
+                ->send();
+            $this->resetTable();
+        } catch (Throwable $exception) {
+            report($exception);
+            Notification::make()->danger()->title('No se pudo confirmar la recepción')->body($exception->getMessage())->send();
+        }
     }
 
     public function anularGuia(array $record, bool $devolverCantidades): void
