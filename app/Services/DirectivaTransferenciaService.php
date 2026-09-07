@@ -39,7 +39,10 @@ use Illuminate\Support\Facades\DB;
  *   "ENTRADA, POR GUIA." -- ese motivo está prácticamente en desuso, sin
  *   filas desde 2026-04-24). Sumar el tránsito puro además del saldo evitaría
  *   así un doble conteo si alguna vez se agrega un filtro por motivo al
- *   recalculador.
+ *   recalculador. El cruce con `guia_interna_detalles` se hace solo por
+ *   item_id (no item_id+item_tipo) -- esa tabla trae su propio item_tipo
+ *   numérico, de otro endpoint de Restaurant, que no es la misma taxonomía
+ *   ni siquiera es estable por ítem (ver comentario en el método).
  * - Cantidad sugerida = max(0, demanda promedio - stock proyectado), redondeada
  *   al múltiplo de despacho del producto.
  * - Sin corrección de quiebre de stock todavía (un día en 0 de saldo real
@@ -89,16 +92,27 @@ class DirectivaTransferenciaService
                 ->get()
                 ->keyBy(fn ($s) => "{$s->item_id}|{$s->item_tipo}");
 
+            // OJO: `guia_interna_detalles.item_tipo` viene de un endpoint de
+            // Restaurant distinto al de Kardex y NO es la misma taxonomía
+            // (RECETA/PRODUCTO/INSUMO/DERIVADO/DESCARTABLE) -- ahí es un
+            // código numérico (1/2) que ni siquiera es estable para un
+            // mismo ítem entre guías (comprobado con datos reales: id 161
+            // "CHA SIU" aparece con item_tipo 1 en una guía y 2 en otra).
+            // Cruzar por item_tipo ahí simplemente nunca matchea. Como la
+            // consulta ya está acotada a $itemIds (los 30 productos reales
+            // de despacho, cada uno con item_id único -- verificado, sin
+            // colisiones dentro de ese universo), agrupar solo por item_id
+            // es seguro aunque en Kardex general sí se necesite el tipo.
             $transitos = DB::table('guia_interna_detalles as d')
                 ->join('guias_internas as g', 'g.id', '=', 'd.guia_interna_id')
                 ->where('g.local_destino_id', $local->local_id)
                 ->where('g.recepcionada', 'NO')
                 ->whereDate('g.fecha_traslado', $fecha->toDateString())
                 ->whereIn('d.item_id', $itemIds)
-                ->selectRaw('d.item_id, d.item_tipo, SUM(d.cantidad) AS cantidad_transito')
-                ->groupBy('d.item_id', 'd.item_tipo')
+                ->selectRaw('d.item_id, SUM(d.cantidad) AS cantidad_transito')
+                ->groupBy('d.item_id')
                 ->get()
-                ->keyBy(fn ($row) => "{$row->item_id}|{$row->item_tipo}");
+                ->keyBy('item_id');
 
             foreach ($productos as $clave => $producto) {
                 $dias = $ventas->get($clave, collect());
@@ -108,7 +122,7 @@ class DirectivaTransferenciaService
                     : 0.0;
 
                 $saldoActual = (float) ($saldos->get($clave)?->saldo ?? 0);
-                $cantidadEnTransito = (float) ($transitos->get($clave)?->cantidad_transito ?? 0);
+                $cantidadEnTransito = (float) ($transitos->get($producto->item_id)?->cantidad_transito ?? 0);
                 $stockProyectado = $saldoActual + $cantidadEnTransito;
                 $cantidadBruta = max(0.0, $demandaPromedio - $stockProyectado);
                 $cantidadSugerida = $producto->redondear($cantidadBruta);
