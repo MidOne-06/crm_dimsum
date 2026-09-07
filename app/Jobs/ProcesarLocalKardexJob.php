@@ -94,6 +94,10 @@ class ProcesarLocalKardexJob implements ShouldQueue
                 'completado_at' => now(),
             ]);
             KardexExtraccion::finalizarSiListo($extraccion->id);
+            // El saldo de Stock Inicial se recalcula solo con Kardex fresco --
+            // no hace falta un cron aparte. Si el local no tiene carga inicial
+            // confirmada todavía, el job no hace nada (no es un error).
+            RecalcularSaldoStockJob::dispatch($local->local_id);
         } catch (Throwable $exception) {
             // No marcar como fallido antes del último intento: anteriormente
             // el reintento de Laravel encontraba "fallido", no lo reclamaba
