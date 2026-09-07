@@ -45,9 +45,6 @@ class MoverEntreAlmacenes extends Page
     public array $itemLookup = [];
     /** @var array<string, mixed> */
     public array $data = [];
-    /** @var array<int, array<string, mixed>> */
-    public array $preview = [];
-    public bool $stockRestricted = false;
     public ?string $loadError = null;
 
     public static function canAccess(): bool
@@ -94,7 +91,6 @@ class MoverEntreAlmacenes extends Page
                             $set('almacen_destino', array_key_first($this->destinationOptionsFor($origin)) ?? '');
                             $set('items', []);
                             $this->itemLookup = [];
-                            $this->clearPreview();
                         }),
                     DateTimePicker::make('fecha')->label('Fecha de movimiento')->seconds(false)->native(false)->maxDate(now())->required()->columnSpan(['xl' => 2]),
                     TextInput::make('encargado')->label('Encargado del envío')->maxLength(160)->required()->live(onBlur: true)->columnSpan(['xl' => 2]),
@@ -104,7 +100,6 @@ class MoverEntreAlmacenes extends Page
                             $set('almacen_destino', array_key_first($this->destinationOptionsFor((string) $state)) ?? '');
                             $set('items', []);
                             $this->itemLookup = [];
-                            $this->clearPreview();
                         }),
                     Select::make('almacen_destino')->label('Almacén de destino')->options(fn (): array => $this->destinationOptions())->native(false)->searchable()->required()->columnSpan(['xl' => 3]),
                     Select::make('tipo_movimiento')->label('Tipo de movimiento')->options(fn (): array => $this->movementTypeOptions())->native(false)->required()->columnSpan(['xl' => 2]),
@@ -136,20 +131,6 @@ class MoverEntreAlmacenes extends Page
         ])->statePath('data');
     }
 
-    public function previsualizar(): void
-    {
-        try {
-            $result = $this->gateway()->previsualizarNuevo($this->form->getState());
-            $this->preview = is_array($result['movimientos'] ?? null) ? $result['movimientos'] : [];
-            $this->stockRestricted = (bool) ($result['restringidoPorStockNegativo'] ?? false);
-            Notification::make()->success()->title('Previsualización actualizada')->body('Restaurant validó los ítems y emuló el movimiento sin guardarlo.')->send();
-        } catch (Throwable $exception) {
-            report($exception);
-            $this->clearPreview();
-            Notification::make()->danger()->title('No se pudo previsualizar el movimiento')->body($exception->getMessage())->send();
-        }
-    }
-
     public function guardar(): void
     {
         try {
@@ -162,8 +143,6 @@ class MoverEntreAlmacenes extends Page
             Notification::make()->danger()->title('No se pudo registrar el movimiento')->body($exception->getMessage())->send();
         }
     }
-
-    public function updatedData(): void { $this->clearPreview(); }
 
     public function canAddItems(): bool
     {
@@ -213,6 +192,5 @@ class MoverEntreAlmacenes extends Page
         $set('cantidad', 1); $set('cantidad_a_mover', 1);
     }
     private function localAllowed(string $id): bool { return array_key_exists($id, $this->localOptions()); }
-    private function clearPreview(): void { $this->preview = []; $this->stockRestricted = false; }
     private function gateway(): MovimientosAlmacenesGatewayClient { return app(MovimientosAlmacenesGatewayClient::class); }
 }

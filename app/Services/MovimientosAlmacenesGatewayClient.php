@@ -38,12 +38,6 @@ class MovimientosAlmacenesGatewayClient
     }
 
     /** @param array<string, mixed> $payload */
-    public function previsualizarNuevo(array $payload): array
-    {
-        return $this->post('/api/nuevo/previsualizar', $payload);
-    }
-
-    /** @param array<string, mixed> $payload */
     public function crear(array $payload): array
     {
         return $this->post('/api/nuevo/guardar', $payload);
