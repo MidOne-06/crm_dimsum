@@ -58,6 +58,8 @@ class MovimientosAlmacenes extends Page implements HasTable
     /** @var array<string, string> */
     public array $remoteEditItemLabels = [];
     public ?string $editLocalId = null;
+    /** @var array<int, array<string, mixed>> */
+    public array $editMovementTypes = [];
 
     public static function canAccess(): bool
     {
@@ -212,8 +214,8 @@ class MovimientosAlmacenes extends Page implements HasTable
                                 TextInput::make('encargado')->label('Encargado del envío')->maxLength(160),
                                 TextInput::make('receptor')->label('Receptor')->maxLength(160),
                                 Select::make('almacen_origen')->label('Almacén de origen')->options(fn (): array => $this->almacenesEdicionOptions())->searchable()->native(false)->required()->columnSpan(['md' => 2]),
-                                Select::make('almacen_destino')->label('Almacén de destino')->options(fn (): array => $this->almacenesEdicionOptions())->searchable()->native(false)->required()->columnSpan(['md' => 2]),
-                                TextInput::make('tipo_movimiento')->label('Tipo de movimiento')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
+                                Select::make('almacen_destino')->label('Almacén de destino')->options(fn (): array => $this->almacenesEdicionOptions())->searchable()->native(false)->required(),
+                                Select::make('tipo_movimiento')->label('Tipo de movimiento')->options(fn (): array => $this->editMovementTypeOptions())->native()->required(),
                                 Repeater::make('items')->label('Lista de ítems a mover entre almacenes')
                                     ->addable(true)->addActionLabel('Agregar ítem')->deletable(true)->minItems(1)->reorderable(false)->defaultItems(0)->columnSpanFull()
                                     ->schema([
@@ -306,6 +308,7 @@ class MovimientosAlmacenes extends Page implements HasTable
     private function edicionRestaurant(array $record): array
     {
         $movimiento = app(MovimientosAlmacenesGatewayClient::class)->detalle((string) ($record['id'] ?? ''));
+        $this->editMovementTypes = app(MovimientosAlmacenesGatewayClient::class)->tiposMovimiento();
         $this->editLocalId = (string) ($movimiento['editor']['localId'] ?? '');
         $this->remoteEditItems = [];
         $items = collect($movimiento['editor']['items'] ?? [])->map(function (array $item): array {
@@ -328,10 +331,23 @@ class MovimientosAlmacenes extends Page implements HasTable
             'receptor' => $movimiento['receptor'] ?? '',
             'almacen_origen' => $movimiento['editor']['almacenOrigen']['id'] ?? '',
             'almacen_destino' => $movimiento['editor']['almacenDestino']['id'] ?? '',
-            'tipo_movimiento' => $movimiento['editor']['tipo'] ?? '',
+            'tipo_movimiento' => $movimiento['editor']['tipoCodigo'] ?? '',
             'items' => $items,
             'observacion' => $movimiento['observacion'] ?? '',
         ];
+    }
+
+    /** @return array<string, string> */
+    private function editMovementTypeOptions(): array
+    {
+        return collect($this->editMovementTypes)
+            ->mapWithKeys(function (array $type): array {
+                $id = (string) ($type['id'] ?? '');
+                $name = trim((string) ($type['nombre'] ?? ''));
+
+                return $id !== '' && $name !== '' ? [$id => $name] : [];
+            })
+            ->all();
     }
 
     /** @return array<string, string> */
