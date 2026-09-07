@@ -10,7 +10,6 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Resources\Resource;
-use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Tables;
@@ -97,10 +96,13 @@ class ProductoPresentacionDespachoResource extends Resource
                 \Filament\Forms\Components\Hidden::make('item_tipo'),
                 \Filament\Forms\Components\Hidden::make('item_codigo'),
                 \Filament\Forms\Components\Hidden::make('item_nombre')->required(),
-                Grid::make(2)->schema([
-                    TextInput::make('multiplo')->label('Múltiplo de despacho')->numeric()->required()->minValue(1)->default(1)
-                        ->helperText('Ej. 25 -- solo se despacha en cantidades 25, 50, 75...'),
-                ]),
+                // Sin Grid envolviendo un solo campo -- mismo bug que en
+                // Permisos: un Grid(2) con un único hijo lo comprime a una
+                // fracción de columna (medido en el DOM real: 31px de
+                // ancho, sin espacio ni para un dígito). El campo va suelto
+                // en la Section (que ya tiene sus propias 2 columnas).
+                TextInput::make('multiplo')->label('Múltiplo de despacho')->numeric()->required()->minValue(1)->default(1)
+                    ->helperText('Ej. 25 -- solo se despacha en cantidades 25, 50, 75...'),
                 Textarea::make('nota')->label('Nota (opcional)')->rows(2)->columnSpanFull()
                     ->helperText('Ej. "Cantidades de despacho: 15 - 30 - 45 y así" para casos con un patrón distinto al múltiplo simple.'),
             ])->columns(2),
