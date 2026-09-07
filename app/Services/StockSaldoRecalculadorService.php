@@ -69,9 +69,15 @@ class StockSaldoRecalculadorService
             ->where('local_id', $localId)
             ->where('almacen', self::ALMACEN)
             ->whereDate('fecha', '>=', $fechaCarga)
-            ->selectRaw('item_id, item_tipo, MAX(item_nombre) AS item_nombre, MAX(unidad_medida) AS unidad,
+            // OJO: la columna real en kardex_movimientos es `tipo_item`, no
+            // `item_tipo` -- están al revés respecto al resto de este
+            // módulo (que sí usa item_tipo, nombre propio de sus tablas).
+            // Un `select item_tipo` acá directamente rompe con "column does
+            // not exist" (encontrado en vivo la primera vez que se probó
+            // esta pantalla).
+            ->selectRaw('item_id, tipo_item AS item_tipo, MAX(item_nombre) AS item_nombre, MAX(unidad_medida) AS unidad,
                 SUM(entrada) AS entradas, SUM(salida) AS salidas')
-            ->groupBy('item_id', 'item_tipo')
+            ->groupBy('item_id', 'tipo_item')
             ->get();
 
         $ultimaExtraccion = KardexExtraccionLocal::query()

@@ -107,11 +107,13 @@ class StockInicialCarga extends Page implements HasTable
         $existentes = $this->cabecera->detalles()->get(['item_id', 'item_tipo'])
             ->map(fn ($d) => $d->item_id.'|'.$d->item_tipo)->all();
 
+        // OJO: la columna real en kardex_movimientos es `tipo_item`, no
+        // `item_tipo` -- ver el mismo comentario en StockSaldoRecalculadorService.
         $items = DB::table('kardex_movimientos')
             ->where('local_id', $this->localId)
             ->where('almacen', 'Almacen Principal')
-            ->selectRaw('item_id, item_tipo, MAX(item_nombre) AS item_nombre, MAX(unidad_medida) AS unidad, MAX(cod_interno) AS item_codigo')
-            ->groupBy('item_id', 'item_tipo')
+            ->selectRaw('item_id, tipo_item AS item_tipo, MAX(item_nombre) AS item_nombre, MAX(unidad_medida) AS unidad, MAX(cod_interno) AS item_codigo')
+            ->groupBy('item_id', 'tipo_item')
             ->get()
             ->filter(fn ($row) => ! in_array($row->item_id.'|'.$row->item_tipo, $existentes, true));
 
