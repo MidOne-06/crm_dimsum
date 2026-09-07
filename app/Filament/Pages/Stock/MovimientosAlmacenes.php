@@ -199,7 +199,8 @@ class MovimientosAlmacenes extends Page implements HasTable
                     Action::make('editar')
                         ->label('Editar movimiento')
                         ->icon('heroicon-o-pencil-square')
-                        ->visible(fn (array $record): bool => (string) ($record['estado_codigo'] ?? '') === '1')
+                        ->visible(fn (array $record): bool => (string) ($record['estado_codigo'] ?? '') === '1'
+                            && (bool) auth()->user()?->hasPermission('movimientos-almacenes.editar'))
                         ->modalHeading(fn (array $record): string => 'Editar movimiento #'.($record['id'] ?? ''))
                         ->modalWidth('7xl')
                         ->stickyModalHeader()
@@ -247,7 +248,8 @@ class MovimientosAlmacenes extends Page implements HasTable
                         ->label('Anular movimiento')
                         ->icon('heroicon-o-no-symbol')
                         ->color('danger')
-                        ->visible(fn (array $record): bool => ($record['estado_codigo'] ?? '') === '1')
+                        ->visible(fn (array $record): bool => ($record['estado_codigo'] ?? '') === '1'
+                            && (bool) auth()->user()?->hasPermission('movimientos-almacenes.anular'))
                         ->requiresConfirmation()
                         ->modalHeading('¿Anular este movimiento?')
                         ->modalDescription('Restaurant revertirá este movimiento. Esta acción no se puede deshacer.')
@@ -256,10 +258,12 @@ class MovimientosAlmacenes extends Page implements HasTable
                     Action::make('descargar_pdf')
                         ->label('Descargar en PDF')
                         ->icon('heroicon-o-arrow-down-tray')
+                        ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('movimientos-almacenes.descargar'))
                         ->action(fn (array $record) => $this->descargarMovimiento($record, 'normal')),
                     Action::make('descargar_pdf_v2')
                         ->label('Descargar en PDF V2')
                         ->icon('heroicon-o-arrow-down-tray')
+                        ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('movimientos-almacenes.descargar'))
                         ->action(fn (array $record) => $this->descargarMovimiento($record, 'sin_costos')),
                 ])
                     ->label('Operaciones')
@@ -294,6 +298,8 @@ class MovimientosAlmacenes extends Page implements HasTable
 
     public function anularMovimiento(array $record): void
     {
+        abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.anular'), 403);
+
         try {
             app(MovimientosAlmacenesGatewayClient::class)->anular((string) ($record['id'] ?? ''));
             Notification::make()->success()->title('Movimiento anulado')->body('Restaurant confirmó la anulación. La lista se actualizará en tiempo real.')->send();
@@ -425,6 +431,8 @@ class MovimientosAlmacenes extends Page implements HasTable
     /** @param array<string, mixed> $data */
     public function editarMovimiento(array $record, array $data): void
     {
+        abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.editar'), 403);
+
         try {
             app(MovimientosAlmacenesGatewayClient::class)->editar((string) ($record['id'] ?? ''), $data);
             Notification::make()->success()->title('Movimiento actualizado')->body('Restaurant confirmó los cambios. La lista se actualizará en tiempo real.')->send();
@@ -437,6 +445,8 @@ class MovimientosAlmacenes extends Page implements HasTable
 
     public function descargarMovimiento(array $record, string $variant): mixed
     {
+        abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.descargar'), 403);
+
         $reporte = app(MovimientosAlmacenesGatewayClient::class)->reporte((string) ($record['id'] ?? ''), $variant);
         $suffix = $variant === 'sin_costos' ? '-sin-costos' : '';
 
