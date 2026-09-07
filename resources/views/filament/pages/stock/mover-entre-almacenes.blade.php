@@ -2,7 +2,7 @@
     @if ($loadError)
         <x-filament::section><div class="text-danger-600 dark:text-danger-400">{{ $loadError }}</div></x-filament::section>
     @else
-        <form wire:submit="previsualizar" class="space-y-6">
+        <form wire:submit="previsualizar" class="space-y-4">
             {{ $this->form }}
             @if (! $this->canAddItems())
                 <p class="text-sm text-gray-500 dark:text-gray-400">Completa local, almacenes y encargado antes de agregar ítems.</p>

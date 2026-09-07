@@ -17,6 +17,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\Alignment;
+use Filament\Support\Enums\Width;
 use Illuminate\Support\Carbon;
 use Throwable;
 
@@ -32,6 +33,7 @@ class MoverEntreAlmacenes extends Page
     protected static ?int $navigationSort = 9;
     protected static ?string $slug = 'movimientos-almacenes/nuevo';
     protected string $view = 'filament.pages.stock.mover-entre-almacenes';
+    protected Width|string|null $maxContentWidth = Width::Full;
 
     /** @var array<int, array<string, string>> */
     public array $locals = [];
@@ -81,8 +83,8 @@ class MoverEntreAlmacenes extends Page
     {
         return $schema->components([
             Section::make('Datos del movimiento')->compact()->schema([
-                Grid::make(['default' => 1, 'md' => 2, 'xl' => 5])->schema([
-                    Select::make('local_id')->label('Local')->options(fn (): array => $this->localOptions())->native(false)->searchable()->required()->live()
+                Grid::make(['default' => 1, 'md' => 2, 'xl' => 12])->schema([
+                    Select::make('local_id')->label('Local')->options(fn (): array => $this->localOptions())->native(false)->searchable()->required()->live()->columnSpan(['xl' => 2])
                         ->afterStateUpdated(function (?string $state, Set $set): void {
                             $origin = array_key_first($this->originOptionsFor((string) $state)) ?? '';
                             $set('almacen_origen', $origin);
@@ -91,18 +93,18 @@ class MoverEntreAlmacenes extends Page
                             $this->itemLookup = [];
                             $this->clearPreview();
                         }),
-                    DateTimePicker::make('fecha')->label('Fecha de movimiento')->seconds(false)->native(false)->maxDate(now())->required(),
-                    TextInput::make('encargado')->label('Encargado del envío')->maxLength(160)->required()->live(onBlur: true),
-                    TextInput::make('receptor')->label('Receptor')->maxLength(160),
-                    Select::make('almacen_origen')->label('Almacén de origen')->options(fn (): array => $this->originOptions())->native(false)->searchable()->required()->live()
+                    DateTimePicker::make('fecha')->label('Fecha de movimiento')->seconds(false)->native(false)->maxDate(now())->required()->columnSpan(['xl' => 2]),
+                    TextInput::make('encargado')->label('Encargado del envío')->maxLength(160)->required()->live(onBlur: true)->columnSpan(['xl' => 3]),
+                    TextInput::make('receptor')->label('Receptor')->maxLength(160)->columnSpan(['xl' => 3]),
+                    Select::make('almacen_origen')->label('Almacén de origen')->options(fn (): array => $this->originOptions())->native(false)->searchable()->required()->live()->columnSpan(['xl' => 2])
                         ->afterStateUpdated(function (?string $state, Set $set): void {
                             $set('almacen_destino', array_key_first($this->destinationOptionsFor((string) $state)) ?? '');
                             $set('items', []);
                             $this->itemLookup = [];
                             $this->clearPreview();
                         }),
-                    Select::make('almacen_destino')->label('Almacén de destino')->options(fn (): array => $this->destinationOptions())->native(false)->searchable()->required(),
-                    TextInput::make('tipo_movimiento')->label('Tipo de movimiento')->disabled()->dehydrated(false),
+                    Select::make('almacen_destino')->label('Almacén de destino')->options(fn (): array => $this->destinationOptions())->native(false)->searchable()->required()->columnSpan(['xl' => 6]),
+                    TextInput::make('tipo_movimiento')->label('Tipo de movimiento')->disabled()->dehydrated(false)->columnSpan(['xl' => 2]),
                 ]),
             ]),
             Section::make('Lista de ítems a mover entre almacenes')->compact()->schema([
@@ -119,14 +121,14 @@ class MoverEntreAlmacenes extends Page
                         TextInput::make('codigo')->label('Cód.')->disabled()->dehydrated(false),
                         TextInput::make('descripcion')->label('Ítem')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
                         TextInput::make('presentacion')->label('Presentación')->disabled()->dehydrated(false),
-                        TextInput::make('cantidad')->label('Cant.')->numeric()->minValue(0.0001)->required()->live()
+                        TextInput::make('cantidad')->label('Cant.')->numeric()->minValue(0.0001)->required()->live()->columnSpan(['md' => 2])
                             ->afterStateUpdated(fn (mixed $state, Set $set) => $set('cantidad_a_mover', $state)),
-                        TextInput::make('cantidad_a_mover')->label('Cant. a mover')->numeric()->minValue(0.0001)->required(),
-                        TextInput::make('unidad')->label('Unidad')->disabled()->dehydrated(false),
+                        TextInput::make('cantidad_a_mover')->label('Cant. a mover')->numeric()->minValue(0.0001)->required()->columnSpan(['md' => 2]),
+                        TextInput::make('unidad')->label('Unidad')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
                     ]),
             ]),
             Section::make('Anotaciones')->compact()->schema([
-                Textarea::make('observacion')->label('')->hiddenLabel()->rows(3)->maxLength(1000)->placeholder('¿Por qué se está haciendo este movimiento? ¿Hay algún documento vinculado? Anótalo aquí'),
+                Textarea::make('observacion')->label('')->hiddenLabel()->rows(2)->maxLength(1000)->placeholder('¿Por qué se está haciendo este movimiento? ¿Hay algún documento vinculado? Anótalo aquí'),
             ]),
         ])->statePath('data');
     }
