@@ -77,18 +77,19 @@ class PermissionResource extends Resource
                         ->live(onBlur: true)
                         ->afterStateUpdated(fn (?string $state, callable $set) => $set('slug', Str::slug((string) $state, '.'))),
                     TextInput::make('slug')->label('Identificador')->required()->regex('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/')->unique(ignoreRecord: true)->maxLength(120),
-                    // Sin ->searchable(): combinado con ->options(closure) obliga
-                    // a Filament a resolver las opciones por una llamada Livewire
-                    // asíncrona (getOptionsForJs) en vez de incrustarlas directo
-                    // en el render inicial -- esa llamada fallaba en producción
-                    // ("Unexpected token '<' ... is not valid JSON" en consola,
-                    // la respuesta volvía como HTML en vez de JSON) y dejaba el
-                    // campo mostrando el valor letra por letra. Con ~10 módulos
-                    // en total no hace falta buscador; las opciones se resuelven
-                    // en el propio render de PHP, sin ida y vuelta por Livewire.
+                    // ->columnSpanFull() es la parte que importa acá: sin ella,
+                    // este Select hereda la columna angosta de 2 columnas de la
+                    // Section (~114px medidos en el DOM real) y el valor
+                    // seleccionado ("Apariencia") se partía letra por letra al no
+                    // entrar en una sola línea -- reportado por el usuario con
+                    // captura de pantalla. Sin ->searchable() además: combinado
+                    // con ->options(closure), Filament de todas formas resuelve
+                    // las opciones vía Livewire (`hasDynamicOptions` queda true
+                    // igual, sea o no buscable) pero sin buscador no hace falta
+                    // la ida y vuelta adicional de `getSearchResultsForJs`.
                     Select::make('module')->label('Módulo')
                         ->options(fn (): array => Permission::query()->whereNotNull('module')->distinct()->orderBy('module')->pluck('module', 'module')->all())
-                        ->native(false)->createOptionForm([
+                        ->native(false)->columnSpanFull()->createOptionForm([
                             TextInput::make('module')->label('Nuevo módulo')->required(),
                         ])->createOptionUsing(fn (array $data): string => $data['module']),
                 ])
