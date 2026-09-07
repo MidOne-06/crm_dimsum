@@ -26,13 +26,23 @@ class MovimientosAlmacenesHistoricoService
         $desde = $sync->fecha_inicio->toDateString();
         $hasta = $sync->fecha_fin->toDateString();
         $storedFilters = (array) $sync->filtros;
+        $locales = array_values(array_filter((array) ($storedFilters['locales'] ?? [])));
+        // En la grilla en vivo, sin una selección explícita Restaurant limita
+        // la respuesta al local de sesión. Para una extracción histórica, en
+        // cambio, "sin locales" significa todos los locales permitidos: de lo
+        // contrario se pierden movimientos creados desde otros orígenes.
+        if ($locales === []) {
+            $locales = array_values(array_filter(array_map(
+                fn (array $local): string => (string) ($local['id'] ?? ''),
+                $gateway->locales(),
+            )));
+        }
         $filters = [
             'pagina' => 1, 'registros' => 50, 'fecha_inicio' => $desde, 'fecha_fin' => $hasta,
             'estado' => (string) ($storedFilters['estado'] ?? '-1'),
             'estado_recepcion' => (string) ($storedFilters['estado_recepcion'] ?? '-1'),
             'buscar_segun' => '2',
         ];
-        $locales = array_values(array_filter((array) ($storedFilters['locales'] ?? [])));
         if ($locales !== []) $filters['locales'] = implode(',', $locales);
 
         $reanudando = $sync->estado === 'en_progreso' && $sync->paginas_procesadas > 0 && $sync->paginas_total > 0;

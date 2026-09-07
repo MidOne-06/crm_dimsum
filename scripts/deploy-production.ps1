@@ -113,7 +113,7 @@ deploy_tree "$remoteGatewayArchive" /opt/API-TI server.js
         $remoteScript += @"
 cd /opt/crm-dimsum
 docker compose -p crm-dimsum --env-file .env.docker build app
-docker compose -p crm-dimsum --env-file .env.docker up -d --force-recreate app scheduler kardex-worker
+docker compose -p crm-dimsum --env-file .env.docker up -d --force-recreate app worker scheduler kardex-worker
 "@
         if (-not $SkipGateway) {
             $remoteScript += @"
@@ -122,7 +122,7 @@ docker compose -p crm-dimsum --env-file .env.docker up -d --force-recreate gatew
 "@
         }
         $remoteScript += @"
-docker compose -p crm-dimsum --env-file .env.docker ps app scheduler kardex-worker gateway
+docker compose -p crm-dimsum --env-file .env.docker ps app worker scheduler kardex-worker gateway
 curl -fsSI http://127.0.0.1:8080/admin | head -n 1
 "@
     }
