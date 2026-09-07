@@ -124,7 +124,7 @@ services:
     # que nada lo notara aparte del aviso de "sin avance" en la UI. Subido a
     # 3300s (55 min, justo debajo de --max-time) para dar margen real a una
     # página lenta sin dejar de tener un techo ante un hang genuino.
-    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=ventas-pages,ventas-details,stock-actual,guias-internas,salidas-stock,requerimientos-stock,default", "--sleep=1", "--tries=4", "--timeout=3300", "--max-time=3600"]
+    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=ventas-pages,ventas-details,stock-actual,guias-internas,salidas-stock,requerimientos-stock,movimientos-almacenes,default", "--sleep=1", "--tries=4", "--timeout=3300", "--max-time=3600"]
     deploy:
       replicas: ${VENTAS_WORKER_REPLICAS:-0}
     volumes:

@@ -9,6 +9,8 @@ use App\Models\GuiaInternaSincronizacion;
 use App\Models\MovimientoAlmacenSincronizacion;
 use App\Models\RequerimientoStockSincronizacion;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Ejecuta las corridas que un usuario creó desde la web (botón "Iniciar
@@ -81,10 +83,48 @@ class DespacharSincronizacionesPendientes extends Command
 
     private function despacharMovimientosAlmacenes(): int
     {
-        if (MovimientoAlmacenSincronizacion::query()->where('estado', 'en_progreso')->exists()) return 0;
-        $run = MovimientoAlmacenSincronizacion::query()->where('estado', 'pendiente')->oldest('id')->first();
+        // Reclamar la corrida antes de encolarla. El scheduler corre cada
+        // minuto y, si el worker está ocupado o caído, una fila pendiente
+        // podía ser encolada varias veces para el mismo sync-id.
+        $run = DB::transaction(function (): ?MovimientoAlmacenSincronizacion {
+            if (MovimientoAlmacenSincronizacion::query()->where('estado', 'en_progreso')->exists()) {
+                return null;
+            }
+
+            $pending = MovimientoAlmacenSincronizacion::query()
+                ->where('estado', 'pendiente')
+                ->oldest('id')
+                ->lockForUpdate()
+                ->first();
+
+            if (! $pending) {
+                return null;
+            }
+
+            $pending->forceFill([
+                'estado' => 'en_progreso',
+                'iniciado_en' => now(),
+                'mensaje_error' => null,
+            ])->save();
+
+            return $pending;
+        });
+
         if (! $run) return 0;
-        SincronizarMovimientosAlmacenesJob::dispatch($run->id);
+
+        try {
+            SincronizarMovimientosAlmacenesJob::dispatch($run->id);
+        } catch (Throwable $exception) {
+            // Si la cola no está disponible, dejarla reintentable en el
+            // siguiente tick en vez de mantenerla falsamente en progreso.
+            $run->forceFill([
+                'estado' => 'pendiente',
+                'iniciado_en' => null,
+                'mensaje_error' => $exception->getMessage(),
+            ])->save();
+            throw $exception;
+        }
+
         $this->line("movimientos-almacenes: despachada sync-id={$run->id}");
         return 1;
     }
