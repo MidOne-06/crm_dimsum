@@ -11,7 +11,7 @@ class DirectivaTransferenciaSugerencia extends Model
     protected $fillable = [
         'fecha_despacho', 'dia_semana', 'local_id', 'local_nombre', 'item_id', 'item_tipo',
         'item_codigo', 'item_nombre', 'demanda_promedio', 'semanas_consideradas', 'saldo_actual',
-        'cantidad_bruta', 'multiplo_aplicado', 'cantidad_sugerida', 'calculado_en',
+        'cantidad_en_transito', 'cantidad_bruta', 'multiplo_aplicado', 'cantidad_sugerida', 'calculado_en',
     ];
 
     protected function casts(): array
@@ -20,6 +20,7 @@ class DirectivaTransferenciaSugerencia extends Model
             'fecha_despacho' => 'date',
             'demanda_promedio' => 'decimal:4',
             'saldo_actual' => 'decimal:4',
+            'cantidad_en_transito' => 'decimal:4',
             'cantidad_bruta' => 'decimal:4',
             'calculado_en' => 'datetime',
         ];

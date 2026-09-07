@@ -192,6 +192,9 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                     ->badge()->color(fn (DirectivaTransferenciaSugerencia $r): string => $r->esConfianzaBaja() ? 'warning' : 'gray'),
                 TextColumn::make('saldo_actual')->label('Saldo actual')->numeric(2)->alignEnd()
                     ->color(fn ($state): string => (float) $state < 0 ? 'danger' : 'gray'),
+                TextColumn::make('cantidad_en_transito')->label('En tránsito')->numeric(2)->alignEnd()->toggleable()
+                    ->tooltip('Guías internas ya despachadas hacia este local hoy, todavía sin confirmar recepción -- ya sumadas al stock proyectado antes de calcular la sugerencia.')
+                    ->color(fn ($state): string => (float) $state > 0 ? 'info' : 'gray'),
                 TextColumn::make('multiplo_aplicado')->label('Múltiplo')->alignEnd()->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('cantidad_sugerida')->label('Cantidad sugerida')->numeric()->alignEnd()->sortable()
                     ->weight('bold')->color('primary')->badge(),
