@@ -15,7 +15,7 @@
             @endif
             <div class="flex flex-wrap justify-end gap-3">
                 <x-filament::button type="submit" icon="heroicon-m-eye" wire:loading.attr="disabled" wire:target="previsualizar">Previsualizar</x-filament::button>
-                <x-filament::button type="button" color="success" icon="heroicon-m-check" wire:click="guardar" wire:confirm="Restaurant registrará este movimiento y afectará stock. ¿Deseas continuar?" wire:loading.attr="disabled" wire:target="guardar" @disabled($stockRestricted)>Guardar movimiento</x-filament::button>
+                <x-filament::button type="button" color="success" icon="heroicon-m-check" wire:click="guardar" wire:confirm="Restaurant registrará este movimiento y afectará stock. ¿Deseas continuar?" wire:loading.attr="disabled" wire:target="guardar" :disabled="$stockRestricted">Guardar movimiento</x-filament::button>
             </div>
         </form>
     @endif
