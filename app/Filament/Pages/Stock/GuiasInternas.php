@@ -333,9 +333,11 @@ class GuiasInternas extends Page implements HasTable
                         ->schema([
                             Hidden::make('ids')->dehydrated(),
                             Hidden::make('can_edit_quantity')->dehydrated(false),
+                            Hidden::make('fecha_minima')->dehydrated(false),
                             Grid::make(['default' => 1, 'md' => 4])->schema([
                                 TextInput::make('local')->label('Local')->disabled()->dehydrated(false),
-                                DateTimePicker::make('fecha')->label('Fecha de movimiento')->native(false)->seconds(false)->required(),
+                                DateTimePicker::make('fecha')->label('Fecha de movimiento')->native(false)->seconds(false)->required()
+                                    ->minDate(fn (Get $get): ?string => filled($get('fecha_minima')) ? (string) $get('fecha_minima') : null),
                                 TextInput::make('encargado')->label('Encargado del envío')->maxLength(160)->required(),
                                 TextInput::make('receptor')->label('Receptor')->maxLength(160),
                                 TextInput::make('almacen_origen')->label('Almacén de origen')->disabled()->dehydrated(),
@@ -692,7 +694,8 @@ class GuiasInternas extends Page implements HasTable
         return [
             'ids' => $ids,
             'local' => (string) ($canje['local'] ?? ''),
-            'fecha' => $canje['fecha'] ?? now()->seconds(0)->format('Y-m-d H:i:s'),
+            'fecha' => filled($canje['fecha'] ?? null) ? (string) $canje['fecha'] : now()->seconds(0)->format('Y-m-d H:i:s'),
+            'fecha_minima' => (string) ($canje['fechaMinima'] ?? ''),
             'encargado' => (string) ($canje['encargado'] ?? ''),
             'receptor' => (string) ($canje['receptor'] ?? ''),
             'almacen_origen' => (string) ($canje['almacenOrigen']['nombre'] ?? ''),
