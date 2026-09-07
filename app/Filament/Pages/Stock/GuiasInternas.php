@@ -332,6 +332,7 @@ class GuiasInternas extends Page implements HasTable
                         ->fillForm(fn (Collection $records): array => $this->canjeGuiasForm($records))
                         ->schema([
                             Hidden::make('ids')->dehydrated(),
+                            Hidden::make('can_edit_quantity')->dehydrated(false),
                             Grid::make(['default' => 1, 'md' => 4])->schema([
                                 TextInput::make('local')->label('Local')->disabled()->dehydrated(false),
                                 DateTimePicker::make('fecha')->label('Fecha de movimiento')->native(false)->seconds(false)->required(),
@@ -346,7 +347,9 @@ class GuiasInternas extends Page implements HasTable
                                     TextInput::make('codigo')->label('Cód.')->disabled()->dehydrated(false),
                                     TextInput::make('descripcion')->label('Ítem')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
                                     TextInput::make('presentacion')->label('Presentación')->disabled()->dehydrated(false),
-                                    TextInput::make('cantidad')->label('Cant. a mover')->disabled()->dehydrated(false),
+                                    TextInput::make('cantidad')->label('Cant. a mover')->numeric()->minValue(0)->step(0.001)
+                                        ->disabled(fn (Get $get): bool => ! (bool) $get('../../can_edit_quantity'))
+                                        ->dehydrated(),
                                     TextInput::make('unidad')->label('Unidad')->disabled()->dehydrated(false),
                                 ]),
                             Textarea::make('observacion')->label('Anotaciones')->rows(2)->maxLength(1000)->columnSpanFull(),
@@ -695,6 +698,7 @@ class GuiasInternas extends Page implements HasTable
             'almacen_origen' => (string) ($canje['almacenOrigen']['nombre'] ?? ''),
             'almacen_destino' => (string) ($canje['almacenDestino']['id'] ?? ''),
             'tipo_movimiento' => (string) ($canje['tipoMovimiento'] ?? ''),
+            'can_edit_quantity' => (bool) ($canje['canEditGuideQuantity'] ?? false),
             'items' => array_values((array) ($canje['items'] ?? [])),
             'observacion' => (string) ($canje['observacion'] ?? ''),
         ];
@@ -723,6 +727,7 @@ class GuiasInternas extends Page implements HasTable
                 'receptor' => $data['receptor'] ?? '',
                 'almacen_destino' => $data['almacen_destino'] ?? '',
                 'tipo_movimiento' => $data['tipo_movimiento'] ?? '',
+                'items' => is_array($data['items'] ?? null) ? $data['items'] : [],
                 'observacion' => $data['observacion'] ?? '',
                 'confirmar' => true,
             ]);
