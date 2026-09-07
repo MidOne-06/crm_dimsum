@@ -8,7 +8,10 @@
                     </th>
                     @foreach ($groups as $groupIndex => $group)
                         <th scope="col" class="min-w-36 border-r border-gray-200 px-2 py-2 text-center font-semibold text-gray-950 dark:border-white/10 dark:text-white">
-                            <span class="block">{{ $group['titulo'] ?? ('Movimiento '.($groupIndex + 1)) }}</span>
+                            <span class="block">{{ $group['matriz_titulo'] ?? ('M'.($groupIndex + 1)) }}</span>
+                            @if (filled($group['matriz_guias'] ?? null))
+                                <span class="mt-0.5 block text-xs font-normal text-gray-500 dark:text-gray-400">{{ $group['matriz_guias'] }}</span>
+                            @endif
                         </th>
                     @endforeach
                     <th scope="col" class="min-w-24 px-3 py-2 text-right font-semibold text-gray-950 dark:text-white">Total</th>
@@ -28,11 +31,14 @@
                                 @if (array_key_exists($groupIndex, $row['cells']))
                                     @php($cantidadIndex = $row['cells'][$groupIndex])
                                     <input
+                                        wire:key="canje-cantidad-{{ $groupIndex }}-{{ $cantidadIndex }}"
                                         type="number"
                                         min="0"
                                         step="0.001"
                                         title="Al reducir un total, se distribuye entre las líneas de Restaurant en su orden original."
                                         wire:model.live.debounce.400ms="mountedActions.0.data.grupos.{{ $groupIndex }}.cantidades.{{ $cantidadIndex }}.cantidad"
+                                        value="{{ $group['cantidades'][$cantidadIndex]['cantidad'] ?? 0 }}"
+                                        aria-label="Cantidad de {{ $row['descripcion'] }} para {{ $group['matriz_titulo'] ?? ('M'.($groupIndex + 1)) }}"
                                         @disabled(! ($group['can_edit_quantity'] ?? false))
                                         class="fi-input block w-28 rounded-lg border-gray-300 bg-white px-2 py-1.5 text-right text-sm shadow-sm outline-none transition duration-75 placeholder:text-gray-400 focus:border-primary-500 focus:ring-1 focus:ring-primary-500 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500 dark:border-white/10 dark:bg-white/5 dark:text-white dark:disabled:bg-white/5"
                                     />

@@ -21,6 +21,8 @@ use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Tabs;
+use Filament\Schemas\Components\Tabs\Tab;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Enums\Alignment;
@@ -96,6 +98,9 @@ class GuiasInternas extends Page implements HasTable
 
     /** @var array<string, array<string, string>> */
     public array $canjeMasivoTiposMovimiento = [];
+
+    /** @var array<int, array<string, mixed>> */
+    public array $canjeMasivoTabGroups = [];
 
     public static function canAccess(): bool
     {
@@ -339,10 +344,7 @@ class GuiasInternas extends Page implements HasTable
                         ->fillForm(fn (Collection $records): array => $this->canjeGuiasMasivoForm($records))
                         ->schema([
                             Hidden::make('ids')->dehydrated(),
-                            Repeater::make('grupos')->label('Cabeceras de movimientos')->addable(false)->deletable(false)->reorderable(false)->itemNumbers(false)->columnSpanFull()
-                                ->collapsible()
-                                ->collapsed()
-                                ->itemLabel(fn (array $state): string => (string) ($state['titulo'] ?? 'Movimiento'))
+                            Repeater::make('grupos')->hidden()->addable(false)->deletable(false)->reorderable(false)->itemNumbers(false)->columnSpanFull()
                                 ->schema([
                                     Hidden::make('clave')->dehydrated(),
                                     Hidden::make('ids')->dehydrated(),
@@ -354,22 +356,10 @@ class GuiasInternas extends Page implements HasTable
                                             Hidden::make('key')->dehydrated(),
                                             Hidden::make('cantidad')->dehydrated(),
                                         ]),
-                                    Grid::make(['default' => 1, 'md' => 4])->schema([
-                                        TextInput::make('local')->label('Local')->disabled()->dehydrated(false),
-                                        DateTimePicker::make('fecha')->label('Fecha de movimiento')->native(false)->seconds(false)->required()
-                                            ->minDate(fn (Get $get): ?string => filled($get('fecha_minima')) ? (string) $get('fecha_minima') : null),
-                                        TextInput::make('encargado')->label('Encargado del envío')->maxLength(160)->required(),
-                                        TextInput::make('receptor')->label('Receptor')->maxLength(160),
-                                        TextInput::make('almacen_origen')->label('Almacén de origen')->disabled()->dehydrated(false),
-                                        Select::make('almacen_destino')->label('Almacén de destino')
-                                            ->options(fn (Get $get): array => $this->canjeMasivoDestinos[(string) $get('clave')] ?? [])
-                                            ->native(false)->searchable()->required()->columnSpan(['md' => 2]),
-                                        Select::make('tipo_movimiento')->label('Tipo de movimiento')
-                                            ->options(fn (Get $get): array => $this->canjeMasivoTiposMovimiento[(string) $get('clave')] ?? [])
-                                            ->native()->required(),
-                                    ]),
-                                    Textarea::make('observacion')->label('Anotaciones')->rows(2)->maxLength(1000)->columnSpanFull(),
                                 ]),
+                            Tabs::make('Configuración por movimiento')
+                                ->tabs(fn (): array => $this->canjeMasivoTabs())
+                                ->columnSpanFull(),
                             ViewField::make('matriz_cantidades')
                                 ->label('Cantidades consolidadas')
                                 ->view('filament.forms.components.canje-guias-matriz')
@@ -739,13 +729,59 @@ class GuiasInternas extends Page implements HasTable
                 ];
             })
             ->values()
+            ->map(function (array $grupo, int $index): array {
+                $ids = array_values(array_map('strval', (array) ($grupo['ids'] ?? [])));
+                $idsPreview = implode(', ', array_slice($ids, 0, 3));
+                if (count($ids) > 3) {
+                    $idsPreview .= ' +'.(count($ids) - 3);
+                }
+
+                $number = $index + 1;
+                $grupo['titulo'] = 'Movimiento '.$number.($idsPreview !== '' ? ' · Guías #'.$idsPreview : '');
+                $grupo['matriz_titulo'] = 'M'.$number;
+                $grupo['matriz_guias'] = $idsPreview !== '' ? '#'.$idsPreview : '';
+
+                return $grupo;
+            })
             ->all();
 
         if ($grupos === []) {
             throw new \RuntimeException('Restaurant no devolvió grupos compatibles para las guías seleccionadas.');
         }
 
+        $this->canjeMasivoTabGroups = $grupos;
+
         return ['ids' => $ids, 'grupos' => $grupos];
+    }
+
+    /** @return array<int, Tab> */
+    private function canjeMasivoTabs(): array
+    {
+        return collect($this->canjeMasivoTabGroups)
+            ->map(function (array $grupo, int $index): Tab {
+                $clave = (string) ($grupo['clave'] ?? '');
+                $prefix = 'grupos.'.$index.'.';
+
+                return Tab::make((string) ($grupo['titulo'] ?? 'Movimiento '.($index + 1)))
+                    ->schema([
+                        Grid::make(['default' => 1, 'md' => 4])->schema([
+                            TextInput::make($prefix.'local')->label('Local')->disabled()->dehydrated(false),
+                            DateTimePicker::make($prefix.'fecha')->label('Fecha de movimiento')->native(false)->seconds(false)->required()
+                                ->minDate(filled($grupo['fecha_minima'] ?? null) ? (string) $grupo['fecha_minima'] : null),
+                            TextInput::make($prefix.'encargado')->label('Encargado del envío')->maxLength(160)->required(),
+                            TextInput::make($prefix.'receptor')->label('Receptor')->maxLength(160),
+                            TextInput::make($prefix.'almacen_origen')->label('Almacén de origen')->disabled()->dehydrated(false),
+                            Select::make($prefix.'almacen_destino')->label('Almacén de destino')
+                                ->options($this->canjeMasivoDestinos[$clave] ?? [])
+                                ->native(false)->searchable()->required()->columnSpan(['md' => 2]),
+                            Select::make($prefix.'tipo_movimiento')->label('Tipo de movimiento')
+                                ->options($this->canjeMasivoTiposMovimiento[$clave] ?? [])
+                                ->native()->required(),
+                        ]),
+                        Textarea::make($prefix.'observacion')->label('Anotaciones')->rows(2)->maxLength(1000)->columnSpanFull(),
+                    ]);
+            })
+            ->all();
     }
 
     /** @param array<string, mixed> $data */
