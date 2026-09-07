@@ -90,6 +90,12 @@ class GuiasInternas extends Page implements HasTable
     /** @var array<string, string> */
     public array $canjeTiposMovimiento = [];
 
+    /** @var array<string, array<string, string>> */
+    public array $canjeMasivoDestinos = [];
+
+    /** @var array<string, array<string, string>> */
+    public array $canjeMasivoTiposMovimiento = [];
+
     public static function canAccess(): bool
     {
         return (bool) auth()->user()?->hasPermission('guias-internas.view');
@@ -320,44 +326,55 @@ class GuiasInternas extends Page implements HasTable
             ->bulkActions([
                 BulkActionGroup::make([
                     BulkAction::make('canjear_por_movimiento')
-                        ->label('Canjear por movimiento interno')
+                        ->label('Canjear selección por movimientos internos')
                         ->icon('heroicon-o-arrow-path-rounded-square')
                         ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('movimientos-almacenes.crear'))
-                        ->modalHeading('Canjear guías por movimiento interno')
+                        ->modalHeading('Canjear guías por movimientos internos')
                         ->modalWidth('7xl')
                         ->stickyModalHeader()
                         ->stickyModalFooter()
-                        ->modalSubmitActionLabel('Confirmar recepción')
+                        ->modalSubmitActionLabel('Confirmar movimientos')
                         ->modalCancelActionLabel('Cancelar')
-                        ->fillForm(fn (Collection $records): array => $this->canjeGuiasForm($records))
+                        ->fillForm(fn (Collection $records): array => $this->canjeGuiasMasivoForm($records))
                         ->schema([
                             Hidden::make('ids')->dehydrated(),
-                            Hidden::make('can_edit_quantity')->dehydrated(false),
-                            Hidden::make('fecha_minima')->dehydrated(false),
-                            Grid::make(['default' => 1, 'md' => 4])->schema([
-                                TextInput::make('local')->label('Local')->disabled()->dehydrated(false),
-                                DateTimePicker::make('fecha')->label('Fecha de movimiento')->native(false)->seconds(false)->required()
-                                    ->minDate(fn (Get $get): ?string => filled($get('fecha_minima')) ? (string) $get('fecha_minima') : null),
-                                TextInput::make('encargado')->label('Encargado del envío')->maxLength(160)->required(),
-                                TextInput::make('receptor')->label('Receptor')->maxLength(160),
-                                TextInput::make('almacen_origen')->label('Almacén de origen')->disabled()->dehydrated(),
-                                Select::make('almacen_destino')->label('Almacén de destino')->options(fn (): array => $this->canjeDestinos)->native(false)->searchable()->required()->columnSpan(['md' => 2]),
-                                Select::make('tipo_movimiento')->label('Tipo de movimiento')->options(fn (): array => $this->canjeTiposMovimiento)->native()->required(),
-                            ]),
-                            Repeater::make('items')->label('Ítems importados de las guías')->addable(false)->deletable(false)->reorderable(false)->itemNumbers(false)->columns(['default' => 1, 'md' => 5])->columnSpanFull()
+                            Repeater::make('grupos')->label('Movimientos a registrar')->addable(false)->deletable(false)->reorderable(false)->itemNumbers(false)->columnSpanFull()
+                                ->itemLabel(fn (array $state): string => (string) ($state['titulo'] ?? 'Movimiento'))
                                 ->schema([
-                                    TextInput::make('codigo')->label('Cód.')->disabled()->dehydrated(false),
-                                    TextInput::make('descripcion')->label('Ítem')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
-                                    TextInput::make('presentacion')->label('Presentación')->disabled()->dehydrated(false),
-                                    TextInput::make('cantidad')->label('Cant. a mover')->numeric()->minValue(0)->step(0.001)
-                                        ->disabled(fn (Get $get): bool => ! (bool) $get('../../can_edit_quantity'))
-                                        ->dehydrated(),
-                                    TextInput::make('unidad')->label('Unidad')->disabled()->dehydrated(false),
+                                    Hidden::make('clave')->dehydrated(),
+                                    Hidden::make('ids')->dehydrated(),
+                                    Hidden::make('titulo')->dehydrated(false),
+                                    Hidden::make('fecha_minima')->dehydrated(false),
+                                    Hidden::make('can_edit_quantity')->dehydrated(false),
+                                    Grid::make(['default' => 1, 'md' => 4])->schema([
+                                        TextInput::make('local')->label('Local')->disabled()->dehydrated(false),
+                                        DateTimePicker::make('fecha')->label('Fecha de movimiento')->native(false)->seconds(false)->required()
+                                            ->minDate(fn (Get $get): ?string => filled($get('fecha_minima')) ? (string) $get('fecha_minima') : null),
+                                        TextInput::make('encargado')->label('Encargado del envío')->maxLength(160)->required(),
+                                        TextInput::make('receptor')->label('Receptor')->maxLength(160),
+                                        TextInput::make('almacen_origen')->label('Almacén de origen')->disabled()->dehydrated(false),
+                                        Select::make('almacen_destino')->label('Almacén de destino')
+                                            ->options(fn (Get $get): array => $this->canjeMasivoDestinos[(string) $get('clave')] ?? [])
+                                            ->native(false)->searchable()->required()->columnSpan(['md' => 2]),
+                                        Select::make('tipo_movimiento')->label('Tipo de movimiento')
+                                            ->options(fn (Get $get): array => $this->canjeMasivoTiposMovimiento[(string) $get('clave')] ?? [])
+                                            ->native()->required(),
+                                    ]),
+                                    Repeater::make('items')->label('Ítems importados de las guías')->addable(false)->deletable(false)->reorderable(false)->itemNumbers(false)->columns(['default' => 1, 'md' => 5])->columnSpanFull()
+                                        ->schema([
+                                            TextInput::make('codigo')->label('Cód.')->disabled()->dehydrated(false),
+                                            TextInput::make('descripcion')->label('Ítem')->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
+                                            TextInput::make('presentacion')->label('Presentación')->disabled()->dehydrated(false),
+                                            TextInput::make('cantidad')->label('Cant. a mover')->numeric()->minValue(0)->step(0.001)
+                                                ->disabled(fn (Get $get): bool => ! (bool) $get('../../can_edit_quantity'))
+                                                ->dehydrated(),
+                                            TextInput::make('unidad')->label('Unidad')->disabled()->dehydrated(false),
+                                        ]),
+                                    Textarea::make('observacion')->label('Anotaciones')->rows(2)->maxLength(1000)->columnSpanFull(),
                                 ]),
-                            Textarea::make('observacion')->label('Anotaciones')->rows(2)->maxLength(1000)->columnSpanFull(),
                         ])
                         ->action(function (Collection $records, array $data): void {
-                            $this->confirmarCanjeGuias($records, $data);
+                            $this->confirmarCanjeGuiasMasivo($records, $data);
                         }),
                     BulkAction::make('agrupar_guias')
                         ->label('Agrupar selección')
@@ -670,6 +687,105 @@ class GuiasInternas extends Page implements HasTable
             'item_ids' => implode('-', array_column($itemPairs, 'id')),
             'item_tipos' => implode('-', array_column($itemPairs, 'tipo')),
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private function canjeGuiasMasivoForm(Collection $records): array
+    {
+        abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.crear'), 403);
+
+        $ids = $records->pluck('id')->map(fn (mixed $id): string => (string) $id)->filter(fn (string $id): bool => ctype_digit($id))->unique()->values()->all();
+        $canje = app(MovimientosAlmacenesGatewayClient::class)->prepararCanjeGuiasMasivo($ids);
+
+        $this->canjeMasivoDestinos = [];
+        $this->canjeMasivoTiposMovimiento = [];
+        $grupos = collect((array) ($canje['groups'] ?? []))
+            ->map(function (array $grupo): array {
+                $clave = (string) ($grupo['clave'] ?? '');
+                $localId = (string) ($grupo['localId'] ?? '');
+                abort_unless($clave !== '' && $this->localAllowedForUser($localId), 403);
+
+                $this->canjeMasivoDestinos[$clave] = collect((array) ($grupo['destinos'] ?? []))
+                    ->mapWithKeys(fn (array $row): array => [(string) ($row['id'] ?? '') => (string) ($row['nombre'] ?? '')])
+                    ->filter()
+                    ->all();
+                $this->canjeMasivoTiposMovimiento[$clave] = collect((array) ($grupo['tipos'] ?? []))
+                    ->mapWithKeys(fn (array $row): array => [(string) ($row['id'] ?? '') => (string) ($row['nombre'] ?? '')])
+                    ->filter()
+                    ->all();
+
+                return [
+                    'clave' => $clave,
+                    'ids' => array_values((array) ($grupo['ids'] ?? [])),
+                    'titulo' => (string) ($grupo['titulo'] ?? 'Movimiento'),
+                    'local' => (string) ($grupo['local'] ?? ''),
+                    'fecha' => filled($grupo['fecha'] ?? null) ? (string) $grupo['fecha'] : now()->seconds(0)->format('Y-m-d H:i:s'),
+                    'fecha_minima' => (string) ($grupo['fechaMinima'] ?? ''),
+                    'encargado' => (string) ($grupo['encargado'] ?? ''),
+                    'receptor' => (string) ($grupo['receptor'] ?? ''),
+                    'almacen_origen' => (string) ($grupo['almacenOrigen']['nombre'] ?? ''),
+                    'almacen_destino' => (string) ($grupo['almacenDestino']['id'] ?? ''),
+                    'tipo_movimiento' => (string) ($grupo['tipoMovimiento'] ?? ''),
+                    'can_edit_quantity' => (bool) ($grupo['canEditGuideQuantity'] ?? false),
+                    'items' => array_values((array) ($grupo['items'] ?? [])),
+                    'observacion' => (string) ($grupo['observacion'] ?? ''),
+                ];
+            })
+            ->values()
+            ->all();
+
+        if ($grupos === []) {
+            throw new \RuntimeException('Restaurant no devolvió grupos compatibles para las guías seleccionadas.');
+        }
+
+        return ['ids' => $ids, 'grupos' => $grupos];
+    }
+
+    /** @param array<string, mixed> $data */
+    private function confirmarCanjeGuiasMasivo(Collection $records, array $data): void
+    {
+        abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.crear'), 403);
+
+        $ids = $records->pluck('id')->map(fn (mixed $id): string => (string) $id)->filter(fn (string $id): bool => ctype_digit($id))->unique()->values()->all();
+        if ($ids === []) {
+            Notification::make()->danger()->title('No se pudo canjear las guías')->body('Selecciona al menos una guía interna válida.')->send();
+
+            return;
+        }
+
+        try {
+            // Los IDs de la selección se obtienen otra vez del Table de
+            // Filament, no del formulario. El gateway rehidrata y valida cada
+            // grupo en Restaurant antes de escribir cualquier movimiento.
+            $result = app(MovimientosAlmacenesGatewayClient::class)->canjearGuiasMasivo([
+                'ids' => $ids,
+                'grupos' => is_array($data['grupos'] ?? null) ? $data['grupos'] : [],
+                'confirmar' => true,
+            ]);
+            $results = collect((array) ($result['results'] ?? []));
+            $successful = $results->filter(fn (array $row): bool => (bool) ($row['ok'] ?? false))->values();
+            $failed = $results->filter(fn (array $row): bool => ! (bool) ($row['ok'] ?? false))->values();
+
+            if ($successful->isNotEmpty()) {
+                $movimientos = $successful->pluck('id')->filter()->implode(', ');
+                Notification::make()->success()->title('Recepciones confirmadas en Restaurant')
+                    ->body($movimientos !== '' ? 'Movimientos registrados: #'.$movimientos.'.' : $successful->count().' grupo(s) registrado(s) correctamente.')
+                    ->send();
+                $this->resetTable();
+            }
+
+            if ($failed->isNotEmpty()) {
+                $detail = $failed->map(function (array $row): string {
+                    $guias = implode(', ', array_map('strval', (array) ($row['ids'] ?? [])));
+
+                    return 'Guías #'.$guias.': '.(string) ($row['error'] ?? 'Restaurant rechazó este grupo.');
+                })->implode("\n");
+                Notification::make()->warning()->title('Algunos grupos no se registraron')->body($detail)->send();
+            }
+        } catch (Throwable $exception) {
+            report($exception);
+            Notification::make()->danger()->title('No se pudo confirmar la recepción')->body($exception->getMessage())->send();
+        }
     }
 
     /** @return array<string, mixed> */

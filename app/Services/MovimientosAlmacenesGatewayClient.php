@@ -55,6 +55,18 @@ class MovimientosAlmacenesGatewayClient
         return $this->post('/api/guias-importadas/canjear', $payload);
     }
 
+    /** Agrupa en vivo guías compatibles sin registrar movimientos. */
+    public function prepararCanjeGuiasMasivo(array $ids): array
+    {
+        return $this->post('/api/guias-importadas/canje-masivo/preparar', ['ids' => $ids]);
+    }
+
+    /** Registra cada grupo compatible como un movimiento independiente. */
+    public function canjearGuiasMasivo(array $payload): array
+    {
+        return $this->post('/api/guias-importadas/canje-masivo/confirmar', $payload);
+    }
+
     /** @return array{content:string,contentType:string} */
     public function reporte(string $id, string $variant): array
     {
