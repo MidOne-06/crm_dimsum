@@ -82,7 +82,14 @@ deploy_tree() {
   # borraría lang/, app/Support/, app/Data/, app/Filament/Exports/,
   # resources/views/filament/modals/, database/database.sqlite,
   # public/build/ (assets compilados) y data/catalogo/ (caché de catálogo).
+  # También borraría /opt/crm-dimsum/.git -- pasó de verdad el 2026-09-07
+  # (deploy de "Movimientos entre almacenes"): `git archive` no incluye
+  # .git, así que sin este exclude el propio repo del servidor queda
+  # borrado, y con él toda forma de confirmar HEAD/`git status` ahí sin
+  # reclonar. .deploy-backups/ y .claude/ tampoco vienen del paquete de
+  # git y son de la otra herramienta (Codex) -- se preservan igual.
   rsync -a --delete \
+    --exclude '.git' --exclude '.deploy-backups' --exclude '.claude' \
     --exclude '.env' --exclude '.env.docker' --exclude 'storage/' --exclude 'bootstrap/cache/' \
     --exclude 'lang/' --exclude 'app/Support/' --exclude 'app/Data/' --exclude 'app/Filament/Exports/' \
     --exclude 'resources/views/filament/modals/' --exclude 'database/database.sqlite' \
