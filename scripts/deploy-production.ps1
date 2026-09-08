@@ -229,25 +229,25 @@ sync_git_state /opt/crm-dimsum "$crmSha" "$remoteCrmBundle"
 "@
 
     if (-not $SkipGateway) {
-        $remoteScript += @"
+        $remoteScript += "`n" + @"
 deploy_tree "$remoteGatewayArchive" /opt/API-TI server.js
 sync_git_state /opt/API-TI "$gatewaySha" "$remoteGatewayBundle"
 "@
     }
 
     if (-not $SkipBuild) {
-        $remoteScript += @"
+        $remoteScript += "`n" + @"
 cd /opt/crm-dimsum
 docker compose -p crm-dimsum --env-file .env.docker build app
 docker compose -p crm-dimsum --env-file .env.docker up -d --force-recreate app worker scheduler kardex-worker
 "@
         if (-not $SkipGateway) {
-            $remoteScript += @"
+            $remoteScript += "`n" + @"
 docker compose -p crm-dimsum --env-file .env.docker build gateway
 docker compose -p crm-dimsum --env-file .env.docker up -d --force-recreate gateway
 "@
         }
-        $remoteScript += @"
+        $remoteScript += "`n" + @"
 docker compose -p crm-dimsum --env-file .env.docker ps app worker scheduler kardex-worker gateway
 curl -fsSI http://127.0.0.1:8080/admin | head -n 1
 "@
