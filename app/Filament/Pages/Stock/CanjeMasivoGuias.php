@@ -324,10 +324,18 @@ class CanjeMasivoGuias extends Page implements HasTable
     private function resumenFiltros(CanjeMasivo $canje): string
     {
         $filtros = (array) $canje->filtros;
-        $fecha = ($filtros['fecha_inicio'] ?? '').' — '.($filtros['fecha_fin'] ?? '');
+        $fecha = $this->fechaCorta((string) ($filtros['fecha_inicio'] ?? '')).' — '.$this->fechaCorta((string) ($filtros['fecha_fin'] ?? ''));
         $criterio = ($filtros['filtro_por_fecha'] ?? '1') === '0' ? 'Traslado' : 'Emisión';
-        $estado = (string) ($filtros['estado'] ?? '');
 
-        return trim("{$criterio}: {$fecha}".($estado !== '' ? " · Estado {$estado}" : ''));
+        return trim("{$criterio}: {$fecha}");
+    }
+
+    private function fechaCorta(string $fecha): string
+    {
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $fecha, $coincidencias)) {
+            return "{$coincidencias[3]}/{$coincidencias[2]}/".substr($coincidencias[1], -2);
+        }
+
+        return $fecha;
     }
 }
