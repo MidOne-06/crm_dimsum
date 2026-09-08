@@ -237,7 +237,7 @@ class CanjeMasivoGuias extends Page implements HasTable
             ->poll('5s')
             ->columns([
                 TextColumn::make('id')->label('Cód.'),
-                TextColumn::make('estado')->label('Estado')->badge()->formatStateUsing(fn ($s): string => match ($s) {
+                TextColumn::make('estado')->label('Estado')->badge()->formatStateUsing(fn ($state): string => match ($state) {
                     'previsualizando' => 'Previsualizando…',
                     'listo' => 'Listo para confirmar',
                     'confirmando' => 'Confirmando…',
@@ -245,8 +245,8 @@ class CanjeMasivoGuias extends Page implements HasTable
                     'completado_con_errores' => 'Completado con errores',
                     'fallido' => 'Fallido',
                     'cancelado' => 'Detenido manualmente',
-                    default => ucfirst((string) $s),
-                })->color(fn ($s): string => match ($s) {
+                    default => ucfirst((string) $state),
+                })->color(fn ($state): string => match ($state) {
                     'listo' => 'warning',
                     'completado' => 'success',
                     'completado_con_errores' => 'danger',
@@ -260,7 +260,7 @@ class CanjeMasivoGuias extends Page implements HasTable
                 TextColumn::make('total_grupos_estimados')->label('Movimientos (est.)')->numeric()->alignEnd(),
                 TextColumn::make('total_valorizado_estimado')->label('Valorizado (est.)')->numeric(2)->alignEnd(),
                 TextColumn::make('total_guias_confirmadas')->label('Confirmadas')->numeric()->alignEnd()->color('success'),
-                TextColumn::make('total_guias_fallidas')->label('Fallidas')->numeric()->alignEnd()->color(fn ($s): string => (int) $s > 0 ? 'danger' : 'gray'),
+                TextColumn::make('total_guias_fallidas')->label('Fallidas')->numeric()->alignEnd()->color(fn ($state): string => (int) $state > 0 ? 'danger' : 'gray'),
                 TextColumn::make('iniciadoPor.name')->label('Por')->toggleable(),
                 TextColumn::make('created_at')->label('Creado')->dateTime('d/m/Y H:i')->sortable(),
             ])

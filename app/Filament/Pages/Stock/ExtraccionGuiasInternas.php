@@ -291,11 +291,11 @@ class ExtraccionGuiasInternas extends Page implements HasTable
         return $table->query(GuiaInternaSincronizacion::query()->latest('id'))->columns([
             TextColumn::make('id')->label('Cód.')->sortable(),
             TextColumn::make('rango')->label('Rango')->state(fn (GuiaInternaSincronizacion $r): string => $r->fecha_inicio?->format('d/m/Y').' al '.$r->fecha_fin?->format('d/m/Y'))->wrap(),
-            TextColumn::make('estado')->label('Estado')->formatStateUsing(fn (?string $s): string => ucfirst(str_replace('_', ' ', (string) $s)))->badge(),
+            TextColumn::make('estado')->label('Estado')->formatStateUsing(fn (?string $state): string => ucfirst(str_replace('_', ' ', (string) $state)))->badge(),
             TextColumn::make('cabeceras_guardadas')->label('Cabeceras')->numeric()->alignEnd(),
             TextColumn::make('detalles_guardados')->label('Detalles')->numeric()->alignEnd(),
             TextColumn::make('cabeceras_eliminadas')->label('Eliminadas')->numeric()->alignEnd(),
-            TextColumn::make('errores')->label('Fallidas')->numeric()->alignEnd()->color(fn ($s): string => (int) $s > 0 ? 'danger' : 'gray'),
+            TextColumn::make('errores')->label('Fallidas')->numeric()->alignEnd()->color(fn ($state): string => (int) $state > 0 ? 'danger' : 'gray'),
             TextColumn::make('iniciado_en')->label('Iniciado')->dateTime('d/m/Y H:i')->sortable(),
         ])->paginated([10, 25, 50, 100])->defaultPaginationPageOption(10)->emptyStateHeading('Sin extracciones registradas.');
     }

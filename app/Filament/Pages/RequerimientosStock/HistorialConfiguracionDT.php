@@ -57,10 +57,10 @@ class HistorialConfiguracionDT extends Page implements HasTable
             ->query(fn (): Builder => $this->baseQuery())
             ->columns([
                 Tables\Columns\TextColumn::make('created_at')->label('Cuándo')->dateTime('d/m/Y H:i:s')->sortable(),
-                Tables\Columns\TextColumn::make('tabla')->label('Módulo')->formatStateUsing(fn (?string $s): string => static::tablaLabels()[$s] ?? $s)->badge(),
+                Tables\Columns\TextColumn::make('tabla')->label('Módulo')->formatStateUsing(fn (?string $state): string => static::tablaLabels()[$state] ?? (string) $state)->badge(),
                 Tables\Columns\TextColumn::make('registro_id')->label('Fila #')->numeric(),
                 Tables\Columns\TextColumn::make('accion')->label('Acción')->badge()
-                    ->color(fn (?string $s): string => match ($s) { 'creado' => 'success', 'eliminado' => 'danger', default => 'gray' }),
+                    ->color(fn (?string $state): string => match ($state) { 'creado' => 'success', 'eliminado' => 'danger', default => 'gray' }),
                 Tables\Columns\TextColumn::make('usuario_nombre')->label('Usuario')->default('—'),
                 Tables\Columns\TextColumn::make('datos_despues')->label('Cambios')->wrap()
                     ->state(fn (object $r): string => $this->resumenCambios($r))

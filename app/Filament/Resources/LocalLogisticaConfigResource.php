@@ -82,11 +82,11 @@ class LocalLogisticaConfigResource extends Resource
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('local_nombre')->label('Local')->searchable()->weight('medium')->sortable(),
-                Tables\Columns\TextColumn::make('frecuencia_dias')->label('Frecuencia')->formatStateUsing(fn ($s) => $s == 1 ? 'Diario' : "Cada {$s} días")->badge(),
+                Tables\Columns\TextColumn::make('frecuencia_dias')->label('Frecuencia')->formatStateUsing(fn ($state) => $state == 1 ? 'Diario' : "Cada {$state} días")->badge(),
                 Tables\Columns\TextColumn::make('hora_llegada_estimada')->label('Llegada')->time('H:i'),
                 Tables\Columns\TextColumn::make('ventana_recepcion_inicio')->label('Ventana')->state(fn (LocalLogisticaConfig $r) => $r->ventana_recepcion_inicio && $r->ventana_recepcion_fin ? substr($r->ventana_recepcion_inicio, 0, 5).'–'.substr($r->ventana_recepcion_fin, 0, 5) : '—'),
                 Tables\Columns\TextColumn::make('inactivo_hasta')->label('Inactivo')->state(fn (LocalLogisticaConfig $r) => $r->inactivoEn() ? 'Hasta '.$r->inactivo_hasta->format('d/m/Y') : '—')->color(fn (LocalLogisticaConfig $r) => $r->inactivoEn() ? 'danger' : 'gray')->badge(),
-                Tables\Columns\TextColumn::make('modo_arranque')->label('Modo arranque')->formatStateUsing(fn ($s) => ucfirst((string) $s))->toggleable(),
+                Tables\Columns\TextColumn::make('modo_arranque')->label('Modo arranque')->formatStateUsing(fn ($state) => ucfirst((string) $state))->toggleable(),
             ])
             ->defaultSort('local_nombre')
             ->recordTitleAttribute('local_nombre')

@@ -290,10 +290,10 @@ class ExtraccionRequerimientos extends Page implements HasTable
 
                 return ($filtros['fecha_inicio'] ?? '—').' al '.($filtros['fecha_fin'] ?? '—');
             })->wrap(),
-            TextColumn::make('estado')->label('Estado')->formatStateUsing(fn (?string $s): string => ucfirst(str_replace('_', ' ', (string) $s)))->badge(),
+            TextColumn::make('estado')->label('Estado')->formatStateUsing(fn (?string $state): string => ucfirst(str_replace('_', ' ', (string) $state)))->badge(),
             TextColumn::make('cabeceras_guardadas')->label('Requerimientos')->numeric()->alignEnd(),
             TextColumn::make('detalles_guardados')->label('Detalles')->numeric()->alignEnd(),
-            TextColumn::make('errores')->label('Fallidos')->numeric()->alignEnd()->color(fn ($s): string => (int) $s > 0 ? 'danger' : 'gray'),
+            TextColumn::make('errores')->label('Fallidos')->numeric()->alignEnd()->color(fn ($state): string => (int) $state > 0 ? 'danger' : 'gray'),
             TextColumn::make('iniciado_en')->label('Iniciado')->dateTime('d/m/Y H:i')->sortable(),
         ])->paginated([10, 25, 50, 100])->defaultPaginationPageOption(10)->emptyStateHeading('Sin extracciones registradas.');
     }
