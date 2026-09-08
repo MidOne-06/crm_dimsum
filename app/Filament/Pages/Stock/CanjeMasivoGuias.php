@@ -272,11 +272,6 @@ class CanjeMasivoGuias extends Page implements HasTable
                     ->description(fn (CanjeMasivo $r): string => $this->resumenResultado($r))
                     ->wrap(),
                 TextColumn::make('created_at')->label('Creado')->dateTime('d/m/y H:i')->sortable(),
-                TextColumn::make('total_guias_excluidas')->label('Excluidas')->numeric()->alignEnd()->toggleable(isToggledHiddenByDefault: true),
-                TextColumn::make('total_valorizado_estimado')->label('Valorizado')->numeric(2)->alignEnd()->toggleable(isToggledHiddenByDefault: true),
-                TextColumn::make('total_guias_confirmadas')->label('Confirmadas')->numeric()->alignEnd()->color('success')->toggleable(isToggledHiddenByDefault: true),
-                TextColumn::make('total_guias_fallidas')->label('Fallidas')->numeric()->alignEnd()->color(fn ($state): string => (int) $state > 0 ? 'danger' : 'gray')->toggleable(isToggledHiddenByDefault: true),
-                TextColumn::make('iniciadoPor.name')->label('Por')->toggleable(isToggledHiddenByDefault: true),
             ])
             ->recordActions([
                 Action::make('confirmar')
