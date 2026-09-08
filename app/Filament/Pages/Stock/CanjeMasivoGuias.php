@@ -47,6 +47,8 @@ class CanjeMasivoGuias extends Page implements HasTable
     use InteractsWithTable;
     use ScopesLocalsToUser;
 
+    private const ALL_LOCALES_OPTION = '__todos__';
+
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-squares-plus';
     protected static ?string $navigationLabel = 'Canje masivo';
     protected static ?string $title = 'Canje masivo de guías internas';
@@ -64,20 +66,19 @@ class CanjeMasivoGuias extends Page implements HasTable
     {
         return [
             Action::make('nuevo_canje_masivo')
-                ->label('Canjear todo lo filtrado')
+                ->label('Nueva vista previa')
                 ->icon('heroicon-o-squares-plus')
                 ->color('primary')
-                ->modalHeading('Canjear todo lo filtrado')
-                ->modalDescription('Esto solo genera una vista previa -- no registra ningún movimiento todavía. Vas a poder revisar los totales antes de confirmar de verdad.')
-                ->modalWidth('3xl')
+                ->modalHeading('Filtros de canje masivo')
+                ->modalWidth('5xl')
                 ->modalSubmitActionLabel('Generar vista previa')
                 ->schema([
-                    Grid::make(['default' => 1, 'md' => 2])->schema([
-                        DatePicker::make('fecha_inicio')->label('Desde')->native(false)->required()->default(now()->subDays(30)->toDateString()),
-                        DatePicker::make('fecha_fin')->label('Hasta')->native(false)->required()->default(now()->toDateString()),
+                    Grid::make(['default' => 1, 'md' => 2, 'xl' => 4])->schema([
                         Select::make('filtro_por_fecha')->label('Fecha de')->options(['1' => 'Emisión', '0' => 'Traslado'])->native()->default('1'),
+                        DatePicker::make('fecha_inicio')->label('Desde')->native()->required()->default(now()->subDays(30)->toDateString()),
+                        DatePicker::make('fecha_fin')->label('Hasta')->native()->required()->default(now()->toDateString()),
                         Select::make('estado')->label('Estado')->options(fn (): array => $this->restaurantEstadoOptions())->native()->default('1'),
-                        Select::make('locales')->label('Locales de destino (vacío = todos los permitidos)')->options(fn (): array => $this->restaurantLocalesOptions())->multiple()->searchable()->native(false)->columnSpanFull(),
+                        Select::make('locales')->label('Locales de destino')->options(fn (): array => $this->restaurantLocalesSelectOptions())->multiple()->searchable()->native(false)->preload()->optionsLimit(12)->default([self::ALL_LOCALES_OPTION])->columnSpanFull(),
                         Select::make('motivo')->label('Motivo')->options(fn (): array => $this->restaurantMotivoOptions())->native()->placeholder('Todos')->columnSpanFull(),
                     ]),
                 ])
@@ -96,25 +97,12 @@ class CanjeMasivoGuias extends Page implements HasTable
     {
         abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.canje-masivo'), 403);
 
-        // OJO, dos motivos reales para nunca mandar 'locales' vacío acá,
-        // comprobados en vivo:
-        // 1. restrictLocalIdsToUser([]) devuelve [] -- filtra una lista
-        //    vacía, no la reemplaza por "todos los permitidos". Un usuario
-        //    restringido que deja el filtro en blanco pensando "todos los
-        //    míos" mandaría 'locales' => '' -- fuga de alcance real.
-        // 2. Con buscar_segun=2 (por local de destino, el criterio correcto
-        //    acá porque el canje es sobre RECEPCIÓN), Restaurant no trata
-        //    'locales' vacío como "todos" -- lo limita al local de la propia
-        //    sesión del gateway y devuelve total=0 (comprobado en vivo:
-        //    0 resultados con locales vacío, 137+ con la lista completa).
-        // Por eso, sin selección explícita, se completa SIEMPRE con la
-        // lista completa de locales permitidos para este usuario (no con
-        // un array vacío) antes de restringir por permisos.
-        $localesSeleccionados = (array) ($data['locales'] ?? []);
-        if ($localesSeleccionados === []) {
-            $localesSeleccionados = array_keys($this->restaurantLocalesOptions());
+        $locales = $this->localesParaFiltro((array) ($data['locales'] ?? []));
+        if ($locales === []) {
+            Notification::make()->danger()->title('No se pudieron cargar los locales')->send();
+
+            return;
         }
-        $locales = $this->restrictLocalIdsToUser($localesSeleccionados);
 
         $desde = (string) ($data['fecha_inicio'] ?? now()->subDays(30)->toDateString());
         $hasta = (string) ($data['fecha_fin'] ?? now()->toDateString());
@@ -137,7 +125,7 @@ class CanjeMasivoGuias extends Page implements HasTable
         $canje = CanjeMasivo::create(['estado' => 'previsualizando', 'filtros' => $filtros, 'iniciado_por' => auth()->id()]);
         PrevisualizarCanjeMasivoJob::dispatch($canje->id);
 
-        Notification::make()->title('Vista previa en camino')->body('Puede tardar unos minutos según cuántas guías coincidan con el filtro. Esta tabla se actualiza sola.')->success()->send();
+        Notification::make()->title('Vista previa iniciada')->success()->send();
         $this->resetTable();
     }
 
@@ -155,7 +143,7 @@ class CanjeMasivoGuias extends Page implements HasTable
         $canje->update(['estado' => 'confirmando', 'confirmado_en' => now()]);
         ConfirmarCanjeMasivoJob::dispatch($canje->id);
 
-        Notification::make()->title('Confirmación en camino')->body("Registrando movimientos reales para {$canje->total_guias_procesables} guías, en tandas de 20. Esta tabla se actualiza sola.")->warning()->send();
+        Notification::make()->title('Confirmación iniciada')->warning()->send();
         $this->resetTable();
     }
 
@@ -189,7 +177,7 @@ class CanjeMasivoGuias extends Page implements HasTable
                 'estado' => 'cancelado',
                 'mensaje_error' => 'Detenido manualmente por '.(auth()->user()?->name ?? 'admin').' mientras estaba en curso. Lo ya confirmado hasta ese punto queda tal cual, sin reversar nada.',
             ]);
-            Notification::make()->title('Deteniendo la corrida')->body('La tanda que esté en vuelo en este momento va a terminar de procesarse; no se van a lanzar tandas nuevas después de esa.')->warning()->send();
+            Notification::make()->title('Detención solicitada')->warning()->send();
         }
     }
 
@@ -204,6 +192,28 @@ class CanjeMasivoGuias extends Page implements HasTable
         } catch (Throwable) {
             return [];
         }
+    }
+
+    /** @return array<string, string> */
+    private function restaurantLocalesSelectOptions(): array
+    {
+        return [self::ALL_LOCALES_OPTION => 'Todos los locales permitidos'] + $this->restaurantLocalesOptions();
+    }
+
+    /** @param array<int, mixed> $seleccionados @return array<int, string> */
+    private function localesParaFiltro(array $seleccionados): array
+    {
+        $opciones = $this->restaurantLocalesOptions();
+        $seleccionados = array_map('strval', $seleccionados);
+
+        if ($seleccionados === [] || in_array(self::ALL_LOCALES_OPTION, $seleccionados, true)) {
+            return array_keys($opciones);
+        }
+
+        return $this->restrictLocalIdsToUser(array_values(array_filter(
+            $seleccionados,
+            fn (string $id): bool => array_key_exists($id, $opciones),
+        )));
     }
 
     /** @return array<string, string> */
@@ -256,7 +266,7 @@ class CanjeMasivoGuias extends Page implements HasTable
                     'cancelado' => 'gray',
                     default => 'gray',
                 }),
-                TextColumn::make('filtros')->label('Filtro')->state(fn (CanjeMasivo $r): string => ($r->filtros['fecha_inicio'] ?? '').' al '.($r->filtros['fecha_fin'] ?? ''))->wrap(),
+                TextColumn::make('filtros')->label('Consulta')->state(fn (CanjeMasivo $r): string => $this->resumenFiltros($r))->wrap(),
                 TextColumn::make('total_guias_procesables')->label('Guías')->numeric()->alignEnd(),
                 TextColumn::make('total_guias_excluidas')->label('Excluidas')->numeric()->alignEnd()->toggleable(),
                 TextColumn::make('total_grupos_estimados')->label('Movimientos (est.)')->numeric()->alignEnd(),
@@ -274,10 +284,10 @@ class CanjeMasivoGuias extends Page implements HasTable
                     ->visible(fn (CanjeMasivo $r): bool => $r->estaListoParaConfirmar())
                     ->requiresConfirmation()
                     ->modalHeading('¿Confirmar el canje masivo de verdad?')
-                    ->modalDescription(fn (CanjeMasivo $r): string => "Esto va a registrar en Restaurant {$r->total_grupos_estimados} movimiento(s) reales, marcando {$r->total_guias_procesables} guía(s) como recepcionadas, por un valorizado estimado de {$r->total_valorizado_estimado}. No se puede deshacer desde acá.")
+                    ->modalDescription(fn (CanjeMasivo $r): string => "{$r->total_grupos_estimados} movimientos · {$r->total_guias_procesables} guías · S/ {$r->total_valorizado_estimado}")
                     ->modalSubmitActionLabel('Sí, registrar los movimientos reales')
                     ->schema([
-                        Checkbox::make('confirmo')->label('Entiendo que esto registra movimientos reales e irreversibles en Restaurant.')->required()->rule('accepted'),
+                        Checkbox::make('confirmo')->label('Confirmo el registro real en Restaurant.')->required()->rule('accepted'),
                     ])
                     ->action(fn (CanjeMasivo $r) => $this->confirmarCanjeMasivo($r->id)),
                 Action::make('cancelar')
@@ -294,7 +304,7 @@ class CanjeMasivoGuias extends Page implements HasTable
                     ->visible(fn (CanjeMasivo $r): bool => $r->estado === 'confirmando')
                     ->requiresConfirmation()
                     ->modalHeading('¿Detener esta confirmación en curso?')
-                    ->modalDescription('Lo que ya se confirmó hasta ahora queda tal cual -- no se reversa nada. Solo se evita que se sigan registrando movimientos nuevos a partir de la próxima tanda.')
+                    ->modalDescription('No se iniciarán nuevas tandas.')
                     ->modalSubmitActionLabel('Sí, detener')
                     ->action(fn (CanjeMasivo $r) => $this->detenerConfirmacion($r->id)),
                 Action::make('ver_detalle')
@@ -308,6 +318,16 @@ class CanjeMasivoGuias extends Page implements HasTable
             ])
             ->paginated([10, 25, 50])
             ->defaultPaginationPageOption(10)
-            ->emptyStateHeading('Todavía no se corrió ningún canje masivo.');
+            ->emptyStateHeading('Sin canjes masivos.');
+    }
+
+    private function resumenFiltros(CanjeMasivo $canje): string
+    {
+        $filtros = (array) $canje->filtros;
+        $fecha = ($filtros['fecha_inicio'] ?? '').' — '.($filtros['fecha_fin'] ?? '');
+        $criterio = ($filtros['filtro_por_fecha'] ?? '1') === '0' ? 'Traslado' : 'Emisión';
+        $estado = (string) ($filtros['estado'] ?? '');
+
+        return trim("{$criterio}: {$fecha}".($estado !== '' ? " · Estado {$estado}" : ''));
     }
 }
