@@ -51,6 +51,13 @@ function New-ReleaseArchive([string] $Path, [string] $Ref, [string] $Name) {
 # de desplegar -- así 'git log' en producción vuelve a ser una fuente de
 # verdad real, sin tocar el working tree (que ya lo dejó correcto el rsync).
 function New-GitSyncBundle([string] $Path, [string] $TargetSha, [string] $BaseSha, [string] $Name) {
+    if ($BaseSha -eq $TargetSha) {
+        # El servidor ya está exactamente en el commit a desplegar -- no hay
+        # nada que sincronizar (`git bundle create` con un rango vacío falla
+        # a propósito con "Refusing to create empty bundle", así que hay que
+        # evitar llamarlo en este caso, no tratarlo como error).
+        return $null
+    }
     $bundle = Join-Path ([System.IO.Path]::GetTempPath()) "$Name-$([guid]::NewGuid().ToString('N')).bundle"
     # `git bundle create` exige un REF con nombre del lado a incluir -- un
     # SHA suelto como "B" en "A..B" hace que rechace el bundle como "vacío"
@@ -123,15 +130,21 @@ if (-not $SkipGateway) {
 $timestamp = Get-Date -Format 'yyyyMMddHHmmss'
 $remoteCrmArchive = "/tmp/crm-dimsum-$timestamp.tar.gz"
 $remoteGatewayArchive = "/tmp/api-ti-$timestamp.tar.gz"
-$remoteCrmBundle = "/tmp/crm-dimsum-$timestamp.bundle"
-$remoteGatewayBundle = "/tmp/api-ti-$timestamp.bundle"
+# Ruta vacía = "no hay bundle que copiar" (servidor ya en ese commit) --
+# sync_git_state la trata como "nada que sincronizar", no como error.
+$remoteCrmBundle = if ($crmBundle) { "/tmp/crm-dimsum-$timestamp.bundle" } else { '' }
+$remoteGatewayBundle = if ($gatewayBundle) { "/tmp/api-ti-$timestamp.bundle" } else { '' }
 
 try {
     & scp $crmArchive "root@$HostName`:$remoteCrmArchive"
-    & scp $crmBundle "root@$HostName`:$remoteCrmBundle"
+    if ($crmBundle) {
+        & scp $crmBundle "root@$HostName`:$remoteCrmBundle"
+    }
     if (-not $SkipGateway) {
         & scp $gatewayArchive "root@$HostName`:$remoteGatewayArchive"
-        & scp $gatewayBundle "root@$HostName`:$remoteGatewayBundle"
+        if ($gatewayBundle) {
+            & scp $gatewayBundle "root@$HostName`:$remoteGatewayBundle"
+        }
     }
 
     $remoteScript = @"
@@ -191,7 +204,7 @@ sync_git_state() {
     return 0
   fi
   if [ ! -f "`$bundle" ]; then
-    echo "AVISO: no llegó el bundle de Git para `$target -- se omite la sincronización de estado." >&2
+    echo "git en `$target ya estaba en `$sha -- nada que sincronizar."
     return 0
   fi
   git -C "`$target" fetch "`$bundle" "refs/tmp/deploy-bundle:refs/tmp/deploy-sync"
@@ -252,7 +265,7 @@ curl -fsSI http://127.0.0.1:8080/admin | head -n 1
 }
 finally {
     Remove-Item -LiteralPath $crmArchive -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $crmBundle -Force -ErrorAction SilentlyContinue
+    if ($crmBundle) { Remove-Item -LiteralPath $crmBundle -Force -ErrorAction SilentlyContinue }
     if ($gatewayArchive) { Remove-Item -LiteralPath $gatewayArchive -Force -ErrorAction SilentlyContinue }
     if ($gatewayBundle) { Remove-Item -LiteralPath $gatewayBundle -Force -ErrorAction SilentlyContinue }
 }
