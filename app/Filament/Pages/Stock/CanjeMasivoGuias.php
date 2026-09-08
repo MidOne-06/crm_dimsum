@@ -266,15 +266,17 @@ class CanjeMasivoGuias extends Page implements HasTable
                     'cancelado' => 'gray',
                     default => 'gray',
                 }),
-                TextColumn::make('filtros')->label('Consulta')->state(fn (CanjeMasivo $r): string => $this->resumenFiltros($r))->wrap(),
-                TextColumn::make('total_guias_procesables')->label('Guías')->numeric()->alignEnd(),
-                TextColumn::make('total_guias_excluidas')->label('Excluidas')->numeric()->alignEnd()->toggleable(),
-                TextColumn::make('total_grupos_estimados')->label('Movimientos (est.)')->numeric()->alignEnd(),
-                TextColumn::make('total_valorizado_estimado')->label('Valorizado (est.)')->numeric(2)->alignEnd(),
-                TextColumn::make('total_guias_confirmadas')->label('Confirmadas')->numeric()->alignEnd()->color('success'),
-                TextColumn::make('total_guias_fallidas')->label('Fallidas')->numeric()->alignEnd()->color(fn ($state): string => (int) $state > 0 ? 'danger' : 'gray'),
-                TextColumn::make('iniciadoPor.name')->label('Por')->toggleable(),
-                TextColumn::make('created_at')->label('Creado')->dateTime('d/m/Y H:i')->sortable(),
+                TextColumn::make('filtros')->label('Consulta')->state(fn (CanjeMasivo $r): string => $this->resumenFiltros($r)),
+                TextColumn::make('resultado')->label('Resultado')
+                    ->state(fn (CanjeMasivo $r): string => number_format((int) $r->total_guias_procesables).' guías · '.number_format((int) $r->total_grupos_estimados).' mov.')
+                    ->description(fn (CanjeMasivo $r): string => $this->resumenResultado($r))
+                    ->wrap(),
+                TextColumn::make('created_at')->label('Creado')->dateTime('d/m/y H:i')->sortable(),
+                TextColumn::make('total_guias_excluidas')->label('Excluidas')->numeric()->alignEnd()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('total_valorizado_estimado')->label('Valorizado')->numeric(2)->alignEnd()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('total_guias_confirmadas')->label('Confirmadas')->numeric()->alignEnd()->color('success')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('total_guias_fallidas')->label('Fallidas')->numeric()->alignEnd()->color(fn ($state): string => (int) $state > 0 ? 'danger' : 'gray')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('iniciadoPor.name')->label('Por')->toggleable(isToggledHiddenByDefault: true),
             ])
             ->recordActions([
                 Action::make('confirmar')
@@ -337,5 +339,20 @@ class CanjeMasivoGuias extends Page implements HasTable
         }
 
         return $fecha;
+    }
+
+    private function resumenResultado(CanjeMasivo $canje): string
+    {
+        $partes = ['S/ '.number_format((float) $canje->total_valorizado_estimado, 2)];
+
+        if ((int) $canje->total_guias_confirmadas > 0) {
+            $partes[] = number_format((int) $canje->total_guias_confirmadas).' confirmadas';
+        }
+
+        if ((int) $canje->total_guias_fallidas > 0) {
+            $partes[] = number_format((int) $canje->total_guias_fallidas).' fallidas';
+        }
+
+        return implode(' · ', $partes);
     }
 }
