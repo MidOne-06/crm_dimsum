@@ -99,9 +99,6 @@ class GuiasInternas extends Page implements HasTable
     /** @var array<string, array<string, string>> */
     public array $canjeMasivoTiposMovimiento = [];
 
-    /** @var array<int, array<string, mixed>> */
-    public array $canjeMasivoTabGroups = [];
-
     public static function canAccess(): bool
     {
         return (bool) auth()->user()?->hasPermission('guias-internas.view');
@@ -358,7 +355,7 @@ class GuiasInternas extends Page implements HasTable
                                         ]),
                                 ]),
                             Tabs::make('Configuración por movimiento')
-                                ->tabs(fn (): array => $this->canjeMasivoTabs())
+                                ->tabs(fn (Get $get): array => $this->canjeMasivoTabs($get))
                                 ->columnSpanFull(),
                             ViewField::make('matriz_cantidades')
                                 ->label('Cantidades consolidadas')
@@ -749,20 +746,36 @@ class GuiasInternas extends Page implements HasTable
             throw new \RuntimeException('Restaurant no devolvió grupos compatibles para las guías seleccionadas.');
         }
 
-        $this->canjeMasivoTabGroups = $grupos;
-
         return ['ids' => $ids, 'grupos' => $grupos];
     }
 
-    /** @return array<int, Tab> */
-    private function canjeMasivoTabs(): array
+    /**
+     * OJO: el Repeater 'grupos' vive con las claves reales que Filament le
+     * asigna a cada ítem (UUID interno, ver hidratación del formulario) --
+     * NUNCA con índices 0/1/2 secuenciales, aunque `canjeMasivoTabGroups`
+     * (la propiedad plana que arma `canjeGuiasMasivoForm()` antes de que el
+     * Repeater se hidrate) sí sea 0-indexada. Construir el prefijo con ese
+     * índice secuencial en vez de la clave real de Livewire hace que estos
+     * campos (fecha/encargado/receptor/almacén/tipo de movimiento) escriban
+     * en una entrada FANTASMA de `grupos` (con clave 0) en vez de en el
+     * grupo real -- comprobado en vivo: la matriz mostraba una columna "M2"
+     * inexistente y los totales por columna daban 0.000, porque el grupo
+     * real nunca recibía esos valores y quedaba sin match al confirmar. Por
+     * eso este método recibe `Get $get` y arma el prefijo con la clave real
+     * de `$get('grupos')`, no con la posición del `collect()`.
+     *
+     * @return array<int, Tab>
+     */
+    private function canjeMasivoTabs(Get $get): array
     {
-        return collect($this->canjeMasivoTabGroups)
-            ->map(function (array $grupo, int $index): Tab {
-                $clave = (string) ($grupo['clave'] ?? '');
-                $prefix = 'grupos.'.$index.'.';
+        $grupos = (array) ($get('grupos') ?? []);
 
-                return Tab::make((string) ($grupo['titulo'] ?? 'Movimiento '.($index + 1)))
+        return collect($grupos)
+            ->map(function (array $grupo, int|string $grupoKey): Tab {
+                $clave = (string) ($grupo['clave'] ?? '');
+                $prefix = "grupos.{$grupoKey}.";
+
+                return Tab::make((string) ($grupo['titulo'] ?? 'Movimiento'))
                     ->schema([
                         Grid::make(['default' => 1, 'md' => 4])->schema([
                             TextInput::make($prefix.'local')->label('Local')->disabled()->dehydrated(false),
@@ -781,6 +794,7 @@ class GuiasInternas extends Page implements HasTable
                         Textarea::make($prefix.'observacion')->label('Anotaciones')->rows(2)->maxLength(1000)->columnSpanFull(),
                     ]);
             })
+            ->values()
             ->all();
     }
 
@@ -897,8 +911,21 @@ class GuiasInternas extends Page implements HasTable
      * fila un SKU/presentación; las cantidades siguen viviendo en grupos.*.
      * cantidades para que Filament las deshidrate normalmente.
      *
-     * @param array<int, array<string, mixed>> $grupos
-     * @return array{groups: array<int, array<string, mixed>>, rows: array<int, array<string, mixed>>, totals: array<int, float>, grandTotal: float}
+     * OJO: tanto la clave de cada grupo (`$grupoIndex`) como la de cada
+     * cantidad (`$cantidadIndex`) son las claves REALES que Filament le
+     * asigna al Repeater (UUID interno), no índices 0/1/2 -- por eso NO se
+     * castean a `(int)` (ese cast rompía la coincidencia: `(int)` sobre un
+     * UUID como '8e3d313b-...' da un número sin relación con la posición
+     * real, comprobado en vivo: los totales por columna daban 0.000 pese a
+     * que las filas sí sumaban bien). Se preservan tal cual también en
+     * `groups` (nada de `array_values()`) porque `canje-guias-matriz.blade.php`
+     * usa esa misma clave para el `wire:model` que escribe la cantidad de
+     * vuelta en `grupos.{clave}.cantidades.{clave}.cantidad` -- si se
+     * reindexara aquí, el input escribiría en una ruta que no existe en el
+     * estado real del formulario.
+     *
+     * @param array<int|string, array<string, mixed>> $grupos
+     * @return array{groups: array<int|string, array<string, mixed>>, rows: array<int, array<string, mixed>>, totals: array<int|string, float>, grandTotal: float}
      */
     private function matrizCanjeGuias(array $grupos): array
     {
@@ -927,18 +954,18 @@ class GuiasInternas extends Page implements HasTable
                 }
 
                 $value = $this->cantidadCanje($item['cantidad'] ?? 0);
-                $rows[$key]['cells'][(int) $grupoIndex] = (int) $cantidadIndex;
+                $rows[$key]['cells'][$grupoIndex] = $cantidadIndex;
                 $rows[$key]['rowTotal'] += $value;
                 $total += $value;
             }
-            $totals[(int) $grupoIndex] = $total;
+            $totals[$grupoIndex] = $total;
             $grandTotal += $total;
         }
 
         uasort($rows, fn (array $a, array $b): int => [$a['codigo'], $a['descripcion']] <=> [$b['codigo'], $b['descripcion']]);
 
         return [
-            'groups' => array_values($grupos),
+            'groups' => $grupos,
             'rows' => array_values($rows),
             'totals' => $totals,
             'grandTotal' => $grandTotal,
