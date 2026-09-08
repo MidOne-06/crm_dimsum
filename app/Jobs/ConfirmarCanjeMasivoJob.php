@@ -75,7 +75,10 @@ class ConfirmarCanjeMasivoJob implements ShouldQueue
         $ids = array_values(array_map('strval', (array) ($canje->resultado['ids_procesables'] ?? [])));
         $confirmadas = 0;
         $fallidas = 0;
-        $movimientosCreados = (array) ($canje->resultado['movimientos_creados'] ?? []);
+        // Un job puede ser reentregado después de un corte de worker.
+        // Restaurant rechaza una guía ya recepcionada, pero el historial
+        // local no debe repetir la evidencia del mismo movimiento.
+        $movimientosCreados = $this->normalizarMovimientosAuditados((array) ($canje->resultado['movimientos_creados'] ?? []));
         $fallos = [];
 
         foreach (array_chunk($ids, 20) as $lote) {
@@ -116,7 +119,10 @@ class ConfirmarCanjeMasivoJob implements ShouldQueue
                     $guiasDelGrupo = (array) ($fila['ids'] ?? []);
                     if ($fila['ok'] ?? false) {
                         $confirmadas += count($guiasDelGrupo);
-                        $movimientosCreados[] = ['movimiento_id' => $fila['id'] ?? null, 'guias' => $guiasDelGrupo];
+                        $movimientosCreados = $this->agregarMovimientoAuditado($movimientosCreados, [
+                            'movimiento_id' => $fila['id'] ?? null,
+                            'guias' => $guiasDelGrupo,
+                        ]);
                     } else {
                         $fallidas += count($guiasDelGrupo);
                         $fallos[] = ['guias' => $guiasDelGrupo, 'error' => (string) ($fila['error'] ?? 'Restaurant rechazó este grupo.')];
@@ -142,11 +148,11 @@ class ConfirmarCanjeMasivoJob implements ShouldQueue
                 [$confirmadasVerificadas, $fallidasReales] = $this->reconciliarLote($lote, $guias);
                 $confirmadas += count($confirmadasVerificadas);
                 foreach ($confirmadasVerificadas as $guia) {
-                    $movimientosCreados[] = [
+                    $movimientosCreados = $this->agregarMovimientoAuditado($movimientosCreados, [
                         'movimiento_id' => $guia['movimiento_id'] !== '' ? $guia['movimiento_id'] : null,
                         'guias' => [$guia['id']],
                         'nota' => 'Verificado post-error del cliente HTTP ("'.$exception->getMessage().'"): la guía quedó recepcionada en Restaurant pese al error.',
-                    ];
+                    ]);
                 }
                 $fallidas += count($fallidasReales);
                 if ($fallidasReales !== []) {
@@ -213,5 +219,47 @@ class ConfirmarCanjeMasivoJob implements ShouldQueue
         }
 
         return [$confirmadas, $fallidas];
+    }
+
+    /** @param array<int, array<string, mixed>> $movimientos */
+    private function normalizarMovimientosAuditados(array $movimientos): array
+    {
+        $unicos = [];
+        foreach ($movimientos as $movimiento) {
+            if (! is_array($movimiento)) {
+                continue;
+            }
+
+            $unicos[$this->claveMovimientoAuditado($movimiento)] ??= $movimiento;
+        }
+
+        return array_values($unicos);
+    }
+
+    /** @param array<int, array<string, mixed>> $movimientos @param array<string, mixed> $nuevo */
+    private function agregarMovimientoAuditado(array $movimientos, array $nuevo): array
+    {
+        $clave = $this->claveMovimientoAuditado($nuevo);
+        foreach ($movimientos as $movimiento) {
+            if (is_array($movimiento) && $this->claveMovimientoAuditado($movimiento) === $clave) {
+                return $movimientos;
+            }
+        }
+
+        $movimientos[] = $nuevo;
+
+        return $movimientos;
+    }
+
+    /** @param array<string, mixed> $movimiento */
+    private function claveMovimientoAuditado(array $movimiento): string
+    {
+        $movimientoId = trim((string) ($movimiento['movimiento_id'] ?? ''));
+        $guias = array_values(array_unique(array_filter(array_map('strval', (array) ($movimiento['guias'] ?? [])))));
+        sort($guias, SORT_NATURAL);
+
+        return $movimientoId !== ''
+            ? 'movimiento:'.$movimientoId
+            : 'guias:'.implode(',', $guias);
     }
 }

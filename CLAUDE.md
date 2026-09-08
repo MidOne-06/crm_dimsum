@@ -5,6 +5,11 @@
 > contexto. Si editás uno, actualizá el otro igual (especialmente la
 > Bitácora al final).
 
+> Actualización 2026-09-08 (Codex): auditoría del canje masivo: un reintento
+> de cola ya no duplica la evidencia ni el contador local de un movimiento;
+> cancelar una previsualización exige el permiso específico. La bitácora de
+> este ciclo queda reflejada también en la entrega de auditoría correspondiente.
+
 Panel Filament 5.7 sobre Laravel 11, PHP-FPM, Postgres. Repo remoto:
 `https://github.com/MidOne-06/crm_dimsum.git` (rama `main`). Producción:
 `2.25.155.29` (migrado desde `2.25.104.73` el 2026-09-04 -- ver Bitácora;

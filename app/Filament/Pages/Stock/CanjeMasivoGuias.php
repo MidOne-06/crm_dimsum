@@ -161,6 +161,8 @@ class CanjeMasivoGuias extends Page implements HasTable
 
     public function cancelarPendiente(int $id): void
     {
+        abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.canje-masivo'), 403);
+
         $canje = CanjeMasivo::find($id);
         if ($canje && $canje->estado === 'previsualizando') {
             $canje->update(['estado' => 'fallido', 'mensaje_error' => 'Cancelado manualmente por '.(auth()->user()?->name ?? 'admin').'.']);
