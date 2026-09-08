@@ -70,7 +70,13 @@ contenido legítimo de producción -- `lang/`, `app/Support/`, `app/Data/`,
 `app/Filament/Exports/`, `resources/views/filament/modals/`,
 `database/database.sqlite`, `public/build/`, `data/catalogo/`),
 reconstruye Docker y reinicia `app`, `scheduler`, `kardex-worker` y
-`gateway`.
+`gateway`. También sincroniza el propio `.git` del servidor al SHA exacto
+desplegado (vía un bundle de Git aparte del archive de archivos -- el
+rsync sigue sin tocar `.git` para no borrarlo, pero ya no lo deja
+congelado en un commit viejo): así `git log`/`git status` en el servidor
+vuelven a ser una fuente de verdad real sobre qué versión está corriendo
+(antes de este fix, esos comandos podían mentir -- ver bitácora
+2026-09-08, "drift" real encontrado 3 veces la misma semana).
 
 Parámetros útiles:
 - Solo cambió CRM (nada en API-TI): `-SkipGateway`

@@ -36,6 +36,53 @@ function New-ReleaseArchive([string] $Path, [string] $Ref, [string] $Name) {
     return $archive
 }
 
+# El rsync de más abajo excluye '.git' a propósito (borrarlo dejaría el
+# checkout de producción sin ningún historial -- pasó de verdad el
+# 2026-09-07). Pero eso tiene un costo que se descubrió recién: el propio
+# '.git' del servidor queda SIEMPRE apuntando al commit de la vez anterior
+# que alguien corrió `git fetch && git merge` ahí a mano, sin importar
+# cuántas veces se despliegue con este script -- 'git log'/'git status' en
+# el servidor mienten sobre qué versión está realmente corriendo. Pasó 3
+# veces reales en la misma semana (documentado en la bitácora del
+# 2026-09-08) y cada vez costó tiempo real diagnosticar si era un hotfix
+# directo por SSH o esto. La corrección: además de los archivos, empaquetar
+# también el propio commit (como bundle de Git, no como archive) y, en el
+# servidor, actualizar la referencia de la rama al SHA exacto que se acaba
+# de desplegar -- así 'git log' en producción vuelve a ser una fuente de
+# verdad real, sin tocar el working tree (que ya lo dejó correcto el rsync).
+function New-GitSyncBundle([string] $Path, [string] $TargetSha, [string] $BaseSha, [string] $Name) {
+    $bundle = Join-Path ([System.IO.Path]::GetTempPath()) "$Name-$([guid]::NewGuid().ToString('N')).bundle"
+    $useIncremental = $false
+    if ($BaseSha) {
+        git -C $Path merge-base --is-ancestor $BaseSha $TargetSha 2>$null
+        $useIncremental = ($LASTEXITCODE -eq 0)
+    }
+    if ($useIncremental) {
+        git -C $Path bundle create $bundle "$BaseSha..$TargetSha" | Out-Null
+    } else {
+        # Sin una base común conocida (primera vez, o el servidor está más
+        # atrás de lo que cualquier incremental puede cubrir): empaqueta
+        # toda la historia alcanzable desde el commit a desplegar. Más
+        # pesado, pero siempre correcto.
+        git -C $Path bundle create $bundle $TargetSha | Out-Null
+    }
+    if (-not (Test-Path -LiteralPath $bundle)) {
+        throw "No se pudo crear el bundle de sincronización de Git para $Name."
+    }
+
+    return $bundle
+}
+
+function Get-RemoteGitHead([string] $HostName, [string] $Path) {
+    $output = & ssh "root@$HostName" "git -C $Path rev-parse HEAD 2>/dev/null || true"
+    $sha = ($output | Select-Object -First 1)
+    if ($sha -match '^[0-9a-f]{40}$') {
+        return $sha
+    }
+
+    return $null
+}
+
 Require-Command git
 Require-Command ssh
 Require-Command scp
@@ -53,14 +100,27 @@ $crmSha = Get-GitRevision $crmRoot $CrmRef
 $gatewaySha = if ($SkipGateway) { $null } else { Get-GitRevision $gatewayRoot $GatewayRef }
 $crmArchive = New-ReleaseArchive $crmRoot $crmSha 'crm-dimsum'
 $gatewayArchive = if ($SkipGateway) { $null } else { New-ReleaseArchive $gatewayRoot $gatewaySha 'api-ti' }
+
+$crmRemoteHead = Get-RemoteGitHead $HostName '/opt/crm-dimsum'
+$crmBundle = New-GitSyncBundle $crmRoot $crmSha $crmRemoteHead 'crm-dimsum'
+$gatewayBundle = $null
+if (-not $SkipGateway) {
+    $gatewayRemoteHead = Get-RemoteGitHead $HostName '/opt/API-TI'
+    $gatewayBundle = New-GitSyncBundle $gatewayRoot $gatewaySha $gatewayRemoteHead 'api-ti'
+}
+
 $timestamp = Get-Date -Format 'yyyyMMddHHmmss'
 $remoteCrmArchive = "/tmp/crm-dimsum-$timestamp.tar.gz"
 $remoteGatewayArchive = "/tmp/api-ti-$timestamp.tar.gz"
+$remoteCrmBundle = "/tmp/crm-dimsum-$timestamp.bundle"
+$remoteGatewayBundle = "/tmp/api-ti-$timestamp.bundle"
 
 try {
     & scp $crmArchive "root@$HostName`:$remoteCrmArchive"
+    & scp $crmBundle "root@$HostName`:$remoteCrmBundle"
     if (-not $SkipGateway) {
         & scp $gatewayArchive "root@$HostName`:$remoteGatewayArchive"
+        & scp $gatewayBundle "root@$HostName`:$remoteGatewayBundle"
     }
 
     $remoteScript = @"
@@ -99,13 +159,47 @@ deploy_tree() {
   trap - RETURN
 }
 
+# El rsync de arriba nunca toca '.git' (por diseño, ver el comentario sobre
+# el borrado real del 2026-09-07). Sin este paso, 'git log'/'git status' en
+# el servidor quedan congelados en lo que sea que haya ahí -- normalmente el
+# commit de la última vez que alguien corrió `git fetch`/`merge` a mano, NO
+# lo que este script acaba de dejar corriendo. Encontrado 3 veces reales en
+# la misma semana (bitácora 2026-09-08), cada vez pareciendo un hotfix
+# directo por SSH cuando en realidad era esto. El bundle ya trae los objetos
+# de Git necesarios (incremental si el servidor tenía una base conocida,
+# completo si no) -- acá solo se actualiza la referencia de la rama al SHA
+# exacto desplegado, sin tocar ningún archivo del working tree (el rsync ya
+# lo dejó correcto).
+sync_git_state() {
+  target="`$1"
+  sha="`$2"
+  bundle="`$3"
+  if [ ! -d "`$target/.git" ]; then
+    echo "AVISO: `$target no tiene .git todavía -- se omite la sincronización de estado de Git (no bloquea el deploy de archivos)." >&2
+    rm -f "`$bundle"
+    return 0
+  fi
+  if [ ! -f "`$bundle" ]; then
+    echo "AVISO: no llegó el bundle de Git para `$target -- se omite la sincronización de estado." >&2
+    return 0
+  fi
+  git -C "`$target" fetch "`$bundle" "`$sha:refs/tmp/deploy-sync"
+  git -C "`$target" update-ref refs/heads/main "`$sha"
+  git -C "`$target" symbolic-ref HEAD refs/heads/main
+  git -C "`$target" update-ref -d refs/tmp/deploy-sync 2>/dev/null || true
+  rm -f "`$bundle"
+  echo "git en `$target sincronizado a `$sha"
+}
+
 command -v rsync >/dev/null
 deploy_tree "$remoteCrmArchive" /opt/crm-dimsum artisan
+sync_git_state /opt/crm-dimsum "$crmSha" "$remoteCrmBundle"
 "@
 
     if (-not $SkipGateway) {
         $remoteScript += @"
 deploy_tree "$remoteGatewayArchive" /opt/API-TI server.js
+sync_git_state /opt/API-TI "$gatewaySha" "$remoteGatewayBundle"
 "@
     }
 
@@ -139,5 +233,7 @@ curl -fsSI http://127.0.0.1:8080/admin | head -n 1
 }
 finally {
     Remove-Item -LiteralPath $crmArchive -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $crmBundle -Force -ErrorAction SilentlyContinue
     if ($gatewayArchive) { Remove-Item -LiteralPath $gatewayArchive -Force -ErrorAction SilentlyContinue }
+    if ($gatewayBundle) { Remove-Item -LiteralPath $gatewayBundle -Force -ErrorAction SilentlyContinue }
 }
