@@ -26,8 +26,10 @@ use Throwable;
  * de Restaurant, ver MovimientosAlmacenesGatewayClient/API-TI) mientras el
  * backlog real ronda cientos de guías. Dos pasos separados a propósito:
  *
- * 1. Previsualizar (PrevisualizarCanjeMasivoJob): solo LEE Restaurant, arma
- *    tandas de 20 y muestra cuántas guías/movimientos/soles implica.
+ * 1. Previsualizar (PrevisualizarCanjeMasivoJob): solo LEE el listado (sin
+ *    hidratar guía por guía -- ver el docblock del job, esa vuelta cuesta
+ *    caro con cientos de guías) y muestra cuántas guías/movimientos/soles
+ *    implica.
  * 2. Confirmar (ConfirmarCanjeMasivoJob): recién ahí escribe de verdad,
  *    tanda por tanda, usando los valores que Restaurant ya trae por
  *    defecto para cada grupo -- sin edición humana por movimiento, así que
@@ -94,16 +96,23 @@ class CanjeMasivoGuias extends Page implements HasTable
     {
         abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.canje-masivo'), 403);
 
-        // OJO: restrictLocalIdsToUser([]) devuelve [] -- filtra una lista
-        // vacía, no la reemplaza por "todos los permitidos". Si un usuario
-        // restringido a locales deja el filtro en blanco pensando "todos
-        // los míos", enviar 'locales' => '' al gateway equivale a "sin
-        // filtro" para Restaurant -- fuga real de alcance hacia locales que
-        // no le corresponden. Por eso se completa explícitamente con sus
-        // locales asignados ANTES de restringir, nunca se manda vacío.
+        // OJO, dos motivos reales para nunca mandar 'locales' vacío acá,
+        // comprobados en vivo:
+        // 1. restrictLocalIdsToUser([]) devuelve [] -- filtra una lista
+        //    vacía, no la reemplaza por "todos los permitidos". Un usuario
+        //    restringido que deja el filtro en blanco pensando "todos los
+        //    míos" mandaría 'locales' => '' -- fuga de alcance real.
+        // 2. Con buscar_segun=2 (por local de destino, el criterio correcto
+        //    acá porque el canje es sobre RECEPCIÓN), Restaurant no trata
+        //    'locales' vacío como "todos" -- lo limita al local de la propia
+        //    sesión del gateway y devuelve total=0 (comprobado en vivo:
+        //    0 resultados con locales vacío, 137+ con la lista completa).
+        // Por eso, sin selección explícita, se completa SIEMPRE con la
+        // lista completa de locales permitidos para este usuario (no con
+        // un array vacío) antes de restringir por permisos.
         $localesSeleccionados = (array) ($data['locales'] ?? []);
-        if ($localesSeleccionados === [] && auth()->user()?->isRestrictedToLocals()) {
-            $localesSeleccionados = auth()->user()->assignedLocalIds();
+        if ($localesSeleccionados === []) {
+            $localesSeleccionados = array_keys($this->restaurantLocalesOptions());
         }
         $locales = $this->restrictLocalIdsToUser($localesSeleccionados);
 
@@ -204,15 +213,15 @@ class CanjeMasivoGuias extends Page implements HasTable
             ->poll('5s')
             ->columns([
                 TextColumn::make('id')->label('Cód.'),
-                TextColumn::make('estado')->label('Estado')->badge()->formatStateUsing(fn (string $s): string => match ($s) {
+                TextColumn::make('estado')->label('Estado')->badge()->formatStateUsing(fn ($s): string => match ($s) {
                     'previsualizando' => 'Previsualizando…',
                     'listo' => 'Listo para confirmar',
                     'confirmando' => 'Confirmando…',
                     'completado' => 'Completado',
                     'completado_con_errores' => 'Completado con errores',
                     'fallido' => 'Fallido',
-                    default => ucfirst($s),
-                })->color(fn (string $s): string => match ($s) {
+                    default => ucfirst((string) $s),
+                })->color(fn ($s): string => match ($s) {
                     'listo' => 'warning',
                     'completado' => 'success',
                     'completado_con_errores' => 'danger',

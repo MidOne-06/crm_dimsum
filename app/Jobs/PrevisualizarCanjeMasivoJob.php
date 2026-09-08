@@ -4,7 +4,6 @@ namespace App\Jobs;
 
 use App\Models\CanjeMasivo;
 use App\Services\GuiasInternasGatewayClient;
-use App\Services\MovimientosAlmacenesGatewayClient;
 use DateTime;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -12,18 +11,29 @@ use Throwable;
 
 /**
  * Fase 1 de "canjear todo lo filtrado": SOLO LEE Restaurant, nunca escribe
- * nada -- ni prepararCanjeGuiasMasivo (llamado acá) ni el listado de guías
- * registran movimientos, por diseño del propio gateway (ver su docblock:
- * "No registra ni modifica movimientos en esta etapa"). Deja armado el
- * resumen (cuántas guías, cuántos grupos/movimientos resultantes, cuánto
- * suman) para que el usuario decida si confirma o no -- ConfirmarCanjeMasivoJob
- * es el único que de verdad escribe.
+ * nada. Deja armado el resumen (cuántas guías, cuántos grupos/movimientos
+ * resultantes, cuánto suman) para que el usuario decida si confirma o no --
+ * ConfirmarCanjeMasivoJob es el único que de verdad escribe.
+ *
+ * OJO, rediseño real tras probarlo en producción: la primera versión
+ * llamaba a prepararCanjeGuiasMasivo() en tandas de 20 SOLO para contar
+ * cuántos movimientos resultarían -- pero esa llamada re-hidrata cada guía
+ * una por una contra Restaurant (secuencial a propósito, según el propio
+ * gateway). Con un filtro real de 611 guías eso tardó más de 20 minutos y
+ * countdown/pool de sesiones de Restaurant.pe se fue liberando por
+ * inactividad -- inutilizable como "vista previa". La clave de
+ * agrupamiento real (`guideExchangeGroupKey()` en el gateway) es
+ * `{localId}:{almacenOrigenId}:{localDestinoLocalId}` -- exactamente los
+ * campos que el LISTADO YA TRAE por fila (`localOrigenId`, `almacenId`,
+ * `localDestinoId`), sin ninguna llamada extra. Se calcula la misma clave
+ * acá, en memoria, sobre las filas ya descargadas -- vista previa en
+ * segundos en vez de minutos, mismo resultado.
  */
 class PrevisualizarCanjeMasivoJob implements ShouldQueue
 {
     use Queueable;
 
-    public int $timeout = 3600;
+    public int $timeout = 900;
 
     public function __construct(public int $canjeMasivoId)
     {
@@ -35,7 +45,7 @@ class PrevisualizarCanjeMasivoJob implements ShouldQueue
         return now()->addHours(2);
     }
 
-    public function handle(GuiasInternasGatewayClient $guias, MovimientosAlmacenesGatewayClient $movimientos): void
+    public function handle(GuiasInternasGatewayClient $guias): void
     {
         $canje = CanjeMasivo::find($this->canjeMasivoId);
         if (! $canje || $canje->estado !== 'previsualizando') {
@@ -52,6 +62,7 @@ class PrevisualizarCanjeMasivoJob implements ShouldQueue
             $excluidas = [];
             $procesables = [];
             $valorizadoTotal = 0.0;
+            $clavesGrupo = [];
             foreach ($filas as $fila) {
                 $id = (string) ($fila['id'] ?? '');
                 if ($id === '') {
@@ -66,21 +77,12 @@ class PrevisualizarCanjeMasivoJob implements ShouldQueue
                 }
                 $procesables[] = $id;
                 $valorizadoTotal += (float) ($fila['total'] ?? 0);
-            }
 
-            // Se re-agrupa en tandas de 20 (el máximo real que admite
-            // Restaurant) SOLO para saber cuántos movimientos resultarían y
-            // detectar de una vez cualquier lote que Restaurant rechazaría
-            // -- prepararCanjeGuiasMasivo no escribe nada, es información.
-            $totalGrupos = 0;
-            $fallosPreview = [];
-            foreach (array_chunk($procesables, 20) as $lote) {
-                try {
-                    $preparado = $movimientos->prepararCanjeGuiasMasivo($lote);
-                    $totalGrupos += count($preparado['groups'] ?? []);
-                } catch (Throwable $exception) {
-                    $fallosPreview[] = ['ids' => $lote, 'error' => $exception->getMessage()];
-                }
+                // Misma fórmula que guideExchangeGroupKey() en el gateway,
+                // calculada acá con los campos que el listado ya trae --
+                // ver el docblock de la clase.
+                $clave = (string) ($fila['localOrigenId'] ?? '').':'.(string) ($fila['almacenId'] ?? '').':'.(string) ($fila['localDestinoId'] ?? '');
+                $clavesGrupo[$clave] = true;
             }
 
             $canje->update([
@@ -88,9 +90,9 @@ class PrevisualizarCanjeMasivoJob implements ShouldQueue
                 'total_guias_filtro' => count($filas),
                 'total_guias_procesables' => count($procesables),
                 'total_guias_excluidas' => count($excluidas),
-                'total_grupos_estimados' => $totalGrupos,
+                'total_grupos_estimados' => count($clavesGrupo),
                 'total_valorizado_estimado' => $valorizadoTotal,
-                'resultado' => ['excluidas' => $excluidas, 'fallos_preview' => $fallosPreview, 'ids_procesables' => $procesables],
+                'resultado' => ['excluidas' => $excluidas, 'fallos_preview' => [], 'ids_procesables' => $procesables],
                 'previsualizado_en' => now(),
             ]);
         } catch (Throwable $exception) {
