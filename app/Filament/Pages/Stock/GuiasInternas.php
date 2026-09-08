@@ -299,6 +299,11 @@ class GuiasInternas extends Page implements HasTable
                     ->icon('heroicon-o-arrow-down-tray')
                     ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('guias-internas.sincronizar'))
                     ->url(fn (): string => ExtraccionGuiasInternas::getUrl()),
+                Action::make('canje_masivo')
+                    ->label('Canje masivo')
+                    ->icon('heroicon-o-squares-plus')
+                    ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('movimientos-almacenes.canje-masivo'))
+                    ->url(fn (): string => CanjeMasivoGuias::getUrl()),
                 Action::make('reporte')
                     ->label('Reporte')
                     ->icon('heroicon-o-table-cells')
