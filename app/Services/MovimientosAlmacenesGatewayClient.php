@@ -58,13 +58,35 @@ class MovimientosAlmacenesGatewayClient
     /** Agrupa en vivo guías compatibles sin registrar movimientos. */
     public function prepararCanjeGuiasMasivo(array $ids): array
     {
-        return $this->post('/api/guias-importadas/canje-masivo/preparar', ['ids' => $ids]);
+        // Timeout largo (ver canjearGuiasMasivo): hidrata hasta 20 guías una
+        // por una y a propósito en secuencia, según el propio gateway.
+        return $this->post('/api/guias-importadas/canje-masivo/preparar', ['ids' => $ids], 300);
     }
 
-    /** Registra cada grupo compatible como un movimiento independiente. */
+    /**
+     * Registra cada grupo compatible como un movimiento independiente.
+     *
+     * Timeout de 300s (no los 120s por defecto de post()): esta llamada
+     * procesa hasta 20 guías EN SECUENCIA dentro de Restaurant (a propósito,
+     * la sesión no soporta ráfagas -- ver ConfirmarCanjeMasivoJob), y cada
+     * una pasa por 5 etapas propias. Encontrado en vivo con la primera
+     * corrida real de 611 guías: varios lotes de 20 tardaron más de 120s
+     * (picos de sesión reconectando), el cliente HTTP de Laravel los daba
+     * por "fallidos" (cURL error 28, timeout) mientras Restaurant seguía
+     * procesando la petición en segundo plano y SÍ terminaba de registrar el
+     * movimiento real -- confirmado en los logs del gateway, sin ningún
+     * "falló en registro del movimiento" para esos lotes, y las guías
+     * desaparecieron del listado de "activas y pendientes" después. Ese
+     * timeout corto no perdía datos (el lote quedaba mal contabilizado como
+     * "fallida" en vez de "confirmada", nunca se reintentaba solo), pero sí
+     * generaba un reporte final incorrecto -- y un reintento manual futuro
+     * sobre una guía que en realidad ya se había confirmado sí sería
+     * peligroso (movimiento duplicado). 300s da margen real de sobra para
+     * un lote de 20 aun con reconexión de sesión de por medio.
+     */
     public function canjearGuiasMasivo(array $payload): array
     {
-        return $this->post('/api/guias-importadas/canje-masivo/confirmar', $payload);
+        return $this->post('/api/guias-importadas/canje-masivo/confirmar', $payload, 300);
     }
 
     /** @return array{content:string,contentType:string} */
@@ -131,9 +153,9 @@ class MovimientosAlmacenesGatewayClient
     }
 
     /** @return array<string, mixed> */
-    private function post(string $path, array $payload = []): array
+    private function post(string $path, array $payload = [], int $timeout = 120): array
     {
-        $response = Http::baseUrl($this->baseUrl)->timeout(120)->post($path, $payload);
+        $response = Http::baseUrl($this->baseUrl)->timeout($timeout)->post($path, $payload);
         $body = $response->json();
         if ($response->failed()) {
             throw new RuntimeException($body['error'] ?? 'No se pudo completar la operación en Restaurant.');

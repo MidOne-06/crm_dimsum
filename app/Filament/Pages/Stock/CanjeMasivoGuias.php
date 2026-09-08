@@ -167,6 +167,30 @@ class CanjeMasivoGuias extends Page implements HasTable
         }
     }
 
+    /**
+     * Detiene una confirmación real ya en curso, entre tandas -- antes esto
+     * requería matar el worker a mano por SSH (pasó de verdad el
+     * 2026-09-08, con una corrida real de 611 guías). ConfirmarCanjeMasivoJob
+     * revisa el estado ANTES de lanzar cada tanda de 20 y corta solo ahí, así
+     * que la tanda que ya esté en vuelo en ese momento sigue su curso hasta
+     * el final (no se puede cortar a la fuerza sin generar el mismo hueco de
+     * contabilidad que motivó este botón) -- lo ya confirmado nunca se
+     * reversa.
+     */
+    public function detenerConfirmacion(int $id): void
+    {
+        abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.canje-masivo'), 403);
+
+        $canje = CanjeMasivo::find($id);
+        if ($canje && $canje->estado === 'confirmando') {
+            $canje->update([
+                'estado' => 'cancelado',
+                'mensaje_error' => 'Detenido manualmente por '.(auth()->user()?->name ?? 'admin').' mientras estaba en curso. Lo ya confirmado hasta ese punto queda tal cual, sin reversar nada.',
+            ]);
+            Notification::make()->title('Deteniendo la corrida')->body('La tanda que esté en vuelo en este momento va a terminar de procesarse; no se van a lanzar tandas nuevas después de esa.')->warning()->send();
+        }
+    }
+
     /** @return array<string, string> */
     private function restaurantLocalesOptions(): array
     {
@@ -220,12 +244,14 @@ class CanjeMasivoGuias extends Page implements HasTable
                     'completado' => 'Completado',
                     'completado_con_errores' => 'Completado con errores',
                     'fallido' => 'Fallido',
+                    'cancelado' => 'Detenido manualmente',
                     default => ucfirst((string) $s),
                 })->color(fn ($s): string => match ($s) {
                     'listo' => 'warning',
                     'completado' => 'success',
                     'completado_con_errores' => 'danger',
                     'fallido' => 'danger',
+                    'cancelado' => 'gray',
                     default => 'gray',
                 }),
                 TextColumn::make('filtros')->label('Filtro')->state(fn (CanjeMasivo $r): string => ($r->filtros['fecha_inicio'] ?? '').' al '.($r->filtros['fecha_fin'] ?? ''))->wrap(),
@@ -259,6 +285,16 @@ class CanjeMasivoGuias extends Page implements HasTable
                     ->visible(fn (CanjeMasivo $r): bool => $r->estado === 'previsualizando')
                     ->requiresConfirmation()
                     ->action(fn (CanjeMasivo $r) => $this->cancelarPendiente($r->id)),
+                Action::make('detener')
+                    ->label('Detener')
+                    ->icon('heroicon-o-stop-circle')
+                    ->color('danger')
+                    ->visible(fn (CanjeMasivo $r): bool => $r->estado === 'confirmando')
+                    ->requiresConfirmation()
+                    ->modalHeading('¿Detener esta confirmación en curso?')
+                    ->modalDescription('Lo que ya se confirmó hasta ahora queda tal cual -- no se reversa nada. Solo se evita que se sigan registrando movimientos nuevos a partir de la próxima tanda.')
+                    ->modalSubmitActionLabel('Sí, detener')
+                    ->action(fn (CanjeMasivo $r) => $this->detenerConfirmacion($r->id)),
                 Action::make('ver_detalle')
                     ->label('Ver detalle')
                     ->icon('heroicon-o-eye')

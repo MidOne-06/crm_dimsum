@@ -7,6 +7,7 @@ use App\Services\GuiasInternasGatewayClient;
 use DateTime;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 /**
@@ -52,6 +53,26 @@ class PrevisualizarCanjeMasivoJob implements ShouldQueue
             return;
         }
 
+        // Mismo cerrojo por corrida que ConfirmarCanjeMasivoJob -- ver su
+        // docblock. Este job ya es rápido (segundos, no minutos), pero un
+        // filtro que devuelva miles de guías igual podría acercarse al
+        // umbral de DB_QUEUE_RETRY_AFTER; más vale prevenir.
+        $lock = Cache::lock("canje-masivo-preview:{$this->canjeMasivoId}", $this->timeout + 60);
+        if (! $lock->get()) {
+            $this->release(30);
+
+            return;
+        }
+
+        try {
+            $this->previsualizar($canje, $guias);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function previsualizar(CanjeMasivo $canje, GuiasInternasGatewayClient $guias): void
+    {
         try {
             $filas = $this->recolectarTodasLasPaginas($guias, (array) $canje->filtros);
 
