@@ -99,6 +99,30 @@ class GuiasInternas extends Page implements HasTable
     /** @var array<string, array<string, string>> */
     public array $canjeMasivoTiposMovimiento = [];
 
+    /**
+     * Canal lateral para leer el estado REAL de 'grupos' al confirmar,
+     * evitando el `$data` que Livewire entrega a la acción -- comprobado en
+     * vivo, en producción: Filament reconstruye los campos de cada pestaña
+     * en una closure nueva en cada render (`canjeMasivoTabs()` recibe
+     * `Get $get`, ver más abajo), y aunque `$get('grupos')` SIEMPRE
+     * devuelve el valor correcto y actualizado (fecha/encargado/etc. que
+     * el usuario tipeó) en cualquier punto de esa misma renderización --
+     * incluida la última, justo antes de invocar la acción -- el `$data`
+     * que Filament arma para el callback de la acción llega con esos
+     * mismos campos en NULL, y con el grupo entero SIN 'clave'/'ids'/
+     * 'cantidades' (los campos propios del Repeater 'grupos', que está
+     * `->hidden()` sin `->dehydratedWhenHidden()`, así que Filament los
+     * excluye de `getState()` -- confirmado leyendo
+     * `isHiddenAndNotDehydratedWhenHidden()` en el propio vendor). En vez
+     * de pelear con ese pipeline de deshidratación, `canjeMasivoTabs()`
+     * guarda acá una copia de lo que `$get('grupos')` acaba de leer --
+     * siempre fresco, en la MISMA request que después llama a la acción --
+     * y `confirmarCanjeGuiasMasivo()` lee de acá, no de `$data['grupos']`.
+     *
+     * @var array<int|string, array<string, mixed>>
+     */
+    private array $canjeMasivoLiveGrupos = [];
+
     public static function canAccess(): bool
     {
         return (bool) auth()->user()?->hasPermission('guias-internas.view');
@@ -769,6 +793,9 @@ class GuiasInternas extends Page implements HasTable
     private function canjeMasivoTabs(Get $get): array
     {
         $grupos = (array) ($get('grupos') ?? []);
+        // Ver el docblock de canjeMasivoLiveGrupos: esta es la copia que
+        // confirmarCanjeGuiasMasivo() termina usando, no $data['grupos'].
+        $this->canjeMasivoLiveGrupos = $grupos;
 
         return collect($grupos)
             ->map(function (array $grupo, int|string $grupoKey): Tab {
@@ -811,13 +838,21 @@ class GuiasInternas extends Page implements HasTable
         }
 
         try {
+            // OJO: se usa canjeMasivoLiveGrupos, NO $data['grupos'] -- ver el
+            // docblock de esa propiedad. `$data` llega con los campos que el
+            // usuario tipeó en NULL y sin clave/ids/cantidades (comprobado
+            // en vivo, en producción: el Repeater 'grupos' está `->hidden()`
+            // sin `->dehydratedWhenHidden()`, así que Filament lo excluye de
+            // `getState()`), aunque el estado real y actualizado siempre
+            // estuvo disponible vía `$get('grupos')` en el mismo request.
+            //
             // No enviamos el detalle oculto del modal. Releemos la selección
             // completa en Restaurant y distribuimos cada total consolidado en
             // sus líneas originales. Así se conserva el vínculo guía/detalle y
             // no se pueden confirmar cantidades que ya cambiaron en origen.
             $preparado = app(MovimientosAlmacenesGatewayClient::class)->prepararCanjeGuiasMasivo($ids);
             $grupos = $this->normalizarCanjeMasivoParaGateway(
-                is_array($data['grupos'] ?? null) ? $data['grupos'] : [],
+                array_values($this->canjeMasivoLiveGrupos),
                 (array) ($preparado['groups'] ?? []),
             );
 
