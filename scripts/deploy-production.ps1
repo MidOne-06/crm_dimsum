@@ -52,19 +52,30 @@ function New-ReleaseArchive([string] $Path, [string] $Ref, [string] $Name) {
 # verdad real, sin tocar el working tree (que ya lo dejó correcto el rsync).
 function New-GitSyncBundle([string] $Path, [string] $TargetSha, [string] $BaseSha, [string] $Name) {
     $bundle = Join-Path ([System.IO.Path]::GetTempPath()) "$Name-$([guid]::NewGuid().ToString('N')).bundle"
-    $useIncremental = $false
-    if ($BaseSha) {
-        git -C $Path merge-base --is-ancestor $BaseSha $TargetSha 2>$null
-        $useIncremental = ($LASTEXITCODE -eq 0)
-    }
-    if ($useIncremental) {
-        git -C $Path bundle create $bundle "$BaseSha..$TargetSha" | Out-Null
-    } else {
-        # Sin una base común conocida (primera vez, o el servidor está más
-        # atrás de lo que cualquier incremental puede cubrir): empaqueta
-        # toda la historia alcanzable desde el commit a desplegar. Más
-        # pesado, pero siempre correcto.
-        git -C $Path bundle create $bundle $TargetSha | Out-Null
+    # `git bundle create` exige un REF con nombre del lado a incluir -- un
+    # SHA suelto como "B" en "A..B" hace que rechace el bundle como "vacío"
+    # aunque el rango sí tenga commits (probado en vivo). refs/tmp/* es una
+    # referencia real pero fuera de refs/heads, para no tocar ninguna rama
+    # local mientras se arma el paquete.
+    $tempRef = 'refs/tmp/deploy-bundle'
+    git -C $Path update-ref $tempRef $TargetSha
+    try {
+        $useIncremental = $false
+        if ($BaseSha) {
+            git -C $Path merge-base --is-ancestor $BaseSha $TargetSha 2>$null
+            $useIncremental = ($LASTEXITCODE -eq 0)
+        }
+        if ($useIncremental) {
+            git -C $Path bundle create $bundle "$BaseSha..$tempRef" | Out-Null
+        } else {
+            # Sin una base común conocida (primera vez, o el servidor está más
+            # atrás de lo que cualquier incremental puede cubrir): empaqueta
+            # toda la historia alcanzable desde el commit a desplegar. Más
+            # pesado, pero siempre correcto.
+            git -C $Path bundle create $bundle $tempRef | Out-Null
+        }
+    } finally {
+        git -C $Path update-ref -d $tempRef | Out-Null
     }
     if (-not (Test-Path -LiteralPath $bundle)) {
         throw "No se pudo crear el bundle de sincronización de Git para $Name."
@@ -183,7 +194,7 @@ sync_git_state() {
     echo "AVISO: no llegó el bundle de Git para `$target -- se omite la sincronización de estado." >&2
     return 0
   fi
-  git -C "`$target" fetch "`$bundle" "`$sha:refs/tmp/deploy-sync"
+  git -C "`$target" fetch "`$bundle" "refs/tmp/deploy-bundle:refs/tmp/deploy-sync"
   git -C "`$target" update-ref refs/heads/main "`$sha"
   git -C "`$target" symbolic-ref HEAD refs/heads/main
   git -C "`$target" update-ref -d refs/tmp/deploy-sync 2>/dev/null || true
