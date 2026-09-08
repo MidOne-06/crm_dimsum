@@ -4,17 +4,25 @@ namespace App\Filament\Pages\Stock;
 
 use App\Filament\Concerns\ScopesLocalsToUser;
 use App\Services\GuiasInternasGatewayClient;
+use App\Services\MovimientosAlmacenesGatewayClient;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\DateTimePicker;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Tabs;
+use Filament\Schemas\Components\Tabs\Tab;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Enums\Alignment;
@@ -78,6 +86,21 @@ class GuiasInternas extends Page implements HasTable
 
     /** @var array<string, string> */
     public array $remoteItemLabels = [];
+
+    /** @var array<string, string> */
+    public array $canjeDestinos = [];
+
+    /** @var array<string, string> */
+    public array $canjeTiposMovimiento = [];
+
+    /** @var array<string, array<string, string>> */
+    public array $canjeMasivoDestinos = [];
+
+    /** @var array<string, array<string, string>> */
+    public array $canjeMasivoTiposMovimiento = [];
+
+    /** @var array<int, array<string, mixed>> */
+    public array $canjeMasivoTabGroups = [];
 
     public static function canAccess(): bool
     {
@@ -309,10 +332,43 @@ class GuiasInternas extends Page implements HasTable
             ->bulkActions([
                 BulkActionGroup::make([
                     BulkAction::make('canjear_por_movimiento')
-                        ->label('Canjear por movimiento interno')
+                        ->label('Canjear selección por movimientos internos')
                         ->icon('heroicon-o-arrow-path-rounded-square')
-                        ->url(fn (Collection $records): string => 'https://corporaciondimsum.restaurant.pe/restaurant/logistica.html#!/movimientoalmacen/canjeguias/'.implode(',', $records->pluck('id')->filter()->all()))
-                        ->openUrlInNewTab(),
+                        ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('movimientos-almacenes.crear'))
+                        ->modalHeading('Canjear guías por movimientos internos')
+                        ->modalWidth('7xl')
+                        ->stickyModalHeader()
+                        ->stickyModalFooter()
+                        ->modalSubmitActionLabel('Confirmar movimientos')
+                        ->modalCancelActionLabel('Cancelar')
+                        ->fillForm(fn (Collection $records): array => $this->canjeGuiasMasivoForm($records))
+                        ->schema([
+                            Hidden::make('ids')->dehydrated(),
+                            Repeater::make('grupos')->hidden()->addable(false)->deletable(false)->reorderable(false)->itemNumbers(false)->columnSpanFull()
+                                ->schema([
+                                    Hidden::make('clave')->dehydrated(),
+                                    Hidden::make('ids')->dehydrated(),
+                                    Hidden::make('titulo')->dehydrated(false),
+                                    Hidden::make('fecha_minima')->dehydrated(false),
+                                    Hidden::make('can_edit_quantity')->dehydrated(false),
+                                    Repeater::make('cantidades')->hidden()->addable(false)->deletable(false)->reorderable(false)
+                                        ->schema([
+                                            Hidden::make('key')->dehydrated(),
+                                            Hidden::make('cantidad')->dehydrated(),
+                                        ]),
+                                ]),
+                            Tabs::make('Configuración por movimiento')
+                                ->tabs(fn (): array => $this->canjeMasivoTabs())
+                                ->columnSpanFull(),
+                            ViewField::make('matriz_cantidades')
+                                ->label('Cantidades consolidadas')
+                                ->view('filament.forms.components.canje-guias-matriz')
+                                ->viewData(fn (Get $get): array => $this->matrizCanjeGuias((array) ($get('grupos') ?? [])))
+                                ->columnSpanFull(),
+                        ])
+                        ->action(function (Collection $records, array $data): void {
+                            $this->confirmarCanjeGuiasMasivo($records, $data);
+                        }),
                     BulkAction::make('agrupar_guias')
                         ->label('Agrupar selección')
                         ->icon('heroicon-o-rectangle-stack')
@@ -624,6 +680,442 @@ class GuiasInternas extends Page implements HasTable
             'item_ids' => implode('-', array_column($itemPairs, 'id')),
             'item_tipos' => implode('-', array_column($itemPairs, 'tipo')),
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private function canjeGuiasMasivoForm(Collection $records): array
+    {
+        abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.crear'), 403);
+
+        $ids = $records->pluck('id')->map(fn (mixed $id): string => (string) $id)->filter(fn (string $id): bool => ctype_digit($id))->unique()->values()->all();
+        $canje = app(MovimientosAlmacenesGatewayClient::class)->prepararCanjeGuiasMasivo($ids);
+
+        $this->canjeMasivoDestinos = [];
+        $this->canjeMasivoTiposMovimiento = [];
+        $grupos = collect((array) ($canje['groups'] ?? []))
+            ->map(function (array $grupo): array {
+                $clave = (string) ($grupo['clave'] ?? '');
+                $localId = (string) ($grupo['localId'] ?? '');
+                abort_unless($clave !== '' && $this->localAllowedForUser($localId), 403);
+
+                $this->canjeMasivoDestinos[$clave] = collect((array) ($grupo['destinos'] ?? []))
+                    ->mapWithKeys(fn (array $row): array => [(string) ($row['id'] ?? '') => (string) ($row['nombre'] ?? '')])
+                    ->filter()
+                    ->all();
+                $this->canjeMasivoTiposMovimiento[$clave] = collect((array) ($grupo['tipos'] ?? []))
+                    ->mapWithKeys(fn (array $row): array => [(string) ($row['id'] ?? '') => (string) ($row['nombre'] ?? '')])
+                    ->filter()
+                    ->all();
+
+                return [
+                    'clave' => $clave,
+                    'ids' => array_values((array) ($grupo['ids'] ?? [])),
+                    'titulo' => (string) ($grupo['titulo'] ?? 'Movimiento'),
+                    'local' => (string) ($grupo['local'] ?? ''),
+                    'fecha' => filled($grupo['fecha'] ?? null) ? (string) $grupo['fecha'] : now()->seconds(0)->format('Y-m-d H:i:s'),
+                    'fecha_minima' => (string) ($grupo['fechaMinima'] ?? ''),
+                    'encargado' => (string) ($grupo['encargado'] ?? ''),
+                    'receptor' => (string) ($grupo['receptor'] ?? ''),
+                    'almacen_origen' => (string) ($grupo['almacenOrigen']['nombre'] ?? ''),
+                    'almacen_destino' => (string) ($grupo['almacenDestino']['id'] ?? ''),
+                    'tipo_movimiento' => (string) ($grupo['tipoMovimiento'] ?? ''),
+                    'can_edit_quantity' => (bool) ($grupo['canEditGuideQuantity'] ?? false),
+                    // El detalle que llega de Restaurant se conserva sólo para
+                    // construir la matriz. Antes de confirmar se vuelve a leer
+                    // desde Restaurant para impedir que una edición use datos
+                    // locales desactualizados.
+                    'cantidades' => $this->agruparItemsCanje((array) ($grupo['items'] ?? [])),
+                    'observacion' => (string) ($grupo['observacion'] ?? ''),
+                ];
+            })
+            ->values()
+            ->map(function (array $grupo, int $index): array {
+                $ids = array_values(array_map('strval', (array) ($grupo['ids'] ?? [])));
+                $idsPreview = implode(', ', array_slice($ids, 0, 3));
+                if (count($ids) > 3) {
+                    $idsPreview .= ' +'.(count($ids) - 3);
+                }
+
+                $number = $index + 1;
+                $grupo['titulo'] = 'Movimiento '.$number.($idsPreview !== '' ? ' · Guías #'.$idsPreview : '');
+                $grupo['matriz_titulo'] = 'M'.$number;
+                $grupo['matriz_guias'] = $idsPreview !== '' ? '#'.$idsPreview : '';
+
+                return $grupo;
+            })
+            ->all();
+
+        if ($grupos === []) {
+            throw new \RuntimeException('Restaurant no devolvió grupos compatibles para las guías seleccionadas.');
+        }
+
+        $this->canjeMasivoTabGroups = $grupos;
+
+        return ['ids' => $ids, 'grupos' => $grupos];
+    }
+
+    /** @return array<int, Tab> */
+    private function canjeMasivoTabs(): array
+    {
+        return collect($this->canjeMasivoTabGroups)
+            ->map(function (array $grupo, int $index): Tab {
+                $clave = (string) ($grupo['clave'] ?? '');
+                $prefix = 'grupos.'.$index.'.';
+
+                return Tab::make((string) ($grupo['titulo'] ?? 'Movimiento '.($index + 1)))
+                    ->schema([
+                        Grid::make(['default' => 1, 'md' => 4])->schema([
+                            TextInput::make($prefix.'local')->label('Local')->disabled()->dehydrated(false),
+                            DateTimePicker::make($prefix.'fecha')->label('Fecha de movimiento')->native(false)->seconds(false)->required()
+                                ->minDate(filled($grupo['fecha_minima'] ?? null) ? (string) $grupo['fecha_minima'] : null),
+                            TextInput::make($prefix.'encargado')->label('Encargado del envío')->maxLength(160)->required(),
+                            TextInput::make($prefix.'receptor')->label('Receptor')->maxLength(160),
+                            TextInput::make($prefix.'almacen_origen')->label('Almacén de origen')->disabled()->dehydrated(false),
+                            Select::make($prefix.'almacen_destino')->label('Almacén de destino')
+                                ->options($this->canjeMasivoDestinos[$clave] ?? [])
+                                ->native(false)->searchable()->required()->columnSpan(['md' => 2]),
+                            Select::make($prefix.'tipo_movimiento')->label('Tipo de movimiento')
+                                ->options($this->canjeMasivoTiposMovimiento[$clave] ?? [])
+                                ->native()->required(),
+                        ]),
+                        Textarea::make($prefix.'observacion')->label('Anotaciones')->rows(2)->maxLength(1000)->columnSpanFull(),
+                    ]);
+            })
+            ->all();
+    }
+
+    /** @param array<string, mixed> $data */
+    private function confirmarCanjeGuiasMasivo(Collection $records, array $data): void
+    {
+        abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.crear'), 403);
+
+        $ids = $records->pluck('id')->map(fn (mixed $id): string => (string) $id)->filter(fn (string $id): bool => ctype_digit($id))->unique()->values()->all();
+        if ($ids === []) {
+            Notification::make()->danger()->title('No se pudo canjear las guías')->body('Selecciona al menos una guía interna válida.')->send();
+
+            return;
+        }
+
+        try {
+            // No enviamos el detalle oculto del modal. Releemos la selección
+            // completa en Restaurant y distribuimos cada total consolidado en
+            // sus líneas originales. Así se conserva el vínculo guía/detalle y
+            // no se pueden confirmar cantidades que ya cambiaron en origen.
+            $preparado = app(MovimientosAlmacenesGatewayClient::class)->prepararCanjeGuiasMasivo($ids);
+            $grupos = $this->normalizarCanjeMasivoParaGateway(
+                is_array($data['grupos'] ?? null) ? $data['grupos'] : [],
+                (array) ($preparado['groups'] ?? []),
+            );
+
+            // Los IDs de la selección se obtienen otra vez del Table de
+            // Filament, no del formulario. El gateway rehidrata y valida cada
+            // grupo en Restaurant antes de escribir cualquier movimiento.
+            $result = app(MovimientosAlmacenesGatewayClient::class)->canjearGuiasMasivo([
+                'ids' => $ids,
+                'grupos' => $grupos,
+                'confirmar' => true,
+            ]);
+            $results = collect((array) ($result['results'] ?? []));
+            $successful = $results->filter(fn (array $row): bool => (bool) ($row['ok'] ?? false))->values();
+            $failed = $results->filter(fn (array $row): bool => ! (bool) ($row['ok'] ?? false))->values();
+
+            if ($successful->isNotEmpty()) {
+                $movimientos = $successful->pluck('id')->filter()->implode(', ');
+                Notification::make()->success()->title('Recepciones confirmadas en Restaurant')
+                    ->body($movimientos !== '' ? 'Movimientos registrados: #'.$movimientos.'.' : $successful->count().' grupo(s) registrado(s) correctamente.')
+                    ->send();
+                $this->resetTable();
+            }
+
+            if ($failed->isNotEmpty()) {
+                $detail = $failed->map(function (array $row): string {
+                    $guias = implode(', ', array_map('strval', (array) ($row['ids'] ?? [])));
+
+                    return 'Guías #'.$guias.': '.(string) ($row['error'] ?? 'Restaurant rechazó este grupo.');
+                })->implode("\n");
+                Notification::make()->warning()->title('Algunos grupos no se registraron')->body($detail)->send();
+            }
+        } catch (Throwable $exception) {
+            report($exception);
+            Notification::make()->danger()->title('No se pudo confirmar la recepción')->body($exception->getMessage())->send();
+        }
+    }
+
+    /**
+     * Agrupa únicamente las líneas que representan el mismo SKU/presentación.
+     * La clave no se muestra ni se recibe del usuario como identidad editable.
+     *
+     * @param array<int, array<string, mixed>> $items
+     * @return array<int, array<string, mixed>>
+     */
+    private function agruparItemsCanje(array $items): array
+    {
+        $agrupados = [];
+
+        foreach ($items as $item) {
+            $clave = $this->claveItemCanje($item);
+            if (! isset($agrupados[$clave])) {
+                $agrupados[$clave] = [
+                    'key' => $clave,
+                    'codigo' => (string) ($item['codigo'] ?? ''),
+                    'descripcion' => (string) ($item['descripcion'] ?? ''),
+                    'presentacion' => (string) ($item['presentacion'] ?? ''),
+                    'unidad' => (string) ($item['unidad'] ?? ''),
+                    'cantidad' => 0.0,
+                ];
+            }
+
+            $agrupados[$clave]['cantidad'] += $this->cantidadCanje($item['cantidad'] ?? 0);
+        }
+
+        return array_values($agrupados);
+    }
+
+    /** @param array<string, mixed> $item */
+    private function claveItemCanje(array $item): string
+    {
+        return hash('sha256', implode("\x1f", [
+            mb_strtolower(trim((string) ($item['codigo'] ?? ''))),
+            mb_strtolower(trim((string) ($item['descripcion'] ?? ''))),
+            mb_strtolower(trim((string) ($item['presentacion'] ?? ''))),
+            mb_strtolower(trim((string) ($item['unidad'] ?? ''))),
+        ]));
+    }
+
+    /** @param mixed $value */
+    private function cantidadCanje(mixed $value): float
+    {
+        if (is_string($value)) {
+            $value = str_replace(',', '.', trim($value));
+        }
+
+        return is_numeric($value) ? (float) $value : 0.0;
+    }
+
+    /**
+     * Datos para la tabla pivote. Cada columna es un grupo compatible y cada
+     * fila un SKU/presentación; las cantidades siguen viviendo en grupos.*.
+     * cantidades para que Filament las deshidrate normalmente.
+     *
+     * @param array<int, array<string, mixed>> $grupos
+     * @return array{groups: array<int, array<string, mixed>>, rows: array<int, array<string, mixed>>, totals: array<int, float>, grandTotal: float}
+     */
+    private function matrizCanjeGuias(array $grupos): array
+    {
+        $rows = [];
+        $totals = [];
+        $grandTotal = 0.0;
+
+        foreach ($grupos as $grupoIndex => $grupo) {
+            $total = 0.0;
+            foreach ((array) ($grupo['cantidades'] ?? []) as $cantidadIndex => $item) {
+                $key = (string) ($item['key'] ?? '');
+                if ($key === '') {
+                    continue;
+                }
+
+                if (! isset($rows[$key])) {
+                    $rows[$key] = [
+                        'key' => $key,
+                        'codigo' => (string) ($item['codigo'] ?? ''),
+                        'descripcion' => (string) ($item['descripcion'] ?? ''),
+                        'presentacion' => (string) ($item['presentacion'] ?? ''),
+                        'unidad' => (string) ($item['unidad'] ?? ''),
+                        'cells' => [],
+                        'rowTotal' => 0.0,
+                    ];
+                }
+
+                $value = $this->cantidadCanje($item['cantidad'] ?? 0);
+                $rows[$key]['cells'][(int) $grupoIndex] = (int) $cantidadIndex;
+                $rows[$key]['rowTotal'] += $value;
+                $total += $value;
+            }
+            $totals[(int) $grupoIndex] = $total;
+            $grandTotal += $total;
+        }
+
+        uasort($rows, fn (array $a, array $b): int => [$a['codigo'], $a['descripcion']] <=> [$b['codigo'], $b['descripcion']]);
+
+        return [
+            'groups' => array_values($grupos),
+            'rows' => array_values($rows),
+            'totals' => $totals,
+            'grandTotal' => $grandTotal,
+        ];
+    }
+
+    /**
+     * Reconstituye el detalle que espera Restaurant usando cantidades de la
+     * matriz. Cuando se reduce un total, las líneas fuente se consumen en el
+     * mismo orden que Restaurant informó; nunca se aumenta una línea original.
+     *
+     * @param array<int, array<string, mixed>> $submittedGroups
+     * @param array<int, array<string, mixed>> $liveGroups
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizarCanjeMasivoParaGateway(array $submittedGroups, array $liveGroups): array
+    {
+        $liveByKey = collect($liveGroups)->keyBy(fn (array $grupo): string => (string) ($grupo['clave'] ?? ''));
+        if (count($submittedGroups) !== $liveByKey->count()) {
+            throw new \RuntimeException('La selección cambió en Restaurant. Cierra el modal y vuelve a prepararla.');
+        }
+
+        return collect($submittedGroups)->map(function (array $submitted) use ($liveByKey): array {
+            $clave = (string) ($submitted['clave'] ?? '');
+            $live = $liveByKey->get($clave);
+            if (! is_array($live)) {
+                throw new \RuntimeException('Uno de los grupos ya no coincide con Restaurant. Vuelve a preparar la selección.');
+            }
+
+            $ids = array_values(array_map('strval', (array) ($live['ids'] ?? [])));
+            $submittedIds = array_values(array_map('strval', (array) ($submitted['ids'] ?? [])));
+            sort($ids);
+            sort($submittedIds);
+            if ($ids !== $submittedIds) {
+                throw new \RuntimeException('Las guías de un grupo cambiaron en Restaurant. Vuelve a preparar la selección.');
+            }
+
+            return [
+                'clave' => $clave,
+                'ids' => $ids,
+                'fecha' => (string) ($submitted['fecha'] ?? ''),
+                'encargado' => (string) ($submitted['encargado'] ?? ''),
+                'receptor' => (string) ($submitted['receptor'] ?? ''),
+                'almacen_destino' => (string) ($submitted['almacen_destino'] ?? ''),
+                'tipo_movimiento' => (string) ($submitted['tipo_movimiento'] ?? ''),
+                'observacion' => (string) ($submitted['observacion'] ?? ''),
+                'items' => $this->distribuirCantidadesCanje(
+                    (array) ($live['items'] ?? []),
+                    (array) ($submitted['cantidades'] ?? []),
+                    (bool) ($live['canEditGuideQuantity'] ?? false),
+                ),
+            ];
+        })->values()->all();
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     * @param array<int, array<string, mixed>> $cantidades
+     * @return array<int, array<string, mixed>>
+     */
+    private function distribuirCantidadesCanje(array $items, array $cantidades, bool $canEdit): array
+    {
+        $source = $this->agruparItemsCanje($items);
+        $sourceByKey = collect($source)->keyBy('key');
+        $submittedByKey = [];
+
+        foreach ($cantidades as $cantidad) {
+            $key = (string) ($cantidad['key'] ?? '');
+            if ($key === '' || isset($submittedByKey[$key])) {
+                throw new \RuntimeException('La matriz de cantidades es inválida. Vuelve a preparar la selección.');
+            }
+            $submittedByKey[$key] = $this->cantidadCanje($cantidad['cantidad'] ?? null);
+        }
+
+        if (count($submittedByKey) !== $sourceByKey->count() || array_diff_key($sourceByKey->all(), $submittedByKey) !== []) {
+            throw new \RuntimeException('Los ítems cambiaron en Restaurant. Vuelve a preparar la selección.');
+        }
+
+        $remaining = [];
+        foreach ($sourceByKey as $key => $item) {
+            $maximum = $this->cantidadCanje($item['cantidad'] ?? 0);
+            $requested = $submittedByKey[$key];
+            if ($requested < -0.000001 || $requested > $maximum + 0.000001) {
+                throw new \RuntimeException('La cantidad de '.((string) ($item['descripcion'] ?? 'un ítem')).' debe estar entre 0 y '.number_format($maximum, 3, '.', '').'.');
+            }
+            if (! $canEdit && abs($requested - $maximum) > 0.000001) {
+                throw new \RuntimeException('No tienes permiso de Restaurant para modificar cantidades de guía.');
+            }
+            $remaining[$key] = max(0.0, $requested);
+        }
+
+        foreach ($items as $index => $item) {
+            $key = $this->claveItemCanje($item);
+            $available = $this->cantidadCanje($item['cantidad'] ?? 0);
+            $allocated = min($available, $remaining[$key] ?? 0.0);
+            $items[$index]['cantidad'] = round($allocated, 6);
+            $remaining[$key] = max(0.0, ($remaining[$key] ?? 0.0) - $allocated);
+        }
+
+        if (collect($remaining)->contains(fn (float $value): bool => $value > 0.000001)) {
+            throw new \RuntimeException('No se pudo distribuir una cantidad consolidada entre las líneas de Restaurant.');
+        }
+
+        return $items;
+    }
+
+    /** @return array<string, mixed> */
+    private function canjeGuiasForm(Collection $records): array
+    {
+        abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.crear'), 403);
+
+        $ids = $records->pluck('id')->map(fn (mixed $id): string => (string) $id)->filter(fn (string $id): bool => ctype_digit($id))->unique()->values()->all();
+        $canje = app(MovimientosAlmacenesGatewayClient::class)->prepararCanjeGuias($ids);
+        $localId = (string) ($canje['localId'] ?? '');
+        abort_unless($this->localAllowedForUser($localId), 403);
+
+        $this->canjeDestinos = collect($canje['destinos'] ?? [])
+            ->mapWithKeys(fn (array $row): array => [(string) ($row['id'] ?? '') => (string) ($row['nombre'] ?? '')])
+            ->filter()
+            ->all();
+        $this->canjeTiposMovimiento = collect($canje['tipos'] ?? [])
+            ->mapWithKeys(fn (array $row): array => [(string) ($row['id'] ?? '') => (string) ($row['nombre'] ?? '')])
+            ->filter()
+            ->all();
+
+        return [
+            'ids' => $ids,
+            'local' => (string) ($canje['local'] ?? ''),
+            'fecha' => filled($canje['fecha'] ?? null) ? (string) $canje['fecha'] : now()->seconds(0)->format('Y-m-d H:i:s'),
+            'fecha_minima' => (string) ($canje['fechaMinima'] ?? ''),
+            'encargado' => (string) ($canje['encargado'] ?? ''),
+            'receptor' => (string) ($canje['receptor'] ?? ''),
+            'almacen_origen' => (string) ($canje['almacenOrigen']['nombre'] ?? ''),
+            'almacen_destino' => (string) ($canje['almacenDestino']['id'] ?? ''),
+            'tipo_movimiento' => (string) ($canje['tipoMovimiento'] ?? ''),
+            'can_edit_quantity' => (bool) ($canje['canEditGuideQuantity'] ?? false),
+            'items' => array_values((array) ($canje['items'] ?? [])),
+            'observacion' => (string) ($canje['observacion'] ?? ''),
+        ];
+    }
+
+    /** @param array<string, mixed> $data */
+    private function confirmarCanjeGuias(Collection $records, array $data): void
+    {
+        abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.crear'), 403);
+
+        $ids = $records->pluck('id')->map(fn (mixed $id): string => (string) $id)->filter(fn (string $id): bool => ctype_digit($id))->unique()->values()->all();
+        if ($ids === []) {
+            Notification::make()->danger()->title('No se pudo canjear las guías')->body('Selecciona al menos una guía interna válida.')->send();
+
+            return;
+        }
+
+        try {
+            // Nunca se confía en los IDs editables del formulario: el gateway
+            // vuelve a leer e hidratar estas guías desde Restaurant antes de
+            // registrar el movimiento.
+            $result = app(MovimientosAlmacenesGatewayClient::class)->canjearGuias([
+                'ids' => $ids,
+                'fecha' => $data['fecha'] ?? null,
+                'encargado' => $data['encargado'] ?? '',
+                'receptor' => $data['receptor'] ?? '',
+                'almacen_destino' => $data['almacen_destino'] ?? '',
+                'tipo_movimiento' => $data['tipo_movimiento'] ?? '',
+                'items' => is_array($data['items'] ?? null) ? $data['items'] : [],
+                'observacion' => $data['observacion'] ?? '',
+                'confirmar' => true,
+            ]);
+            $id = (string) ($result['id'] ?? '');
+            Notification::make()->success()->title('Recepción confirmada en Restaurant')
+                ->body($id !== '' ? "Restaurant registró el movimiento #{$id} y vinculó las guías seleccionadas." : 'Restaurant registró el movimiento y vinculó las guías seleccionadas.')
+                ->send();
+            $this->resetTable();
+        } catch (Throwable $exception) {
+            report($exception);
+            Notification::make()->danger()->title('No se pudo confirmar la recepción')->body($exception->getMessage())->send();
+        }
     }
 
     public function anularGuia(array $record, bool $devolverCantidades): void
