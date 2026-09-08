@@ -198,6 +198,14 @@ sync_git_state() {
   git -C "`$target" update-ref refs/heads/main "`$sha"
   git -C "`$target" symbolic-ref HEAD refs/heads/main
   git -C "`$target" update-ref -d refs/tmp/deploy-sync 2>/dev/null || true
+  # reset --hard también alinea el ÍNDICE, no solo el ref -- encontrado en
+  # vivo el 2026-09-08 al probar este mismo script: un `git checkout -- .`
+  # anterior (de una limpieza manual) había dejado el índice con contenido
+  # viejo aunque el working tree y el ref ya estaban correctos, y quedaba
+  # invisible hasta el primer `git status` real. reset --hard solo toca
+  # archivos TRACKEADOS -- el contenido legítimo de producción que el rsync
+  # excluye (lang/, app/Support/, etc.) es untracked y no se toca.
+  git -C "`$target" reset --hard "`$sha"
   rm -f "`$bundle"
   echo "git en `$target sincronizado a `$sha"
 }
