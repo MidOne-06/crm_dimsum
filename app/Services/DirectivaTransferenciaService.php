@@ -93,7 +93,19 @@ class DirectivaTransferenciaService
 
     private const HORA_POR_DEFECTO = '12:00:00';
 
-    private const DIAS_VENTANA_VENTA_ACTIVA = 30; // ver localesConVentaActiva()
+    // Ver localesConVentaActiva() -- ventana corta a propósito, corregida
+    // tras probar en producción real (2026-09-09): con 30 días y CUALQUIER
+    // ítem del catálogo (360 por local, no solo los de despacho), los 5
+    // locales ya confirmados como cerrados por el usuario (Primavera,
+    // Metro Chorrillos, Villa María, KM 40, Puntamar) seguían contando como
+    // "activos" -- Restaurant sigue teniendo movimientos de otros ítems
+    // hasta hace pocos días. Medido el gap real: los 27 locales que sí
+    // operan vendieron un ítem de despacho HOY MISMO (todos, sin excepción,
+    // en las últimas horas); de los 5 cerrados, el más "reciente" (KM 40)
+    // no vende un ítem de despacho hace 6 días, y el resto entre 9 días y
+    // 4 meses -- 3 días separa limpio ambos grupos sin arriesgar un falso
+    // "cerrado" por un día flojo de ventas.
+    private const DIAS_VENTANA_VENTA_ACTIVA = 3;
 
     /**
      * @param  string  $fechaReferencia  El día en que se hace el cálculo
@@ -350,9 +362,11 @@ class DirectivaTransferenciaService
     }
 
     /**
-     * IDs de local (de entre los dados) que tuvieron al menos UNA venta real
-     * en los últimos self::DIAS_VENTANA_VENTA_ACTIVA días -- criterio de
-     * "venta activa" del wizard "Iniciar Directiva de Transferencia", pedido
+     * IDs de local (de entre los dados) que vendieron al menos UN ítem de
+     * despacho (Presentación de Despacho -- el mismo universo que calcula
+     * la Directiva, no cualquier ítem del catálogo de Restaurant) en los
+     * últimos self::DIAS_VENTANA_VENTA_ACTIVA días -- criterio de "venta
+     * activa" del wizard "Iniciar Directiva de Transferencia", pedido
      * explícito del usuario para poder excluir de un cálculo masivo los
      * locales que hoy no operan (ver bitácora 2026-09-09: 5 locales reales
      * confirmados como cerrados, con stock y saldo en cero desde la carga
@@ -367,11 +381,25 @@ class DirectivaTransferenciaService
             return [];
         }
 
+        $productos = ProductoPresentacionDespacho::get(['item_id', 'item_tipo']);
+        if ($productos->isEmpty()) {
+            return [];
+        }
+
         return DB::table('kardex_movimientos')
             ->where('almacen', self::ALMACEN)
             ->where('motivo', self::MOTIVO_VENTA)
             ->whereIn('local_id', $localesIds)
             ->where('fecha_hora', '>=', now()->subDays(self::DIAS_VENTANA_VENTA_ACTIVA)->toDateTimeString())
+            // item_id NO es único por sí solo (Restaurant lo reutiliza para
+            // productos distintos según tipo_item, ver docblock histórico
+            // de esta clase) -- hay que cruzar por el par exacto, igual que
+            // el resto del cálculo.
+            ->where(function ($query) use ($productos): void {
+                foreach ($productos as $producto) {
+                    $query->orWhere(fn ($q) => $q->where('item_id', $producto->item_id)->where('tipo_item', $producto->item_tipo));
+                }
+            })
             ->distinct()
             ->pluck('local_id')
             ->all();
