@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\DirectivaTransferenciaSugerencia;
+use App\Models\LocalDiaSinDt;
 use App\Models\LocalLogisticaConfig;
 use App\Models\LocalLogisticaHorario;
 use App\Models\ProductoPresentacionDespacho;
@@ -20,11 +21,19 @@ use Illuminate\Support\Facades\DB;
  * diseño original documentado en la bitácora del 2026-09-07. Antes: un día
  * calendario completo, mismo día de semana, 12pm fijo para todos. Ahora:
  *
- * - **Frecuencia por local** (`LocalLogisticaConfig.frecuencia_dias`, 1 por
- *   defecto si el local no tiene configuración cargada): el próximo
- *   despacho de un local no es siempre "mañana" -- es
- *   `fecha_referencia + frecuencia_dias`. Un local que reparte cada 2 días
- *   se calcula para pasado mañana si hoy le tocó reparto, no para mañana.
+ * - **Días sin DT, por local** (`LocalDiaSinDt`) -- pedido explícito del
+ *   usuario con un caso real: un local puede no generar DT ciertos días de
+ *   la semana (ej. sábado), sea cual sea el motivo operativo. Si hoy es un
+ *   día "sin DT" para un local, ese local se SALTA por completo en esta
+ *   corrida -- no se genera ninguna fila para él. La consecuencia real es
+ *   que el día SIGUIENTE a un día sin DT tampoco tiene llegada de
+ *   transporte (nada se despachó para eso) -- ver `proximaLlegada()`, que
+ *   calcula la fecha de destino real caminando día por día y saltando
+ *   cualquier día sin llegada, en vez de sumar un número fijo de días.
+ *   `LocalLogisticaConfig.frecuencia_dias` queda como valor de referencia
+ *   histórico pero ya no se usa para el cálculo -- lo reemplaza por
+ *   completo esta lógica de días sin DT (vacía = local diario, sin
+ *   excepciones, mismo comportamiento que antes).
  * - **Hora de llegada real, por local Y por día de semana**
  *   (`LocalLogisticaHorario`, con `LocalLogisticaConfig.hora_llegada_estimada`
  *   como default si no hay excepción para ese día, y 12:00 si tampoco hay
@@ -103,26 +112,36 @@ class DirectivaTransferenciaService
         $locales = StockInicialLocal::where('estado', 'confirmado')->get();
         $configs = LocalLogisticaConfig::whereIn('local_id', $locales->pluck('local_id'))->get()->keyBy('local_id');
         $horarios = LocalLogisticaHorario::whereIn('local_id', $locales->pluck('local_id'))->get()->groupBy('local_id');
+        $diasSinDt = LocalDiaSinDt::whereIn('local_id', $locales->pluck('local_id'))->get()->groupBy('local_id');
 
         $filas = [];
         $ahora = now();
 
         foreach ($locales as $local) {
             $config = $configs->get($local->local_id);
-            $frecuencia = max(1, (int) ($config->frecuencia_dias ?? 1));
             $horariosLocal = $horarios->get($local->local_id, collect());
+            $diasSinDtLocal = $diasSinDt->get($local->local_id, collect())->pluck('dia_semana')->all();
+
+            // Si hoy es un día "sin DT" para este local, se salta por
+            // completo -- no se genera ninguna sugerencia para él en esta
+            // corrida. Ver docblock de la clase.
+            if (in_array($hoy->dayOfWeekIso, $diasSinDtLocal, true)) {
+                continue;
+            }
 
             // Tramo 1: ahora -> mañana (cuando llega LO YA DESPACHADO
             // antes de hoy). El stock proyectado actual tiene que
-            // aguantar este tramo por sí solo.
-            $fechaDestino = $hoy->copy()->addDays($frecuencia);
+            // aguantar este tramo por sí solo. "Mañana" es la próxima
+            // fecha con llegada real, no necesariamente hoy+1 -- ver
+            // proximaLlegada().
+            $fechaDestino = $this->proximaLlegada($hoy, $diasSinDtLocal);
             $horaDestino = $this->horaLlegada($horariosLocal, $config, $fechaDestino->dayOfWeekIso);
             $hastaV1 = $fechaDestino->copy()->setTimeFromTimeString($horaDestino);
 
             // Tramo 2: mañana -> pasado mañana (cuando llega la PRÓXIMA
             // reposición después de la de mañana). Esto es lo que el
             // despacho de HOY tiene que cubrir -- ver docblock de la clase.
-            $fechaDestino2 = $fechaDestino->copy()->addDays($frecuencia);
+            $fechaDestino2 = $this->proximaLlegada($fechaDestino, $diasSinDtLocal);
             $horaDestino2 = $this->horaLlegada($horariosLocal, $config, $fechaDestino2->dayOfWeekIso);
             $hasta = $fechaDestino2->copy()->setTimeFromTimeString($horaDestino2);
 
@@ -297,6 +316,32 @@ class DirectivaTransferenciaService
                 ->sum('salida'),
             $ventanas,
         );
+    }
+
+    /**
+     * Primer día DESPUÉS de `$desde` que tiene llegada real de transporte
+     * para este local -- un día "D" tiene llegada si y solo si el día
+     * anterior (D-1) NO es un día sin DT (si D-1 no generó DT, no se
+     * despachó nada para que llegue en D). Se camina día por día en vez de
+     * sumar un número fijo, para que "saltar" 1 o más días sin DT
+     * seguidos se resuelva solo, sea cual sea el día de la semana.
+     *
+     * Ejemplo real (sábado = día sin DT para un local): calculando un
+     * viernes, proximaLlegada(viernes) = sábado (viernes sí generó DT).
+     * proximaLlegada(sábado) salta el domingo (sábado no generó DT, así
+     * que domingo no tiene llegada) y da lunes -- el despacho del viernes
+     * termina cubriendo sábado Y domingo.
+     *
+     * @param  array<int, int>  $diasSinDt
+     */
+    private function proximaLlegada(Carbon $desde, array $diasSinDt): Carbon
+    {
+        $dia = $desde->copy()->addDay();
+        while (in_array($dia->copy()->subDay()->dayOfWeekIso, $diasSinDt, true)) {
+            $dia->addDay();
+        }
+
+        return $dia;
     }
 
     /**
