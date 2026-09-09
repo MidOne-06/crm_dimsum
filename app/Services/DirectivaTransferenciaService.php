@@ -190,16 +190,36 @@ class DirectivaTransferenciaService
             foreach ($productos as $clave => $producto) {
                 $ventasItem = $ventasCrudas->get($clave, collect());
 
-                // Promedio de la ventana COMPLETA (ahora -> pasado mañana)
-                // -- es la que alimenta cantidad_bruta.
-                $demandasPorSemana = $this->promediarVentanas($ventasItem, $ventanasHistoricas);
-                $semanasConsideradas = count($demandasPorSemana);
-                $demandaPromedio = $semanasConsideradas > 0 ? array_sum($demandasPorSemana) / $semanasConsideradas : 0.0;
+                // OJO, bug real encontrado revalidando en producción
+                // (2026-09-09): promediar la ventana completa y el tramo 1
+                // como 2 promedios INDEPENDIENTES (cada uno descartando sus
+                // propias semanas en cero) podía dar demanda_promedio TOTAL
+                // menor que demanda_ventana1 -- matemáticamente imposible,
+                // porque el total incluye el tramo 1 adentro. Pasa porque
+                // una semana con tramo1=0 (se descarta de ese promedio) puede
+                // tener tramo2>0 (entra al promedio total con un valor bajo),
+                // arrastrando el promedio total hacia abajo por una semana
+                // que el otro promedio ni contaba. Fix: se decide UNA sola
+                // vez qué semanas cuentan (las que tuvieron venta real en la
+                // ventana COMPLETA) y se promedian AMBOS tramos sobre ese
+                // mismo conjunto -- así el total nunca puede dar menos que
+                // el tramo 1 que ya contiene adentro.
+                $totalesCompletos = $this->totalesPorSemana($ventasItem, $ventanasHistoricas);
+                $totalesV1 = $this->totalesPorSemana($ventasItem, $ventanasHistoricasV1);
 
-                // Promedio de SOLO el tramo 1 (ahora -> mañana) -- para la
-                // alerta de riesgo de quiebre, ver docblock de la clase.
-                $demandasV1PorSemana = $this->promediarVentanas($ventasItem, $ventanasHistoricasV1);
-                $demandaVentana1 = count($demandasV1PorSemana) > 0 ? array_sum($demandasV1PorSemana) / count($demandasV1PorSemana) : 0.0;
+                $semanasConsideradas = 0;
+                $sumaCompleta = 0.0;
+                $sumaV1 = 0.0;
+                foreach ($totalesCompletos as $i => $totalCompleto) {
+                    if ($totalCompleto <= 0) {
+                        continue;
+                    }
+                    $semanasConsideradas++;
+                    $sumaCompleta += $totalCompleto;
+                    $sumaV1 += $totalesV1[$i];
+                }
+                $demandaPromedio = $semanasConsideradas > 0 ? $sumaCompleta / $semanasConsideradas : 0.0;
+                $demandaVentana1 = $semanasConsideradas > 0 ? $sumaV1 / $semanasConsideradas : 0.0;
 
                 $saldoActual = (float) ($saldos->get($clave)?->saldo ?? 0);
                 $cantidadEnTransito = (float) ($transitos->get($producto->item_id)?->cantidad_transito ?? 0);
@@ -260,27 +280,23 @@ class DirectivaTransferenciaService
 
     /**
      * Suma la venta real dentro de cada ventana dada, en memoria sobre las
-     * filas ya traídas de Kardex -- devuelve solo los totales de las
-     * semanas que tuvieron venta real (>0), para no diluir el promedio con
-     * semanas sin datos.
+     * filas ya traídas de Kardex -- devuelve el total CRUDO de cada semana,
+     * en el mismo orden que `$ventanas`, SIN descartar las que dieron 0.
+     * El llamador decide qué semanas cuentan para el promedio (ver el
+     * comentario en el bucle principal sobre por qué no se filtra acá).
      *
      * @param  \Illuminate\Support\Collection<int, object>  $ventasItem
      * @param  array<int, array{0: Carbon, 1: Carbon}>  $ventanas
      * @return array<int, float>
      */
-    private function promediarVentanas(\Illuminate\Support\Collection $ventasItem, array $ventanas): array
+    private function totalesPorSemana(\Illuminate\Support\Collection $ventasItem, array $ventanas): array
     {
-        $totales = [];
-        foreach ($ventanas as [$desdeHist, $hastaHist]) {
-            $totalSemana = $ventasItem
-                ->filter(fn ($row): bool => $row->fecha_hora->gte($desdeHist) && $row->fecha_hora->lt($hastaHist))
-                ->sum('salida');
-            if ($totalSemana > 0) {
-                $totales[] = (float) $totalSemana;
-            }
-        }
-
-        return $totales;
+        return array_map(
+            fn (array $ventana): float => (float) $ventasItem
+                ->filter(fn ($row): bool => $row->fecha_hora->gte($ventana[0]) && $row->fecha_hora->lt($ventana[1]))
+                ->sum('salida'),
+            $ventanas,
+        );
     }
 
     /**
