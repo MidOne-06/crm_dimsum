@@ -15,7 +15,8 @@
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     th, td { border: 1px solid #d1d5db; padding: 4px 3px; vertical-align: middle; }
     th { background: #dce6f1; font-weight: bold; text-align: center; }
-    th.local { writing-mode: vertical-rl; height: 95px; font-size: 7px; }
+    th.local { height: 125px; font-size: 7px; padding: 2px 0; }
+    th.local .giro { display: inline-block; transform: rotate(-90deg); white-space: nowrap; }
     td.num { text-align: right; }
     td.total, tr.total td { font-weight: bold; background: #dce6f1; }
     .producto { width: 16%; } .sku { width: 6%; }
@@ -52,9 +53,9 @@
                 <th class="producto">Producto</th>
                 <th class="sku">SKU</th>
                 @foreach($locales as $local)
-                    <th class="local">{{ $local->local_nombre }}</th>
+                    <th class="local"><span class="giro">{{ $local->local_nombre }}</span></th>
                 @endforeach
-                <th class="local">TOTAL</th>
+                <th class="local"><span class="giro">TOTAL</span></th>
             </tr>
         </thead>
         <tbody>
