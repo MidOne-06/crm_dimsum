@@ -192,7 +192,7 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                         Radio::make('modo_alcance')
                             ->label('Locales a incluir en esta corrida')
                             ->options([
-                                'venta_activa' => 'Todos los locales con venta activa (con al menos 1 venta en los últimos 30 días)',
+                                'venta_activa' => 'Todos los locales con venta activa (con al menos 1 venta de un ítem de despacho en los últimos 3 días)',
                                 'todos' => 'Todos los locales confirmados',
                                 'manual' => 'Todos, menos los que elija a continuación',
                             ])
@@ -278,7 +278,7 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
         $lineas[] = match ($get('modo_alcance')) {
             'todos' => 'Alcance: todos los locales confirmados.',
             'manual' => 'Alcance: todos los locales, menos '.count((array) $get('locales_excluir')).' excluido(s).',
-            default => 'Alcance: solo locales con venta activa (últimos 30 días).',
+            default => 'Alcance: solo locales con venta activa (últimos 3 días).',
         };
 
         if ($get('agregar_dia_sin_dt')) {
