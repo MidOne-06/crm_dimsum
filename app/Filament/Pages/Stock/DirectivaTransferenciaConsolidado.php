@@ -4,6 +4,7 @@ namespace App\Filament\Pages\Stock;
 
 use App\Filament\Concerns\ScopesLocalsToUser;
 use App\Jobs\ExtraerKardexJob;
+use App\Models\BrandingSetting;
 use App\Models\DirectivaTransferenciaSugerencia;
 use App\Models\GuiaInternaSincronizacion;
 use App\Models\KardexExtraccion as KardexExtraccionModel;
@@ -24,6 +25,8 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
@@ -378,6 +381,32 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
     }
 
     /**
+     * Logo de la marca embebido como data URI -- dompdf corre con
+     * `isRemoteEnabled(false)` (no puede pedir la imagen por HTTP), así que
+     * hay que leer el archivo real del disco y embeberlo en base64 directo
+     * en el HTML. Con logo subido usa ese PNG/JPG; sin logo cae al SVG de
+     * marca por defecto (`public/images/crm-dimsum-mark.svg`).
+     */
+    private function logoDataUri(): ?string
+    {
+        $branding = BrandingSetting::current();
+
+        if (filled($branding->logo_path) && Storage::disk('public')->exists($branding->logo_path)) {
+            $ruta = Storage::disk('public')->path($branding->logo_path);
+            $mime = File::mimeType($ruta) ?: 'image/png';
+
+            return 'data:'.$mime.';base64,'.base64_encode(file_get_contents($ruta));
+        }
+
+        $rutaDefault = public_path('images/crm-dimsum-mark.svg');
+        if (file_exists($rutaDefault)) {
+            return 'data:image/svg+xml;base64,'.base64_encode(file_get_contents($rutaDefault));
+        }
+
+        return null;
+    }
+
+    /**
      * Mismo pivote que exportarExcel(), en PDF A3 apaisado -- mismo patrón
      * ya usado en Reporte de movimientos entre almacenes
      * (ReporteMovimientosAlmacenes::exportarPdf()). Pensado para enviar
@@ -411,6 +440,9 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
             'filas' => $filas,
             'totalesColumna' => $totalesColumna,
             'granTotal' => $granTotal,
+            'logoDataUri' => $this->logoDataUri(),
+            'usuarioNombre' => auth()->user()?->name ?? 'Sistema',
+            'generadoEn' => now()->format('d/m/Y H:i'),
         ])->render());
         $pdf->render();
 
