@@ -439,11 +439,27 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                     ->tooltip('Puede variar por local según sus días sin DT configurados (Configuración DT > Días sin DT).'),
                 TextColumn::make('item_codigo')->label('SKU')->searchable(),
                 TextColumn::make('item_nombre')->label('Producto')->searchable()->wrap(),
-                TextColumn::make('demanda_promedio')->label('Demanda prom.')->numeric(2)->alignEnd()
-                    ->tooltip(fn (DirectivaTransferenciaSugerencia $r): string => 'Promedio de las últimas '.$r->semanas_consideradas.' semanas -- ventana completa AHORA hasta PASADO MAÑANA (2 tramos): lo que el despacho de hoy tiene que cubrir una vez que llegue mañana, hasta la reposición siguiente.')
+                // Pedido explícito del usuario (2026-09-09): esta columna debe
+                // mostrar la demanda de lo que él realmente va a despachar --
+                // el tramo 2 (mañana, DESPUÉS de que llegue el transporte,
+                // hasta pasado mañana, cuando llega el pedido de hoy) -- no el
+                // total combinado de los 2 tramos que se usa puertas adentro
+                // para el cálculo. La fórmula de `cantidad_sugerida` NO
+                // cambia: sigue restando el stock proyectado del total
+                // combinado (`demanda_promedio`, columna de BD), que ya
+                // arrastra correctamente cualquier sobrante/faltante del
+                // tramo 1 hacia el tramo 2 -- ver DirectivaTransferenciaService.
+                // Este es un cambio de qué NÚMERO SE MUESTRA, no de la
+                // fórmula: tramo2 = total combinado - tramo 1, calculado al
+                // vuelo desde los 2 campos que ya se guardan.
+                TextColumn::make('demanda_tramo2')->label('Demanda prom.')->numeric(2)->alignEnd()
+                    ->getStateUsing(fn (DirectivaTransferenciaSugerencia $r): float => $r->demanda_promedio - $r->demanda_ventana1)
+                    ->tooltip(fn (DirectivaTransferenciaSugerencia $r): string => 'Promedio de las últimas '.$r->semanas_consideradas.' semanas -- SOLO el tramo que este despacho debe cubrir: desde que llega el transporte de mañana hasta que llega el de pasado mañana (el que se genera hoy). No incluye la demanda de ahora-a-mañana (ver "Demanda tramo 1"), que el stock proyectado actual debe aguantar solo.')
                     ->color(fn (DirectivaTransferenciaSugerencia $r): string => $r->esConfianzaBaja() ? 'gray' : 'success'),
                 TextColumn::make('demanda_ventana1')->label('Demanda tramo 1')->numeric(2)->alignEnd()->toggleable(isToggledHiddenByDefault: true)
                     ->tooltip('Solo el primer tramo (ahora -> mañana) -- lo que el STOCK PROYECTADO ACTUAL tiene que aguantar por sí solo, sin ayuda del despacho de hoy (llega tarde para este tramo).'),
+                TextColumn::make('demanda_promedio')->label('Demanda total (2 tramos)')->numeric(2)->alignEnd()->toggleable(isToggledHiddenByDefault: true)
+                    ->tooltip('Ventana completa AHORA hasta PASADO MAÑANA (tramo 1 + tramo 2) -- el número que de verdad usa la fórmula de Cantidad sugerida por dentro (resta el stock proyectado UNA sola vez, arrastrando correctamente el sobrante/faltante del tramo 1 hacia el tramo 2). Se deja visible aparte, oculta por defecto, solo para quien quiera auditar el cálculo completo.'),
                 TextColumn::make('riesgo_quiebre')->label('¿Riesgo de quiebre?')->badge()
                     ->formatStateUsing(fn ($state): string => $state ? 'Quiebre antes de mañana' : 'Sin riesgo')
                     ->color(fn ($state): string => $state ? 'danger' : 'gray')
