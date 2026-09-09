@@ -93,14 +93,43 @@ class DirectivaTransferenciaService
 
     private const HORA_POR_DEFECTO = '12:00:00';
 
+    private const DIAS_VENTANA_VENTA_ACTIVA = 30; // ver localesConVentaActiva()
+
     /**
      * @param  string  $fechaReferencia  El día en que se hace el cálculo
      *                                   ("hoy", en la práctica) -- cada local
      *                                   calcula su propia fecha de destino a
      *                                   partir de acá según su frecuencia.
+     * @param  array<int, string>  $localesExcluidos  IDs de local a saltar por
+     *                                   completo en esta corrida -- pedido
+     *                                   explícito del usuario para el wizard
+     *                                   "Iniciar Directiva de Transferencia"
+     *                                   (2026-09-09): permite recalcular un
+     *                                   subconjunto sin tocar el resto, algo
+     *                                   que antes no existía (la corrida
+     *                                   siempre tocaba los 32 locales
+     *                                   confirmados). Vacío = ninguno
+     *                                   excluido (comportamiento de siempre).
+     * @param  bool  $soloVentaActiva  Si es true, además de $localesExcluidos,
+     *                                   se descartan los locales SIN ninguna
+     *                                   venta real en los últimos
+     *                                   self::DIAS_VENTANA_VENTA_ACTIVA días
+     *                                   -- ver localesConVentaActiva().
+     * @param  float  $porcentajeAjusteGlobal  % a sumar sobre la cantidad
+     *                                   bruta de TODOS los locales que no
+     *                                   tengan su propio % en
+     *                                   $porcentajeAjustePorLocal (ej. 10.0
+     *                                   = +10%). 0 = sin ajuste (de siempre).
+     * @param  array<string, float>  $porcentajeAjustePorLocal  local_id => %,
+     *                                   pisa el global para ese local puntual.
      */
-    public function calcularParaFecha(string $fechaReferencia): int
-    {
+    public function calcularParaFecha(
+        string $fechaReferencia,
+        array $localesExcluidos = [],
+        bool $soloVentaActiva = false,
+        float $porcentajeAjusteGlobal = 0.0,
+        array $porcentajeAjustePorLocal = [],
+    ): int {
         $hoy = Carbon::parse($fechaReferencia)->startOfDay();
 
         $productos = ProductoPresentacionDespacho::all()->keyBy(fn ($p) => "{$p->item_id}|{$p->item_tipo}");
@@ -109,7 +138,17 @@ class DirectivaTransferenciaService
         }
         $itemIds = $productos->pluck('item_id')->unique()->all();
 
-        $locales = StockInicialLocal::where('estado', 'confirmado')->get();
+        $localesQuery = StockInicialLocal::where('estado', 'confirmado');
+        if ($localesExcluidos !== []) {
+            $localesQuery->whereNotIn('local_id', $localesExcluidos);
+        }
+        $locales = $localesQuery->get();
+
+        if ($soloVentaActiva) {
+            $activos = $this->localesConVentaActiva($locales->pluck('local_id')->all());
+            $locales = $locales->whereIn('local_id', $activos)->values();
+        }
+
         $configs = LocalLogisticaConfig::whereIn('local_id', $locales->pluck('local_id'))->get()->keyBy('local_id');
         $horarios = LocalLogisticaHorario::whereIn('local_id', $locales->pluck('local_id'))->get()->groupBy('local_id');
         $diasSinDt = LocalDiaSinDt::whereIn('local_id', $locales->pluck('local_id'))->get()->groupBy('local_id');
@@ -257,7 +296,17 @@ class DirectivaTransferenciaService
                 // del tramo 1 hacia el tramo 2, en vez de asumir que el
                 // tramo 1 se cubre exacto sin sobrar ni faltar nada.
                 $cantidadBruta = max(0.0, $demandaPromedio - $stockProyectado);
-                $cantidadSugerida = $producto->redondear($cantidadBruta);
+
+                // Ajuste dinámico opcional (wizard "Iniciar Directiva de
+                // Transferencia", pedido explícito del usuario): se aplica
+                // DESPUÉS de la fórmula real, sobre `cantidad_bruta` ya
+                // calculada -- nunca sobre la demanda ni el stock
+                // proyectado, para no ensuciar esa trazabilidad ya auditada.
+                // `cantidad_bruta` queda intacta como el número "limpio";
+                // `cantidad_bruta_ajustada` es la que de verdad se redondea.
+                $porcentajeAjuste = $porcentajeAjustePorLocal[$local->local_id] ?? $porcentajeAjusteGlobal;
+                $cantidadBrutaAjustada = $cantidadBruta * (1 + ($porcentajeAjuste / 100));
+                $cantidadSugerida = $producto->redondear($cantidadBrutaAjustada);
 
                 $filas[] = [
                     'fecha_despacho' => $fechaDestino->toDateString(),
@@ -275,6 +324,8 @@ class DirectivaTransferenciaService
                     'saldo_actual' => $saldoActual,
                     'cantidad_en_transito' => $cantidadEnTransito,
                     'cantidad_bruta' => $cantidadBruta,
+                    'porcentaje_ajuste_aplicado' => $porcentajeAjuste,
+                    'cantidad_bruta_ajustada' => $cantidadBrutaAjustada,
                     'multiplo_aplicado' => $producto->multiplo,
                     'cantidad_sugerida' => $cantidadSugerida,
                     'calculado_en' => $ahora,
@@ -290,11 +341,40 @@ class DirectivaTransferenciaService
                 ['fecha_despacho', 'local_id', 'item_id', 'item_tipo'],
                 ['local_nombre', 'item_codigo', 'item_nombre', 'demanda_promedio', 'demanda_ventana1',
                     'riesgo_quiebre', 'semanas_consideradas', 'saldo_actual', 'cantidad_en_transito',
-                    'cantidad_bruta', 'multiplo_aplicado', 'cantidad_sugerida', 'calculado_en', 'updated_at'],
+                    'cantidad_bruta', 'porcentaje_ajuste_aplicado', 'cantidad_bruta_ajustada',
+                    'multiplo_aplicado', 'cantidad_sugerida', 'calculado_en', 'updated_at'],
             );
         }
 
         return count($filas);
+    }
+
+    /**
+     * IDs de local (de entre los dados) que tuvieron al menos UNA venta real
+     * en los últimos self::DIAS_VENTANA_VENTA_ACTIVA días -- criterio de
+     * "venta activa" del wizard "Iniciar Directiva de Transferencia", pedido
+     * explícito del usuario para poder excluir de un cálculo masivo los
+     * locales que hoy no operan (ver bitácora 2026-09-09: 5 locales reales
+     * confirmados como cerrados, con stock y saldo en cero desde la carga
+     * inicial) sin tener que desconfirmarlos ni tocar Stock Inicial.
+     *
+     * @param  array<int, string>  $localesIds
+     * @return array<int, string>
+     */
+    public function localesConVentaActiva(array $localesIds): array
+    {
+        if ($localesIds === []) {
+            return [];
+        }
+
+        return DB::table('kardex_movimientos')
+            ->where('almacen', self::ALMACEN)
+            ->where('motivo', self::MOTIVO_VENTA)
+            ->whereIn('local_id', $localesIds)
+            ->where('fecha_hora', '>=', now()->subDays(self::DIAS_VENTANA_VENTA_ACTIVA)->toDateTimeString())
+            ->distinct()
+            ->pluck('local_id')
+            ->all();
     }
 
     /**

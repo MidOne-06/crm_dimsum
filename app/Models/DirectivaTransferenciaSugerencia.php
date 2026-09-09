@@ -12,6 +12,7 @@ class DirectivaTransferenciaSugerencia extends Model
         'fecha_despacho', 'dia_semana', 'local_id', 'local_nombre', 'item_id', 'item_tipo',
         'item_codigo', 'item_nombre', 'demanda_promedio', 'demanda_ventana1', 'riesgo_quiebre',
         'semanas_consideradas', 'saldo_actual', 'cantidad_en_transito', 'cantidad_bruta',
+        'porcentaje_ajuste_aplicado', 'cantidad_bruta_ajustada',
         'multiplo_aplicado', 'cantidad_sugerida', 'calculado_en',
     ];
 
@@ -25,6 +26,8 @@ class DirectivaTransferenciaSugerencia extends Model
             'saldo_actual' => 'decimal:4',
             'cantidad_en_transito' => 'decimal:4',
             'cantidad_bruta' => 'decimal:4',
+            'porcentaje_ajuste_aplicado' => 'decimal:2',
+            'cantidad_bruta_ajustada' => 'decimal:4',
             'calculado_en' => 'datetime',
         ];
     }

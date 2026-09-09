@@ -8,15 +8,23 @@ use App\Models\BrandingSetting;
 use App\Models\DirectivaTransferenciaSugerencia;
 use App\Models\GuiaInternaSincronizacion;
 use App\Models\KardexExtraccion as KardexExtraccionModel;
+use App\Models\LocalDiaSinDt;
 use App\Models\ProductoPresentacionDespacho;
+use App\Models\StockInicialLocal;
 use App\Services\DirectivaTransferenciaService;
 use App\Services\GuiasInternasHistoricoService;
 use App\Services\KardexGatewayClient;
 use Dompdf\Dompdf;
 use Dompdf\Options as DompdfOptions;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Components\Radio;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Wizard\Step;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
@@ -114,6 +122,7 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
     private function tableHeaderActions(): array
     {
         return [
+            $this->iniciarDirectivaAction(),
             Action::make('exportarExcel')
                 ->label('Exportar Excel')
                 ->icon('heroicon-o-arrow-down-tray')
@@ -147,6 +156,205 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                 ->modalSubmitActionLabel('Sí, sincronizar y calcular')
                 ->action(fn () => $this->sincronizarYCalcularManana()),
         ];
+    }
+
+    /** @return array<string, string> */
+    private function localesConfirmadosOptions(): array
+    {
+        return $this->scopeKeyedLocalsToUser(
+            StockInicialLocal::where('estado', 'confirmado')->orderBy('local_nombre')->pluck('local_nombre', 'local_id')->all(),
+        );
+    }
+
+    /**
+     * Wizard "Iniciar Directiva de Transferencia" -- pedido explícito del
+     * usuario para reemplazar el botón "todo o nada" de siempre por un
+     * flujo de preguntas antes de calcular: (1) qué locales incluir, (2)
+     * registrar al vuelo una excepción de "Días sin DT" si hace falta, (3)
+     * aplicar un % de ajuste dinámico opcional. `calcularParaFecha()` sigue
+     * siendo el mismo motor de siempre -- este wizard solo arma sus 4
+     * parámetros nuevos y los pasa (ver docblock del servicio).
+     */
+    private function iniciarDirectivaAction(): Action
+    {
+        return Action::make('iniciarDirectiva')
+            ->label('Iniciar Directiva de Transferencia')
+            ->icon('heroicon-o-play')
+            ->color('success')
+            ->modalWidth('2xl')
+            ->modalHeading('Iniciar Directiva de Transferencia')
+            ->modalSubmitActionLabel('Calcular')
+            ->steps([
+                Step::make('Alcance')
+                    ->description('¿Para qué locales calculamos?')
+                    ->icon('heroicon-o-building-storefront')
+                    ->schema([
+                        Radio::make('modo_alcance')
+                            ->label('Locales a incluir en esta corrida')
+                            ->options([
+                                'venta_activa' => 'Todos los locales con venta activa (con al menos 1 venta en los últimos 30 días)',
+                                'todos' => 'Todos los locales confirmados',
+                                'manual' => 'Todos, menos los que elija a continuación',
+                            ])
+                            ->default('venta_activa')
+                            ->live()
+                            ->required(),
+                        Select::make('locales_excluir')
+                            ->label('Locales a excluir')
+                            ->options(fn (): array => $this->localesConfirmadosOptions())
+                            ->multiple()
+                            ->searchable()
+                            ->visible(fn (callable $get): bool => $get('modo_alcance') === 'manual')
+                            ->required(fn (callable $get): bool => $get('modo_alcance') === 'manual'),
+                    ]),
+                Step::make('Días sin DT')
+                    ->description('Registrar una excepción antes de calcular (opcional)')
+                    ->icon('heroicon-o-calendar-date-range')
+                    ->schema([
+                        Toggle::make('agregar_dia_sin_dt')
+                            ->label('Agregar una excepción de "día sin DT" antes de calcular')
+                            ->helperText('El día siguiente a este tampoco tendrá llegada de transporte -- el despacho del día anterior a este tiene que cubrir ambos. Ej.: hoy sí se genera DT, mañana no, recién el viernes.')
+                            ->live(),
+                        Select::make('dia_sin_dt_local_id')
+                            ->label('Local')
+                            ->options(fn (): array => $this->localesConfirmadosOptions())
+                            ->searchable()
+                            ->visible(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt'))
+                            ->required(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt')),
+                        Select::make('dia_sin_dt_dia')
+                            ->label('Día de la semana sin DT')
+                            ->options(LocalDiaSinDt::DIAS)
+                            ->visible(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt'))
+                            ->required(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt')),
+                    ]),
+                Step::make('Ajuste %')
+                    ->description('Sumar o restar un % sobre la cantidad sugerida (opcional)')
+                    ->icon('heroicon-o-adjustments-horizontal')
+                    ->schema([
+                        Toggle::make('aplicar_ajuste')
+                            ->label('Aplicar un % de ajuste dinámico sobre la cantidad sugerida')
+                            ->helperText('Se aplica DESPUÉS de la fórmula real (demanda vs. stock proyectado) -- para compensar algo puntual (una promoción, un evento) que el histórico de ventas todavía no refleja.')
+                            ->live(),
+                        TextInput::make('porcentaje_ajuste')
+                            ->label('Porcentaje de ajuste')
+                            ->numeric()
+                            ->suffix('%')
+                            ->default(10)
+                            ->minValue(-100)
+                            ->maxValue(500)
+                            ->helperText('Positivo suma (ej. 10 = +10%), negativo resta (ej. -10 = -10%).')
+                            ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste'))
+                            ->required(fn (callable $get): bool => (bool) $get('aplicar_ajuste')),
+                        Radio::make('ajuste_alcance')
+                            ->label('¿A quién se aplica?')
+                            ->options(['todos' => 'A todos los locales de esta corrida', 'especifico' => 'A un local específico'])
+                            ->default('todos')
+                            ->live()
+                            ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste')),
+                        Select::make('ajuste_local_id')
+                            ->label('Local')
+                            ->options(fn (): array => $this->localesConfirmadosOptions())
+                            ->searchable()
+                            ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste') && $get('ajuste_alcance') === 'especifico')
+                            ->required(fn (callable $get): bool => (bool) $get('aplicar_ajuste') && $get('ajuste_alcance') === 'especifico'),
+                    ]),
+                Step::make('Confirmar')
+                    ->description('Revisa antes de calcular')
+                    ->icon('heroicon-o-check-circle')
+                    ->schema([
+                        Placeholder::make('resumen')
+                            ->label('Resumen de esta corrida')
+                            ->content(fn (callable $get): string => $this->resumenWizardDirectiva($get)),
+                    ]),
+            ])
+            ->action(fn (array $data) => $this->ejecutarWizardDirectiva($data));
+    }
+
+    /** Texto plano del resumen del último paso del wizard -- refleja en vivo lo elegido en los pasos anteriores. */
+    private function resumenWizardDirectiva(callable $get): string
+    {
+        $lineas = [];
+
+        $lineas[] = match ($get('modo_alcance')) {
+            'todos' => 'Alcance: todos los locales confirmados.',
+            'manual' => 'Alcance: todos los locales, menos '.count((array) $get('locales_excluir')).' excluido(s).',
+            default => 'Alcance: solo locales con venta activa (últimos 30 días).',
+        };
+
+        if ($get('agregar_dia_sin_dt')) {
+            $localNombre = $this->localesConfirmadosOptions()[$get('dia_sin_dt_local_id')] ?? '(sin elegir)';
+            $diaNombre = LocalDiaSinDt::DIAS[$get('dia_sin_dt_dia')] ?? '(sin elegir)';
+            $lineas[] = "Días sin DT: se registrará \"{$localNombre}\" sin DT el {$diaNombre}, antes de calcular.";
+        } else {
+            $lineas[] = 'Días sin DT: sin cambios.';
+        }
+
+        if ($get('aplicar_ajuste')) {
+            $pct = $get('porcentaje_ajuste') ?: 0;
+            $alcanceAjuste = $get('ajuste_alcance') === 'especifico'
+                ? ($this->localesConfirmadosOptions()[$get('ajuste_local_id')] ?? '(sin elegir)')
+                : 'todos los locales de esta corrida';
+            $lineas[] = "Ajuste: {$pct}% sobre la cantidad sugerida de {$alcanceAjuste}.";
+        } else {
+            $lineas[] = 'Ajuste: sin ajuste (fórmula normal).';
+        }
+
+        return implode("\n", $lineas);
+    }
+
+    /**
+     * Aplica lo elegido en el wizard y dispara el cálculo real --
+     * `restrictLocalIdsToUser()` en cada local recibido del formulario
+     * (defensa en profundidad, mismo criterio que el resto del proyecto:
+     * un usuario restringido a locales no puede colar, vía wire:model, un
+     * local fuera de los suyos).
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function ejecutarWizardDirectiva(array $data): void
+    {
+        abort_unless(auth()->user()?->hasPermission('directiva-transferencia.view'), 403);
+
+        if ($data['agregar_dia_sin_dt'] ?? false) {
+            $localId = (string) ($data['dia_sin_dt_local_id'] ?? '');
+            if ($localId !== '' && $this->localAllowedForUser($localId)) {
+                LocalDiaSinDt::firstOrCreate([
+                    'local_id' => $localId,
+                    'dia_semana' => (int) $data['dia_sin_dt_dia'],
+                ]);
+            }
+        }
+
+        $localesExcluidos = [];
+        $soloVentaActiva = false;
+        match ($data['modo_alcance'] ?? 'venta_activa') {
+            'manual' => $localesExcluidos = $this->restrictLocalIdsToUser(array_map('strval', (array) ($data['locales_excluir'] ?? []))),
+            'todos' => null,
+            default => $soloVentaActiva = true,
+        };
+
+        $porcentajeGlobal = 0.0;
+        $porcentajePorLocal = [];
+        if ($data['aplicar_ajuste'] ?? false) {
+            $pct = (float) ($data['porcentaje_ajuste'] ?? 0);
+            $localEspecifico = (string) ($data['ajuste_local_id'] ?? '');
+            if (($data['ajuste_alcance'] ?? 'todos') === 'especifico' && $localEspecifico !== '' && $this->localAllowedForUser($localEspecifico)) {
+                $porcentajePorLocal[$localEspecifico] = $pct;
+            } else {
+                $porcentajeGlobal = $pct;
+            }
+        }
+
+        $total = app(DirectivaTransferenciaService::class)->calcularParaFecha(
+            $this->fechaReferencia(),
+            $localesExcluidos,
+            $soloVentaActiva,
+            $porcentajeGlobal,
+            $porcentajePorLocal,
+        );
+
+        Notification::make()->success()->title('Directiva calculada')->body("{$total} sugerencias generadas para mañana.")->send();
+        $this->resetTable();
     }
 
     /**
@@ -504,6 +712,10 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                     ->tooltip('Guías internas con fecha de traslado entre hoy y mañana (el tramo 1, ambas incluidas), todavía sin confirmar recepción -- ya sumadas al stock proyectado antes de calcular la sugerencia.')
                     ->color(fn ($state): string => (float) $state > 0 ? 'info' : 'gray'),
                 TextColumn::make('multiplo_aplicado')->label('Múltiplo')->alignEnd()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('porcentaje_ajuste_aplicado')->label('Ajuste %')->alignEnd()->toggleable(isToggledHiddenByDefault: true)
+                    ->formatStateUsing(fn ($state): string => $state != 0 ? number_format((float) $state, 2).'%' : '--')
+                    ->tooltip('% aplicado con el wizard "Iniciar Directiva de Transferencia" sobre la cantidad bruta de esta fila -- 0 = sin ajuste, fórmula normal.')
+                    ->color(fn ($state): string => (float) $state != 0 ? 'warning' : 'gray'),
                 TextColumn::make('cantidad_sugerida')->label('Cantidad sugerida')->numeric()->alignEnd()->sortable()
                     ->weight('bold')->color('primary')->badge(),
             ])
