@@ -30,40 +30,49 @@ use Illuminate\Support\Facades\DB;
  *   como default si no hay excepción para ese día, y 12:00 si tampoco hay
  *   eso) -- ver horaLlegada().
  * - **Ventana de demanda EXACTA, desde el instante real del cálculo** --
- *   corrección del 2026-09-09 sobre la primera versión de este rediseño
- *   (que arrancaba la ventana en la hora de llegada configurada de HOY,
- *   ej. 12pm, sin importar a qué hora se apretara el botón). El usuario
- *   pidió precisión explícita ("debe ser preciso"): la ventana arranca
- *   en el momento REAL en que se ejecuta el cálculo (`now()`), sea la
- *   hora que sea, y termina en la hora de llegada configurada del día de
- *   destino (12pm por defecto). Ej.: si se calcula a las 15:32 de hoy
- *   para un despacho que llega mañana a las 12pm, la ventana es
- *   "15:32 de hoy a 12:00 de mañana" -- ni un minuto de más ni de menos.
- *   `kardex_movimientos.fecha_hora` (timestamp real, no solo fecha)
- *   permite filtrar por esto.
+ *   la ventana arranca en el momento REAL en que se ejecuta el cálculo
+ *   (`now()`), sea la hora que sea (no una hora de llegada configurada
+ *   de hoy). `kardex_movimientos.fecha_hora` (timestamp real, no solo
+ *   fecha) permite filtrar por esto.
+ * - **La ventana cubre 2 tramos, no 1** -- corrección real del 2026-09-09,
+ *   entendida junto con el usuario a lo largo de varios ejemplos numéricos
+ *   propios suyos. Lo que se despacha HOY llega recién MAÑANA -- así que
+ *   no puede cubrir la demanda de "ahora a mañana" (eso lo tiene que
+ *   aguantar por sí solo el stock proyectado actual, sin ayuda). Lo que sí
+ *   tiene que cubrir es la demanda de "mañana (cuando llega) a pasado
+ *   mañana (la próxima llegada)". Por eso la ventana real que alimenta
+ *   `demanda_promedio` va de AHORA a PASADO MAÑANA (2 ciclos de
+ *   `frecuencia_dias`, no 1) -- matemáticamente equivale a sumar ambos
+ *   tramos y restar una sola vez el stock proyectado, lo cual además
+ *   arrastra correctamente cualquier sobrante del primer tramo hacia el
+ *   segundo (ver el método `calcularParaFecha()` para el detalle).
+ * - **`demanda_ventana1` y `riesgo_quiebre`**: además de la ventana
+ *   completa, se calcula aparte la demanda de SOLO el primer tramo (ahora
+ *   -> mañana). Si esa demanda ya supera el stock proyectado actual, hay
+ *   un quiebre real e INEVITABLE antes de que llegue la reposición de
+ *   mañana -- ningún despacho de hoy lo puede evitar, porque llega tarde
+ *   para eso. Se guarda como aviso aparte (`riesgo_quiebre=true`), no
+ *   escondido dentro del número final de `cantidad_sugerida`.
  * - **Promedio histórico sobre el MISMO instante relativo, semana a
- *   semana**: como el límite superior real (`$hasta`, hora de llegada de
- *   destino) SÍ es una hora fija y conocida, retroceder ese límite de a
- *   7 días exactos preserva el día de semana Y la hora exactos en cada
- *   comparación histórica. El límite inferior de cada comparación
- *   histórica se arma retrocediendo la MISMA cantidad de días desde el
- *   momento real de cálculo (`now()->subWeeks($k)`) -- así cada semana
- *   comparada usa el mismo par (día de semana, hora del día) que la
- *   ventana real, aunque el cálculo de hoy se haya disparado a una hora
- *   distinta que el de la semana pasada.
+ *   semana**: como el límite superior real (`$hasta`) SÍ es una hora fija
+ *   y conocida, retroceder ese límite de a 7 días exactos preserva el día
+ *   de semana Y la hora exactos en cada comparación histórica. El límite
+ *   inferior de cada comparación histórica se arma retrocediendo la MISMA
+ *   cantidad de días desde el momento real de cálculo
+ *   (`now()->subWeeks($k)`) -- así cada semana comparada usa el mismo par
+ *   (día de semana, hora del día) que la ventana real, aunque el cálculo
+ *   de hoy se haya disparado a una hora distinta que el de la semana
+ *   pasada.
  *
  * El resto del diseño no cambia: universo de ítems (Presentación de
  * Despacho) y locales (Stock Inicial confirmado), stock proyectado = saldo
  * actual + tránsito, `cantidad_sugerida = redondear(max(0, demanda -
  * proyectado))`. Ver StockSaldoRecalculadorService para saldo_actual.
- * cantidad_en_tránsito: corregido también el 2026-09-09 -- antes solo
- * miraba guías con `fecha_traslado` EXACTAMENTE igual a la fecha de
- * destino, así que una guía en camino desde HOY (generada por la
- * Directiva de AYER, con destino a hoy, y que sigue sin recepcionar en
- * el momento del cálculo) no se contaba -- un hueco real señalado por el
- * usuario con un ejemplo concreto. Ahora cuenta cualquier guía sin
- * recepcionar con `fecha_traslado` entre HOY y la fecha de destino,
- * ambas incluidas.
+ * cantidad_en_tránsito: guías sin recepcionar con `fecha_traslado` entre
+ * HOY y la fecha de destino del PRIMER tramo (mañana), ambas incluidas --
+ * no se extiende a la ventana completa (pasado mañana) porque una guía con
+ * traslado a pasado mañana normalmente ni existe todavía al momento de
+ * calcular hoy.
  */
 class DirectivaTransferenciaService
 {
@@ -103,26 +112,35 @@ class DirectivaTransferenciaService
             $frecuencia = max(1, (int) ($config->frecuencia_dias ?? 1));
             $horariosLocal = $horarios->get($local->local_id, collect());
 
+            // Tramo 1: ahora -> mañana (cuando llega LO YA DESPACHADO
+            // antes de hoy). El stock proyectado actual tiene que
+            // aguantar este tramo por sí solo.
             $fechaDestino = $hoy->copy()->addDays($frecuencia);
             $horaDestino = $this->horaLlegada($horariosLocal, $config, $fechaDestino->dayOfWeekIso);
+            $hastaV1 = $fechaDestino->copy()->setTimeFromTimeString($horaDestino);
+
+            // Tramo 2: mañana -> pasado mañana (cuando llega la PRÓXIMA
+            // reposición después de la de mañana). Esto es lo que el
+            // despacho de HOY tiene que cubrir -- ver docblock de la clase.
+            $fechaDestino2 = $fechaDestino->copy()->addDays($frecuencia);
+            $horaDestino2 = $this->horaLlegada($horariosLocal, $config, $fechaDestino2->dayOfWeekIso);
+            $hasta = $fechaDestino2->copy()->setTimeFromTimeString($horaDestino2);
 
             // Precisión pedida explícitamente por el usuario: la ventana
             // arranca AHORA MISMO (el instante real en que corre el
-            // cálculo), no en una hora de llegada configurada de hoy --
-            // ver docblock de la clase.
+            // cálculo), no en una hora de llegada configurada de hoy.
             $desde = $ahora->copy();
-            $hasta = $fechaDestino->copy()->setTimeFromTimeString($horaDestino);
 
-            // Ventanas históricas: mismo instante relativo (mismo día de
-            // semana Y misma hora del día) que [desde, hasta), retrocediendo
-            // de a 7 días exactos desde el momento real de cálculo -- ver
-            // docblock de la clase para el porqué.
+            // Ventanas históricas de la ventana COMPLETA (ahora -> pasado
+            // mañana) y del tramo 1 solo (ahora -> mañana), retrocediendo
+            // de a 7 días exactos desde el momento real de cálculo -- así
+            // cada semana comparada usa el mismo par (día de semana, hora
+            // del día) que la ventana real, ver docblock de la clase.
             $ventanasHistoricas = [];
+            $ventanasHistoricasV1 = [];
             for ($k = 1; $k <= self::COMPARACIONES_HISTORICAS; $k++) {
-                $ventanasHistoricas[] = [
-                    $desde->copy()->subWeeks($k),
-                    $hasta->copy()->subWeeks($k),
-                ];
+                $ventanasHistoricas[] = [$desde->copy()->subWeeks($k), $hasta->copy()->subWeeks($k)];
+                $ventanasHistoricasV1[] = [$desde->copy()->subWeeks($k), $hastaV1->copy()->subWeeks($k)];
             }
             $limiteInferior = $ventanasHistoricas[array_key_last($ventanasHistoricas)][0];
 
@@ -172,24 +190,33 @@ class DirectivaTransferenciaService
             foreach ($productos as $clave => $producto) {
                 $ventasItem = $ventasCrudas->get($clave, collect());
 
-                // Por cada ventana histórica, sumar las ventas cuyo
-                // fecha_hora cae dentro de ese tramo puntual -- en memoria,
-                // sobre lo ya traído, para no repetir 10 consultas por ítem.
-                $demandasPorSemana = [];
-                foreach ($ventanasHistoricas as [$desdeHist, $hastaHist]) {
-                    $totalSemana = $ventasItem
-                        ->filter(fn ($row): bool => $row->fecha_hora->gte($desdeHist) && $row->fecha_hora->lt($hastaHist))
-                        ->sum('salida');
-                    if ($totalSemana > 0) {
-                        $demandasPorSemana[] = (float) $totalSemana;
-                    }
-                }
+                // Promedio de la ventana COMPLETA (ahora -> pasado mañana)
+                // -- es la que alimenta cantidad_bruta.
+                $demandasPorSemana = $this->promediarVentanas($ventasItem, $ventanasHistoricas);
                 $semanasConsideradas = count($demandasPorSemana);
                 $demandaPromedio = $semanasConsideradas > 0 ? array_sum($demandasPorSemana) / $semanasConsideradas : 0.0;
+
+                // Promedio de SOLO el tramo 1 (ahora -> mañana) -- para la
+                // alerta de riesgo de quiebre, ver docblock de la clase.
+                $demandasV1PorSemana = $this->promediarVentanas($ventasItem, $ventanasHistoricasV1);
+                $demandaVentana1 = count($demandasV1PorSemana) > 0 ? array_sum($demandasV1PorSemana) / count($demandasV1PorSemana) : 0.0;
 
                 $saldoActual = (float) ($saldos->get($clave)?->saldo ?? 0);
                 $cantidadEnTransito = (float) ($transitos->get($producto->item_id)?->cantidad_transito ?? 0);
                 $stockProyectado = $saldoActual + $cantidadEnTransito;
+
+                // Riesgo de quiebre real e inevitable: si SOLO el tramo 1
+                // (ahora->mañana) ya supera lo que hay proyectado, el local
+                // se queda sin stock ANTES de que llegue la reposición de
+                // mañana -- lo que se despache hoy llega tarde para evitar
+                // ese hueco puntual.
+                $riesgoQuiebre = $demandaVentana1 > $stockProyectado;
+
+                // cantidad_bruta usa la ventana COMPLETA (ahora->pasado
+                // mañana) contra el stock proyectado UNA sola vez -- esto
+                // arrastra correctamente cualquier sobrante (o faltante)
+                // del tramo 1 hacia el tramo 2, en vez de asumir que el
+                // tramo 1 se cubre exacto sin sobrar ni faltar nada.
                 $cantidadBruta = max(0.0, $demandaPromedio - $stockProyectado);
                 $cantidadSugerida = $producto->redondear($cantidadBruta);
 
@@ -203,6 +230,8 @@ class DirectivaTransferenciaService
                     'item_codigo' => $producto->item_codigo,
                     'item_nombre' => $producto->item_nombre,
                     'demanda_promedio' => $demandaPromedio,
+                    'demanda_ventana1' => $demandaVentana1,
+                    'riesgo_quiebre' => $riesgoQuiebre,
                     'semanas_consideradas' => $semanasConsideradas,
                     'saldo_actual' => $saldoActual,
                     'cantidad_en_transito' => $cantidadEnTransito,
@@ -220,13 +249,38 @@ class DirectivaTransferenciaService
             DirectivaTransferenciaSugerencia::upsert(
                 $lote,
                 ['fecha_despacho', 'local_id', 'item_id', 'item_tipo'],
-                ['local_nombre', 'item_codigo', 'item_nombre', 'demanda_promedio', 'semanas_consideradas',
-                    'saldo_actual', 'cantidad_en_transito', 'cantidad_bruta', 'multiplo_aplicado',
-                    'cantidad_sugerida', 'calculado_en', 'updated_at'],
+                ['local_nombre', 'item_codigo', 'item_nombre', 'demanda_promedio', 'demanda_ventana1',
+                    'riesgo_quiebre', 'semanas_consideradas', 'saldo_actual', 'cantidad_en_transito',
+                    'cantidad_bruta', 'multiplo_aplicado', 'cantidad_sugerida', 'calculado_en', 'updated_at'],
             );
         }
 
         return count($filas);
+    }
+
+    /**
+     * Suma la venta real dentro de cada ventana dada, en memoria sobre las
+     * filas ya traídas de Kardex -- devuelve solo los totales de las
+     * semanas que tuvieron venta real (>0), para no diluir el promedio con
+     * semanas sin datos.
+     *
+     * @param  \Illuminate\Support\Collection<int, object>  $ventasItem
+     * @param  array<int, array{0: Carbon, 1: Carbon}>  $ventanas
+     * @return array<int, float>
+     */
+    private function promediarVentanas(\Illuminate\Support\Collection $ventasItem, array $ventanas): array
+    {
+        $totales = [];
+        foreach ($ventanas as [$desdeHist, $hastaHist]) {
+            $totalSemana = $ventasItem
+                ->filter(fn ($row): bool => $row->fecha_hora->gte($desdeHist) && $row->fecha_hora->lt($hastaHist))
+                ->sum('salida');
+            if ($totalSemana > 0) {
+                $totales[] = (float) $totalSemana;
+            }
+        }
+
+        return $totales;
     }
 
     /**

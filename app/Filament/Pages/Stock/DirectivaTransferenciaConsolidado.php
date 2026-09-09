@@ -438,14 +438,20 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                 TextColumn::make('item_codigo')->label('SKU')->searchable(),
                 TextColumn::make('item_nombre')->label('Producto')->searchable()->wrap(),
                 TextColumn::make('demanda_promedio')->label('Demanda prom.')->numeric(2)->alignEnd()
-                    ->tooltip(fn (DirectivaTransferenciaSugerencia $r): string => 'Promedio de las últimas '.$r->semanas_consideradas.' semanas, mismo tramo de horas real (día de semana + hora de llegada) que esta reposición.')
+                    ->tooltip(fn (DirectivaTransferenciaSugerencia $r): string => 'Promedio de las últimas '.$r->semanas_consideradas.' semanas -- ventana completa AHORA hasta PASADO MAÑANA (2 tramos): lo que el despacho de hoy tiene que cubrir una vez que llegue mañana, hasta la reposición siguiente.')
                     ->color(fn (DirectivaTransferenciaSugerencia $r): string => $r->esConfianzaBaja() ? 'gray' : 'success'),
+                TextColumn::make('demanda_ventana1')->label('Demanda tramo 1')->numeric(2)->alignEnd()->toggleable(isToggledHiddenByDefault: true)
+                    ->tooltip('Solo el primer tramo (ahora -> mañana) -- lo que el STOCK PROYECTADO ACTUAL tiene que aguantar por sí solo, sin ayuda del despacho de hoy (llega tarde para este tramo).'),
+                TextColumn::make('riesgo_quiebre')->label('¿Riesgo de quiebre?')->badge()
+                    ->formatStateUsing(fn ($state): string => $state ? 'Quiebre antes de mañana' : 'Sin riesgo')
+                    ->color(fn ($state): string => $state ? 'danger' : 'gray')
+                    ->tooltip('Si la demanda del tramo 1 (ahora -> mañana) ya supera el stock proyectado actual, el local se queda sin stock ANTES de que llegue la reposición de mañana -- el despacho de hoy no lo puede evitar, llega después de que ya pasó.'),
                 TextColumn::make('semanas_consideradas')->label('Semanas')->alignEnd()->toggleable()
                     ->badge()->color(fn (DirectivaTransferenciaSugerencia $r): string => $r->esConfianzaBaja() ? 'warning' : 'gray'),
                 TextColumn::make('saldo_actual')->label('Saldo actual')->numeric(2)->alignEnd()
                     ->color(fn ($state): string => (float) $state < 0 ? 'danger' : 'gray'),
                 TextColumn::make('cantidad_en_transito')->label('En tránsito')->numeric(2)->alignEnd()->toggleable()
-                    ->tooltip('Guías internas con fecha de traslado entre hoy y la fecha de despacho de esta fila (ambas incluidas), todavía sin confirmar recepción -- ya sumadas al stock proyectado antes de calcular la sugerencia.')
+                    ->tooltip('Guías internas con fecha de traslado entre hoy y mañana (el tramo 1, ambas incluidas), todavía sin confirmar recepción -- ya sumadas al stock proyectado antes de calcular la sugerencia.')
                     ->color(fn ($state): string => (float) $state > 0 ? 'info' : 'gray'),
                 TextColumn::make('multiplo_aplicado')->label('Múltiplo')->alignEnd()->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('cantidad_sugerida')->label('Cantidad sugerida')->numeric()->alignEnd()->sortable()
@@ -459,6 +465,8 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                     ))->searchable(),
                 Filter::make('confianza_baja')->label('Confianza baja (< 3 semanas de histórico)')
                     ->query(fn (Builder $query): Builder => $query->where('semanas_consideradas', '<', 3)),
+                Filter::make('riesgo_quiebre')->label('Riesgo de quiebre antes de mañana')
+                    ->query(fn (Builder $query): Builder => $query->where('riesgo_quiebre', true)),
             ])
             ->defaultSort('fecha_despacho')
             ->paginated([25, 50, 100])
