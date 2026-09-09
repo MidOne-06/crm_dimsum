@@ -7,10 +7,15 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * Configuración operativa por local para la Directiva de Transferencia:
- * cadencia de reparto, hora de llegada, ventana de recepción, inactividad
- * temporal y modo de arranque para un local nuevo. No hay "ruta" como
- * entidad -- la agrupación de despacho de cada día se calcula a partir de
- * frecuencia_dias, no de un catálogo de rutas pre-asignadas.
+ * hora de llegada por defecto, ventana de recepción, inactividad temporal y
+ * modo de arranque para un local nuevo. No hay "ruta" como entidad.
+ *
+ * OJO: `frecuencia_dias` queda como dato de referencia/histórico -- desde
+ * el 2026-09-09 `DirectivaTransferenciaService` ya NO lo usa para calcular
+ * la fecha de despacho. Lo reemplazó `LocalDiaSinDt` (días de la semana en
+ * que un local no genera DT), que permite cualquier patrón real (no solo
+ * "cada N días" parejo) -- ver el docblock de esa clase y de
+ * `DirectivaTransferenciaService::proximaLlegada()`.
  */
 class LocalLogisticaConfig extends Model
 {

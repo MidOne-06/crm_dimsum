@@ -52,8 +52,8 @@ class LocalLogisticaConfigResource extends Resource
                 TextInput::make('local_nombre')->label('Nombre (referencia)')->readOnly()->required(),
             ])->columns(2),
             Section::make('Cadencia y llegada')->schema([
-                TextInput::make('frecuencia_dias')->label('Cada cuántos días le toca reparto')->numeric()->minValue(1)->default(1)->required()
-                    ->helperText('1 = diario, 2 = cada 2 días, 3 = cada 3 días...'),
+                TextInput::make('frecuencia_dias')->label('Cada cuántos días le toca reparto (referencia)')->numeric()->minValue(1)->default(1)->required()
+                    ->helperText('Solo informativo -- la Directiva de Transferencia YA NO usa este campo para calcular (desde el 2026-09-09). Para que un local salte un día real (ej. sin reparto los sábados), cargalo en "Días sin DT".'),
                 TimePicker::make('hora_llegada_estimada')->label('Hora de llegada estimada')->seconds(false),
                 TimePicker::make('ventana_recepcion_inicio')->label('Puede recibir desde')->seconds(false),
                 TimePicker::make('ventana_recepcion_fin')->label('Puede recibir hasta')->seconds(false),
@@ -82,7 +82,7 @@ class LocalLogisticaConfigResource extends Resource
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('local_nombre')->label('Local')->searchable()->weight('medium')->sortable(),
-                Tables\Columns\TextColumn::make('frecuencia_dias')->label('Frecuencia')->formatStateUsing(fn ($state) => $state == 1 ? 'Diario' : "Cada {$state} días")->badge(),
+                Tables\Columns\TextColumn::make('frecuencia_dias')->label('Frecuencia (referencia)')->tooltip('Ya no lo usa el cálculo de la Directiva -- ver "Días sin DT".')->formatStateUsing(fn ($state) => $state == 1 ? 'Diario' : "Cada {$state} días")->badge()->color('gray'),
                 Tables\Columns\TextColumn::make('hora_llegada_estimada')->label('Llegada')->time('H:i'),
                 Tables\Columns\TextColumn::make('ventana_recepcion_inicio')->label('Ventana')->state(fn (LocalLogisticaConfig $r) => $r->ventana_recepcion_inicio && $r->ventana_recepcion_fin ? substr($r->ventana_recepcion_inicio, 0, 5).'–'.substr($r->ventana_recepcion_fin, 0, 5) : '—'),
                 Tables\Columns\TextColumn::make('inactivo_hasta')->label('Inactivo')->state(fn (LocalLogisticaConfig $r) => $r->inactivoEn() ? 'Hasta '.$r->inactivo_hasta->format('d/m/Y') : '—')->color(fn (LocalLogisticaConfig $r) => $r->inactivoEn() ? 'danger' : 'gray')->badge(),

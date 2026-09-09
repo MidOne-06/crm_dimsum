@@ -11,6 +11,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Validation\Rules\Unique;
 
 /**
  * Días de la semana en que un local NO genera Directiva de Transferencia
@@ -38,11 +39,13 @@ class LocalDiaSinDtResource extends Resource
             Select::make('local_id')
                 ->label('Local')
                 ->options(fn (): array => static::localOptions())
-                ->searchable()->native(false)->required(),
+                ->searchable()->native(false)->required()->live(),
             Select::make('dia_semana')
                 ->label('Día de la semana sin DT')
                 ->options(LocalDiaSinDt::DIAS)
                 ->native(false)->required()
+                ->unique(ignoreRecord: true, modifyRuleUsing: fn (Unique $rule, callable $get) => $rule->where('local_id', $get('local_id')))
+                ->validationMessages(['unique' => 'Este local ya tiene ese día marcado como sin DT.'])
                 ->helperText('El día siguiente a este tampoco tendrá llegada de transporte -- el despacho del día anterior a este tiene que cubrir ambos.'),
         ]);
     }

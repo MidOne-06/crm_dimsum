@@ -13,6 +13,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Validation\Rules\Unique;
 
 /**
  * Excepción de hora de llegada por local + día de la semana -- pedido
@@ -44,9 +45,11 @@ class LocalLogisticaHorarioResource extends Resource
             Select::make('local_id')
                 ->label('Local')
                 ->options(fn (): array => static::localOptions())
-                ->searchable()->native(false)->required(),
+                ->searchable()->native(false)->required()->live(),
             Select::make('dia_semana')
                 ->label('Día de la semana')
+                ->unique(ignoreRecord: true, modifyRuleUsing: fn (Unique $rule, callable $get) => $rule->where('local_id', $get('local_id')))
+                ->validationMessages(['unique' => 'Este local ya tiene una hora cargada para ese día -- editá la existente en vez de crear otra.'])
                 ->options(LocalLogisticaHorario::DIAS)
                 ->native(false)->required(),
             TimePicker::make('hora')->label('Hora de llegada ese día')->seconds(false)->required(),

@@ -51,12 +51,14 @@ use Throwable;
  *
  * OJO, cambio real del 2026-09-09: la fecha de despacho YA NO es una sola
  * fecha global ("mañana" para todos) -- cada local calcula la suya propia
- * según su frecuencia de reparto (`LocalLogisticaConfig.frecuencia_dias`,
- * ver DirectivaTransferenciaService). Un local diario cae en mañana; uno
- * que reparte cada 2 días cae en pasado mañana. Por eso la tabla filtra
- * "fecha_despacho >= mañana" (trae todas las fechas futuras que existan),
- * no una fecha exacta, y tiene su propia columna "Fecha despacho" para que
- * se distinga cuál es cuál.
+ * según sus propios días sin DT configurados (`LocalDiaSinDt`, ver
+ * `DirectivaTransferenciaService::proximaLlegada()` -- reemplazó a
+ * `LocalLogisticaConfig.frecuencia_dias`, que ya no se usa para esto). Un
+ * local sin ninguna excepción cae en mañana, igual que siempre; uno con
+ * algún día sin DT puede caer más adelante, saltando los días sin llegada.
+ * Por eso la tabla filtra "fecha_despacho >= mañana" (trae todas las
+ * fechas futuras que existan), no una fecha exacta, y tiene su propia
+ * columna "Fecha despacho" para que se distinga cuál es cuál.
  */
 class DirectivaTransferenciaConsolidado extends Page implements HasTable
 {
@@ -91,7 +93,7 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
     /**
      * "Hoy" -- la fecha de referencia que recibe
      * DirectivaTransferenciaService::calcularParaFecha(). Cada local calcula
-     * su PROPIA fecha de despacho a partir de acá (hoy + su frecuencia_dias)
+     * su PROPIA fecha de despacho a partir de acá, saltando sus días sin DT
      * -- ya no hay una única "fecha de despacho" global, ver docblock de la
      * clase.
      */
@@ -434,7 +436,7 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
             ->columns([
                 TextColumn::make('local_nombre')->label('Local')->searchable()->sortable(),
                 TextColumn::make('fecha_despacho')->label('Fecha despacho')->date('d/m/Y')->sortable()
-                    ->tooltip('Puede variar por local según su frecuencia de reparto configurada.'),
+                    ->tooltip('Puede variar por local según sus días sin DT configurados (Configuración DT > Días sin DT).'),
                 TextColumn::make('item_codigo')->label('SKU')->searchable(),
                 TextColumn::make('item_nombre')->label('Producto')->searchable()->wrap(),
                 TextColumn::make('demanda_promedio')->label('Demanda prom.')->numeric(2)->alignEnd()

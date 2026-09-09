@@ -333,12 +333,22 @@ class DirectivaTransferenciaService
      * termina cubriendo sábado Y domingo.
      *
      * @param  array<int, int>  $diasSinDt
+     *
+     * @throws \RuntimeException  si el local tiene los 7 días de la semana
+     *                             marcados como "sin DT" -- una
+     *                             configuración sin sentido (nunca
+     *                             recibiría reposición) que de otro modo
+     *                             dejaría este método en un bucle infinito.
      */
     private function proximaLlegada(Carbon $desde, array $diasSinDt): Carbon
     {
         $dia = $desde->copy()->addDay();
+        $intentos = 0;
         while (in_array($dia->copy()->subDay()->dayOfWeekIso, $diasSinDt, true)) {
             $dia->addDay();
+            if (++$intentos > 14) {
+                throw new \RuntimeException('Un local tiene los 7 días de la semana marcados como "sin DT" -- revisa la configuración en Días sin DT, ningún local puede quedar así.');
+            }
         }
 
         return $dia;
@@ -361,6 +371,6 @@ class DirectivaTransferenciaService
             return (string) $excepcion->hora;
         }
 
-        return (string) ($config->hora_llegada_estimada ?? self::HORA_POR_DEFECTO);
+        return (string) ($config?->hora_llegada_estimada ?? self::HORA_POR_DEFECTO);
     }
 }
