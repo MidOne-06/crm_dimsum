@@ -204,8 +204,12 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                             ->options(fn (): array => $this->localesConfirmadosOptions())
                             ->multiple()
                             ->searchable()
+                            ->live()
                             ->visible(fn (callable $get): bool => $get('modo_alcance') === 'manual')
                             ->required(fn (callable $get): bool => $get('modo_alcance') === 'manual'),
+                        Placeholder::make('conteo_alcance')
+                            ->label('')
+                            ->content(fn (callable $get): string => $this->conteoAlcanceEnVivo($get)),
                     ]),
                 Step::make('Días sin DT')
                     ->description('Registrar una excepción antes de calcular (opcional)')
@@ -215,10 +219,12 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                             ->label('Agregar una excepción de "día sin DT" antes de calcular')
                             ->helperText('El día siguiente a este tampoco tendrá llegada de transporte -- el despacho del día anterior a este tiene que cubrir ambos. Ej.: hoy sí se genera DT, mañana no, recién el viernes.')
                             ->live(),
-                        Select::make('dia_sin_dt_local_id')
-                            ->label('Local')
+                        Select::make('dia_sin_dt_locales')
+                            ->label('Local(es)')
                             ->options(fn (): array => $this->localesConfirmadosOptions())
+                            ->multiple()
                             ->searchable()
+                            ->helperText('Uno, varios, o todos -- la excepción se registra igual para cada uno.')
                             ->visible(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt'))
                             ->required(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt')),
                         Select::make('dia_sin_dt_dia')
@@ -245,18 +251,13 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                             ->helperText('Positivo suma (ej. 10 = +10%), negativo resta (ej. -10 = -10%).')
                             ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste'))
                             ->required(fn (callable $get): bool => (bool) $get('aplicar_ajuste')),
-                        Radio::make('ajuste_alcance')
+                        Select::make('ajuste_locales')
                             ->label('¿A quién se aplica?')
-                            ->options(['todos' => 'A todos los locales de esta corrida', 'especifico' => 'A un local específico'])
-                            ->default('todos')
-                            ->live()
-                            ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste')),
-                        Select::make('ajuste_local_id')
-                            ->label('Local')
                             ->options(fn (): array => $this->localesConfirmadosOptions())
+                            ->multiple()
                             ->searchable()
-                            ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste') && $get('ajuste_alcance') === 'especifico')
-                            ->required(fn (callable $get): bool => (bool) $get('aplicar_ajuste') && $get('ajuste_alcance') === 'especifico'),
+                            ->helperText('Un local, varios, o deja vacío para aplicarlo a TODOS los locales de esta corrida.')
+                            ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste')),
                     ]),
                 Step::make('Confirmar')
                     ->description('Revisa antes de calcular')
@@ -270,6 +271,20 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
             ->action(fn (array $data) => $this->ejecutarWizardDirectiva($data));
     }
 
+    /** Cuántos locales entran HOY MISMO con lo elegido hasta ahora -- consulta en vivo, no un texto fijo, para que el usuario vea el efecto real antes de calcular. */
+    private function conteoAlcanceEnVivo(callable $get): string
+    {
+        $confirmados = StockInicialLocal::where('estado', 'confirmado')->pluck('local_id')->all();
+
+        $incluidos = match ($get('modo_alcance')) {
+            'todos' => $confirmados,
+            'manual' => array_values(array_diff($confirmados, array_map('strval', (array) $get('locales_excluir')))),
+            default => app(DirectivaTransferenciaService::class)->localesConVentaActiva($confirmados),
+        };
+
+        return count($incluidos).' de '.count($confirmados).' locales confirmados entrarán en esta corrida (calculado ahora mismo, con la data real de hoy).';
+    }
+
     /** Texto plano del resumen del último paso del wizard -- refleja en vivo lo elegido en los pasos anteriores. */
     private function resumenWizardDirectiva(callable $get): string
     {
@@ -280,20 +295,26 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
             'manual' => 'Alcance: todos los locales, menos '.count((array) $get('locales_excluir')).' excluido(s).',
             default => 'Alcance: solo locales con venta activa (últimos 3 días).',
         };
+        $lineas[] = $this->conteoAlcanceEnVivo($get);
 
         if ($get('agregar_dia_sin_dt')) {
-            $localNombre = $this->localesConfirmadosOptions()[$get('dia_sin_dt_local_id')] ?? '(sin elegir)';
+            $opciones = $this->localesConfirmadosOptions();
+            $nombres = array_map(fn ($id) => $opciones[$id] ?? $id, (array) $get('dia_sin_dt_locales'));
             $diaNombre = LocalDiaSinDt::DIAS[$get('dia_sin_dt_dia')] ?? '(sin elegir)';
-            $lineas[] = "Días sin DT: se registrará \"{$localNombre}\" sin DT el {$diaNombre}, antes de calcular.";
+            $lineas[] = $nombres === []
+                ? 'Días sin DT: falta elegir local(es).'
+                : 'Días sin DT: se registrará sin DT el '.$diaNombre.' para: '.implode(', ', $nombres).'.';
         } else {
             $lineas[] = 'Días sin DT: sin cambios.';
         }
 
         if ($get('aplicar_ajuste')) {
             $pct = $get('porcentaje_ajuste') ?: 0;
-            $alcanceAjuste = $get('ajuste_alcance') === 'especifico'
-                ? ($this->localesConfirmadosOptions()[$get('ajuste_local_id')] ?? '(sin elegir)')
-                : 'todos los locales de esta corrida';
+            $localesAjuste = (array) $get('ajuste_locales');
+            $opciones = $this->localesConfirmadosOptions();
+            $alcanceAjuste = $localesAjuste === []
+                ? 'todos los locales de esta corrida'
+                : implode(', ', array_map(fn ($id) => $opciones[$id] ?? $id, $localesAjuste));
             $lineas[] = "Ajuste: {$pct}% sobre la cantidad sugerida de {$alcanceAjuste}.";
         } else {
             $lineas[] = 'Ajuste: sin ajuste (fórmula normal).';
@@ -316,8 +337,8 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
         abort_unless(auth()->user()?->hasPermission('directiva-transferencia.view'), 403);
 
         if ($data['agregar_dia_sin_dt'] ?? false) {
-            $localId = (string) ($data['dia_sin_dt_local_id'] ?? '');
-            if ($localId !== '' && $this->localAllowedForUser($localId)) {
+            $localesDiaSinDt = $this->restrictLocalIdsToUser(array_map('strval', (array) ($data['dia_sin_dt_locales'] ?? [])));
+            foreach ($localesDiaSinDt as $localId) {
                 LocalDiaSinDt::firstOrCreate([
                     'local_id' => $localId,
                     'dia_semana' => (int) $data['dia_sin_dt_dia'],
@@ -333,13 +354,18 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
             default => $soloVentaActiva = true,
         };
 
+        // Uno, varios, o todos -- vacío ("¿A quién se aplica?" sin elegir
+        // ninguno) significa "todos los locales de esta corrida", pedido
+        // explícito del usuario en vez del radio todos/uno-solo de antes.
         $porcentajeGlobal = 0.0;
         $porcentajePorLocal = [];
         if ($data['aplicar_ajuste'] ?? false) {
             $pct = (float) ($data['porcentaje_ajuste'] ?? 0);
-            $localEspecifico = (string) ($data['ajuste_local_id'] ?? '');
-            if (($data['ajuste_alcance'] ?? 'todos') === 'especifico' && $localEspecifico !== '' && $this->localAllowedForUser($localEspecifico)) {
-                $porcentajePorLocal[$localEspecifico] = $pct;
+            $localesAjuste = $this->restrictLocalIdsToUser(array_map('strval', (array) ($data['ajuste_locales'] ?? [])));
+            if ($localesAjuste !== []) {
+                foreach ($localesAjuste as $localId) {
+                    $porcentajePorLocal[$localId] = $pct;
+                }
             } else {
                 $porcentajeGlobal = $pct;
             }
