@@ -70,6 +70,31 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
         return $this->hasMany(UserLocal::class);
     }
 
+    /** Módulo de entregas: asignaciones (titular/suplente) de este transportista. */
+    public function asignacionesTransportista(): HasMany
+    {
+        return $this->hasMany(LocalTransportista::class, 'user_id');
+    }
+
+    public function ausenciasTransportista(): HasMany
+    {
+        return $this->hasMany(TransportistaAusencia::class, 'user_id');
+    }
+
+    public function esTransportista(): bool
+    {
+        return $this->roles()->where('slug', 'transportista')->exists();
+    }
+
+    /** true si este transportista tiene una ausencia vigente en la fecha dada. */
+    public function ausenteEn(\Illuminate\Support\Carbon $fecha): bool
+    {
+        return $this->ausenciasTransportista()
+            ->whereDate('fecha_inicio', '<=', $fecha->toDateString())
+            ->whereDate('fecha_fin', '>=', $fecha->toDateString())
+            ->exists();
+    }
+
     /**
      * true si el usuario eligió locales específicos. La elección "todos" se
      * guarda explícitamente en local_scope, evitando que una lista vacía se

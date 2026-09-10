@@ -44,11 +44,12 @@ COPY . .
 COPY docker/app/php-fpm-pool.conf /usr/local/etc/php-fpm.d/zz-pool.conf
 
 RUN mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
-    && cp -a public /opt/public \
     && rm -f bootstrap/cache/*.php \
     && chown -R www-data:www-data storage bootstrap/cache \
     && chmod +x docker/app/entrypoint.sh \
-    && php artisan package:discover --ansi
+    && php artisan package:discover --ansi \
+    && php artisan filament:assets --ansi \
+    && cp -a public /opt/public
 
 ENV NODE_ENV=production \
     NODE_EXECUTABLE=node \

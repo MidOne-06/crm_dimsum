@@ -154,6 +154,13 @@
       0 => 'RyanChandler\\BladeCaptureDirective\\BladeCaptureDirectiveServiceProvider',
     ),
   ),
+  'saade/filament-fullcalendar' => 
+  array (
+    'providers' => 
+    array (
+      0 => 'Saade\\FilamentFullCalendar\\FilamentFullCalendarServiceProvider',
+    ),
+  ),
   'spatie/laravel-ignition' => 
   array (
     'aliases' => 
