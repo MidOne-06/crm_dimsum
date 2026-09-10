@@ -250,6 +250,21 @@ docker compose -p crm-dimsum --env-file .env.docker up -d --force-recreate gatew
         $remoteScript += "`n" + @"
 docker compose -p crm-dimsum --env-file .env.docker ps app worker scheduler kardex-worker gateway
 curl -fsSI http://127.0.0.1:8080/admin | head -n 1
+
+# Limpieza post-deploy (2026-09-10): cada `docker compose build` deja capas
+# intermedias en el build cache de BuildKit y NUNCA se limpian solas -- se
+# acumularon 69 GB en pocos dias de deploys. `--max-used-space=3GB` pone un
+# techo duro: borra las capas mas viejas hasta que el cache total quede
+# bajo 3 GB, dejando las base mas recientes (composer/npm/OS) para que el
+# proximo build incremental siga rapido. `image prune` borra las imagenes
+# `crm-dimsum:local` viejas sin tag que deja el rebuild. `fstrim` hace que
+# el disco del host libere de verdad los bloques (thin-provisioning, ver
+# Bitacora 2026-09-06); todo best-effort, no rompe el deploy si algo falla.
+echo "--- Limpieza de build cache post-deploy ---"
+docker builder prune -f --max-used-space=3GB 2>&1 | tail -n 1 || true
+docker image prune -f 2>&1 | tail -n 1 || true
+fstrim -v / 2>&1 || true
+df -h / | tail -n 1
 "@
     }
 
