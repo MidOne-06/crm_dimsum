@@ -3,21 +3,30 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\LocalDiaSinDtResource\Pages;
-use App\Models\KardexMovimiento;
 use App\Models\LocalDiaSinDt;
+use App\Models\StockInicialLocal;
 use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Validation\Rules\Unique;
 
 /**
  * Días de la semana en que un local NO genera Directiva de Transferencia
  * -- ver docblock de la migración y de DirectivaTransferenciaService. Sin
  * EditAction a propósito (no tiene sentido "editar" una excepción de un
  * solo campo -- se borra y se crea de nuevo si hace falta cambiarla).
+ *
+ * Pedido explícito del usuario (2026-09-10): el modal admite uno, varios,
+ * o TODOS los locales a la vez para el mismo día -- antes solo se podía
+ * cargar de a un local por vez. "Todos los locales" y el multi-select usan
+ * el mismo universo que ya usa `DirectivaTransferenciaService`
+ * (`StockInicialLocal` confirmado, no cualquier local con historial en
+ * Kardex como antes) -- cargar una excepción para un local fuera de ese
+ * universo no tendría ningún efecto real en el cálculo, así que ya no se
+ * ofrece como opción.
  */
 class LocalDiaSinDtResource extends Resource
 {
@@ -36,17 +45,22 @@ class LocalDiaSinDtResource extends Resource
     public static function form(Schema $schema): Schema
     {
         return $schema->schema([
-            Select::make('local_id')
-                ->label('Local')
+            Toggle::make('todos_los_locales')
+                ->label('Todos los locales')
+                ->live(),
+            Select::make('locales')
+                ->label('Local(es)')
                 ->options(fn (): array => static::localOptions())
-                ->searchable()->native(false)->required()->live(),
+                ->multiple()
+                ->searchable()
+                ->native(false)
+                ->visible(fn (callable $get): bool => ! $get('todos_los_locales'))
+                ->required(fn (callable $get): bool => ! $get('todos_los_locales')),
             Select::make('dia_semana')
-                ->label('Día de la semana sin DT')
+                ->label('Día sin DT')
                 ->options(LocalDiaSinDt::DIAS)
-                ->native(false)->required()
-                ->unique(ignoreRecord: true, modifyRuleUsing: fn (Unique $rule, callable $get) => $rule->where('local_id', $get('local_id')))
-                ->validationMessages(['unique' => 'Este local ya tiene ese día marcado como sin DT.'])
-                ->helperText('El día siguiente a este tampoco tendrá llegada de transporte -- el despacho del día anterior a este tiene que cubrir ambos.'),
+                ->native(false)
+                ->required(),
         ]);
     }
 
@@ -68,13 +82,17 @@ class LocalDiaSinDtResource extends Resource
             ->emptyStateHeading('Sin excepciones cargadas -- todos los locales generan DT los 7 días de la semana.');
     }
 
-    /** @return array<string, string> */
-    protected static function localOptions(): array
+    /**
+     * Universo de locales real que usa `DirectivaTransferenciaService` --
+     * cambiado de "cualquier local con historial en Kardex" a "solo los
+     * confirmados en Stock Inicial" (2026-09-10), porque son los únicos
+     * que el cálculo real llega a leer.
+     *
+     * @return array<string, string>
+     */
+    public static function localOptions(): array
     {
-        return KardexMovimiento::query()
-            ->whereNotNull('local_id')
-            ->select('local_id', 'local_nombre')
-            ->distinct()
+        return StockInicialLocal::where('estado', 'confirmado')
             ->orderBy('local_nombre')
             ->pluck('local_nombre', 'local_id')
             ->all();
