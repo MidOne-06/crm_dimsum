@@ -24,7 +24,6 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
-use Filament\Schemas\Components\Wizard\Step;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
@@ -167,13 +166,14 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
     }
 
     /**
-     * Wizard "Iniciar Directiva de Transferencia" -- pedido explícito del
-     * usuario para reemplazar el botón "todo o nada" de siempre por un
-     * flujo de preguntas antes de calcular: (1) qué locales incluir, (2)
-     * registrar al vuelo una excepción de "Días sin DT" si hace falta, (3)
-     * aplicar un % de ajuste dinámico opcional. `calcularParaFecha()` sigue
-     * siendo el mismo motor de siempre -- este wizard solo arma sus 4
-     * parámetros nuevos y los pasa (ver docblock del servicio).
+     * "Iniciar Directiva de Transferencia" -- pedido explícito del usuario:
+     * un solo modal directo (sin wizard de pasos, sin texto explicativo --
+     * eso lo cubre el manual de usuario al cerrar el sistema), mismo
+     * estándar de modales del proyecto (Action con botón propio y
+     * explícito, nunca un click implícito). Todo el formulario entra de
+     * una, con visibilidad condicional donde hace falta; `calcularParaFecha()`
+     * sigue siendo el mismo motor de siempre -- esto solo arma sus 4
+     * parámetros y los pasa (ver docblock del servicio).
      */
     private function iniciarDirectivaAction(): Action
     {
@@ -181,92 +181,66 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
             ->label('Iniciar Directiva de Transferencia')
             ->icon('heroicon-o-play')
             ->color('success')
-            ->modalWidth('2xl')
+            ->modalWidth('xl')
             ->modalHeading('Iniciar Directiva de Transferencia')
             ->modalSubmitActionLabel('Calcular')
-            ->steps([
-                Step::make('Alcance')
-                    ->description('¿Para qué locales calculamos?')
-                    ->icon('heroicon-o-building-storefront')
-                    ->schema([
-                        Radio::make('modo_alcance')
-                            ->label('Locales a incluir en esta corrida')
-                            ->options([
-                                'venta_activa' => 'Todos los locales con venta activa (con al menos 1 venta de un ítem de despacho en los últimos 3 días)',
-                                'todos' => 'Todos los locales confirmados',
-                                'manual' => 'Todos, menos los que elija a continuación',
-                            ])
-                            ->default('venta_activa')
-                            ->live()
-                            ->required(),
-                        Select::make('locales_excluir')
-                            ->label('Locales a excluir')
-                            ->options(fn (): array => $this->localesConfirmadosOptions())
-                            ->multiple()
-                            ->searchable()
-                            ->live()
-                            ->visible(fn (callable $get): bool => $get('modo_alcance') === 'manual')
-                            ->required(fn (callable $get): bool => $get('modo_alcance') === 'manual'),
-                        Placeholder::make('conteo_alcance')
-                            ->label('')
-                            ->content(fn (callable $get): string => $this->conteoAlcanceEnVivo($get)),
-                    ]),
-                Step::make('Días sin DT')
-                    ->description('Registrar una excepción antes de calcular (opcional)')
-                    ->icon('heroicon-o-calendar-date-range')
-                    ->schema([
-                        Toggle::make('agregar_dia_sin_dt')
-                            ->label('Agregar una excepción de "día sin DT" antes de calcular')
-                            ->helperText('El día siguiente a este tampoco tendrá llegada de transporte -- el despacho del día anterior a este tiene que cubrir ambos. Ej.: hoy sí se genera DT, mañana no, recién el viernes.')
-                            ->live(),
-                        Select::make('dia_sin_dt_locales')
-                            ->label('Local(es)')
-                            ->options(fn (): array => $this->localesConfirmadosOptions())
-                            ->multiple()
-                            ->searchable()
-                            ->helperText('Uno, varios, o todos -- la excepción se registra igual para cada uno.')
-                            ->visible(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt'))
-                            ->required(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt')),
-                        Select::make('dia_sin_dt_dia')
-                            ->label('Día de la semana sin DT')
-                            ->options(LocalDiaSinDt::DIAS)
-                            ->visible(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt'))
-                            ->required(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt')),
-                    ]),
-                Step::make('Ajuste %')
-                    ->description('Sumar o restar un % sobre la cantidad sugerida (opcional)')
-                    ->icon('heroicon-o-adjustments-horizontal')
-                    ->schema([
-                        Toggle::make('aplicar_ajuste')
-                            ->label('Aplicar un % de ajuste dinámico sobre la cantidad sugerida')
-                            ->helperText('Se aplica DESPUÉS de la fórmula real (demanda vs. stock proyectado) -- para compensar algo puntual (una promoción, un evento) que el histórico de ventas todavía no refleja.')
-                            ->live(),
-                        TextInput::make('porcentaje_ajuste')
-                            ->label('Porcentaje de ajuste')
-                            ->numeric()
-                            ->suffix('%')
-                            ->default(10)
-                            ->minValue(-100)
-                            ->maxValue(500)
-                            ->helperText('Positivo suma (ej. 10 = +10%), negativo resta (ej. -10 = -10%).')
-                            ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste'))
-                            ->required(fn (callable $get): bool => (bool) $get('aplicar_ajuste')),
-                        Select::make('ajuste_locales')
-                            ->label('¿A quién se aplica?')
-                            ->options(fn (): array => $this->localesConfirmadosOptions())
-                            ->multiple()
-                            ->searchable()
-                            ->helperText('Un local, varios, o deja vacío para aplicarlo a TODOS los locales de esta corrida.')
-                            ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste')),
-                    ]),
-                Step::make('Confirmar')
-                    ->description('Revisa antes de calcular')
-                    ->icon('heroicon-o-check-circle')
-                    ->schema([
-                        Placeholder::make('resumen')
-                            ->label('Resumen de esta corrida')
-                            ->content(fn (callable $get): string => $this->resumenWizardDirectiva($get)),
-                    ]),
+            ->schema([
+                Radio::make('modo_alcance')
+                    ->label('Locales')
+                    ->options([
+                        'venta_activa' => 'Con venta activa (últimos 3 días)',
+                        'todos' => 'Todos los confirmados',
+                        'manual' => 'Todos, excepto...',
+                    ])
+                    ->default('venta_activa')
+                    ->live()
+                    ->required(),
+                Select::make('locales_excluir')
+                    ->label('Excluir')
+                    ->options(fn (): array => $this->localesConfirmadosOptions())
+                    ->multiple()
+                    ->searchable()
+                    ->live()
+                    ->visible(fn (callable $get): bool => $get('modo_alcance') === 'manual')
+                    ->required(fn (callable $get): bool => $get('modo_alcance') === 'manual'),
+                Placeholder::make('conteo_alcance')
+                    ->label('')
+                    ->content(fn (callable $get): string => $this->conteoAlcanceEnVivo($get)),
+
+                Toggle::make('agregar_dia_sin_dt')
+                    ->label('Registrar día sin DT')
+                    ->live(),
+                Select::make('dia_sin_dt_locales')
+                    ->label('Local(es)')
+                    ->options(fn (): array => $this->localesConfirmadosOptions())
+                    ->multiple()
+                    ->searchable()
+                    ->visible(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt'))
+                    ->required(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt')),
+                Select::make('dia_sin_dt_dia')
+                    ->label('Día')
+                    ->options(LocalDiaSinDt::DIAS)
+                    ->visible(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt'))
+                    ->required(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt')),
+
+                Toggle::make('aplicar_ajuste')
+                    ->label('Aplicar ajuste %')
+                    ->live(),
+                TextInput::make('porcentaje_ajuste')
+                    ->label('Porcentaje')
+                    ->numeric()
+                    ->suffix('%')
+                    ->default(10)
+                    ->minValue(-100)
+                    ->maxValue(500)
+                    ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste'))
+                    ->required(fn (callable $get): bool => (bool) $get('aplicar_ajuste')),
+                Select::make('ajuste_locales')
+                    ->label('Local(es) (vacío = todos)')
+                    ->options(fn (): array => $this->localesConfirmadosOptions())
+                    ->multiple()
+                    ->searchable()
+                    ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste')),
             ])
             ->action(fn (array $data) => $this->ejecutarWizardDirectiva($data));
     }
@@ -282,45 +256,7 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
             default => app(DirectivaTransferenciaService::class)->localesConVentaActiva($confirmados),
         };
 
-        return count($incluidos).' de '.count($confirmados).' locales confirmados entrarán en esta corrida (calculado ahora mismo, con la data real de hoy).';
-    }
-
-    /** Texto plano del resumen del último paso del wizard -- refleja en vivo lo elegido en los pasos anteriores. */
-    private function resumenWizardDirectiva(callable $get): string
-    {
-        $lineas = [];
-
-        $lineas[] = match ($get('modo_alcance')) {
-            'todos' => 'Alcance: todos los locales confirmados.',
-            'manual' => 'Alcance: todos los locales, menos '.count((array) $get('locales_excluir')).' excluido(s).',
-            default => 'Alcance: solo locales con venta activa (últimos 3 días).',
-        };
-        $lineas[] = $this->conteoAlcanceEnVivo($get);
-
-        if ($get('agregar_dia_sin_dt')) {
-            $opciones = $this->localesConfirmadosOptions();
-            $nombres = array_map(fn ($id) => $opciones[$id] ?? $id, (array) $get('dia_sin_dt_locales'));
-            $diaNombre = LocalDiaSinDt::DIAS[$get('dia_sin_dt_dia')] ?? '(sin elegir)';
-            $lineas[] = $nombres === []
-                ? 'Días sin DT: falta elegir local(es).'
-                : 'Días sin DT: se registrará sin DT el '.$diaNombre.' para: '.implode(', ', $nombres).'.';
-        } else {
-            $lineas[] = 'Días sin DT: sin cambios.';
-        }
-
-        if ($get('aplicar_ajuste')) {
-            $pct = $get('porcentaje_ajuste') ?: 0;
-            $localesAjuste = (array) $get('ajuste_locales');
-            $opciones = $this->localesConfirmadosOptions();
-            $alcanceAjuste = $localesAjuste === []
-                ? 'todos los locales de esta corrida'
-                : implode(', ', array_map(fn ($id) => $opciones[$id] ?? $id, $localesAjuste));
-            $lineas[] = "Ajuste: {$pct}% sobre la cantidad sugerida de {$alcanceAjuste}.";
-        } else {
-            $lineas[] = 'Ajuste: sin ajuste (fórmula normal).';
-        }
-
-        return implode("\n", $lineas);
+        return count($incluidos).' de '.count($confirmados).' locales entrarán en esta corrida.';
     }
 
     /**
