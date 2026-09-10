@@ -4,4 +4,6 @@
         <span class="inline-flex items-center gap-1.5"><span class="h-3 w-3 rounded-full" style="background:#f59e0b"></span> Próxima</span>
         <span class="inline-flex items-center gap-1.5"><span class="h-3 w-3 rounded-full" style="background:#9ca3af"></span> Pasada</span>
     </div>
+
+    @livewire(\App\Filament\Widgets\Entregas\AusenciasCalendarWidget::class)
 </x-filament-panels::page>

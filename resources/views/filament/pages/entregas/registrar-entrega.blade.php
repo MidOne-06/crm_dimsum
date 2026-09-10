@@ -39,16 +39,12 @@
                                 Entregado
                             </span>
                         @else
+                            @php($args = \Illuminate\Support\Js::from(['local_id' => $fila['local_id'], 'local_nombre' => $fila['local_nombre'], 'es_reemplazo' => $fila['es_reemplazo'], 'motivo_auto' => $fila['motivo_auto']]))
                             <x-filament::button
                                 size="sm"
                                 color="success"
                                 icon="heroicon-o-check-circle"
-                                wire:click="mountAction('entregar', @js([
-                                    'local_id' => $fila['local_id'],
-                                    'local_nombre' => $fila['local_nombre'],
-                                    'es_reemplazo' => $fila['es_reemplazo'],
-                                    'motivo_auto' => $fila['motivo_auto'],
-                                ]))"
+                                wire:click="mountAction('entregar', {{ $args }})"
                             >
                                 Entregar
                             </x-filament::button>
@@ -70,6 +66,4 @@
             {{ $cubrirDeMasModos ? 'Ocultar locales de suplente sin ausencia del titular' : 'Cubrir de todos modos (el titular no vino y no está cargada su ausencia)' }}
         </button>
     </div>
-
-    <x-filament-actions::modals />
 </x-filament-panels::page>
