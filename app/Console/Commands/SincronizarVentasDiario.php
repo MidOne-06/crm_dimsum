@@ -22,7 +22,7 @@ use Illuminate\Support\Facades\Artisan;
  */
 class SincronizarVentasDiario extends Command
 {
-    protected $signature = 'ventas:sincronizar-diario {--dias=3 : Días hacia atrás a re-cubrir, con margen de solape}';
+    protected $signature = 'ventas:sincronizar-diario {--dias=3 : Días hacia atrás a re-cubrir (0 = solo hoy, ventana mínima para el ciclo de 30 min)}';
 
     protected $description = 'Crea y despacha automáticamente el bloque diario de extracción de Ventas para todos los locales.';
 
@@ -42,7 +42,11 @@ class SincronizarVentasDiario extends Command
             return self::SUCCESS;
         }
 
-        $dias = max(1, (int) $this->option('dias'));
+        // --dias=0 => solo hoy (ventana mínima del ciclo de 30 min: la lista de
+        // páginas es la mitad y los detalles se saltan solos por venta_id ya
+        // conocida). El barrido profundo con solape lo hace la corrida nocturna
+        // con --dias=3.
+        $dias = max(0, (int) $this->option('dias'));
         $desde = now()->subDays($dias)->toDateString();
         $hasta = now()->toDateString();
 

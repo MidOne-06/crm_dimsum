@@ -43,34 +43,26 @@ $ventanaIncremental = fn (int $dias): string => now()->subDays($dias)->toDateStr
 // hace que el scheduler lance el proceso y siga de inmediato con las demás
 // tareas sin esperarlo.
 
-// Mantiene la copia local de Stock Actual al día sin bloquear a los usuarios.
-Schedule::command('stock-actual:sincronizar --directo --desde='.$ventanaIncremental(3))
-  ->everyThirtyMinutes()
-  ->withoutOverlapping(180)
-  ->runInBackground()
-  ->when($sincActivo('stock-actual'));
-
-Schedule::command('salidas-stock:sincronizar --desde='.$ventanaIncremental(3))
-  ->everyThirtyMinutes()
-  ->withoutOverlapping(180)
-  ->runInBackground()
-  ->when($sincActivo('salidas-stock'));
-
-Schedule::command('guias-internas:sincronizar --desde='.$ventanaIncremental(3))
-  ->everyThirtyMinutes()
-  ->withoutOverlapping(180)
-  ->runInBackground()
-  ->when($sincActivo('guias-internas'));
-
-// El reporte de requerimientos consulta una copia local para que la matriz y
-// las exportaciones respondan de inmediato. Sin esta tarea, la copia quedaba
-// detenida en la última extracción manual y el filtro del día actual podía
-// mostrar cero aun cuando Restaurant ya tenía requerimientos registrados.
-Schedule::command('requerimientos-stock:sincronizar-reporte --desde='.$ventanaIncremental(3))
-  ->everyThirtyMinutes()
-  ->withoutOverlapping(180)
-  ->runInBackground()
-  ->when($sincActivo('requerimientos-stock'));
+// ---------------------------------------------------------------------------
+// Los 6 módulos del Panel de Sincronización corren CADA 30 MIN, pero
+// ESCALONADOS en carriles de 4 min -- NO todos a la vez en :00/:30.
+//
+// Por qué: el gateway API-TI mantiene un pool de solo 4 sesiones de navegador
+// con Restaurant.pe (RESTAURANT_SESSION_POOL_SIZE). Si los 6 comandos disparan
+// en el mismo minuto, sus jobs compiten por esas 4 sesiones y todo se serializa
+// igual, pero con logins en frío de más (una sesión inactiva se recicla a los
+// pocos min). Escalonados, cada módulo tiene el pool casi para sí mismo en su
+// ventana (kardex ~2 min, guías ~1-2 min, el resto <1 min), y reusa sesiones
+// tibias del carril anterior.
+//
+// Orden de los carriles = criticidad para la Directiva de Transferencia:
+//   :02/:32  kardex            -> saldo en tiempo real (base de la DT)
+//   :06/:36  guías internas    -> cantidad_en_transito de la DT
+//   :10/:40  stock actual
+//   :14/:44  requerimientos
+//   :18/:48  salidas de stock
+//   :22/:52  ventas (--dias=0, ventana mínima) -> reporting, no alimenta la DT
+// ---------------------------------------------------------------------------
 
 // Kardex alimenta el saldo en tiempo real y, con él, la Directiva de
 // Transferencia -- es el módulo más sensible a quedar desactualizado. Antes
@@ -79,34 +71,63 @@ Schedule::command('requerimientos-stock:sincronizar-reporte --desde='.$ventanaIn
 // esa fecha. Eso dejaba un hueco real: presionar "Sincronizar y calcular"
 // a media tarde (extrae "hoy") marcaba el día como extraído y la nocturna no
 // volvía a cerrarlo -- las ventas/entradas posteriores nunca entraban al CRM
-// (hueco de 26 unidades encontrado en Aurora / SM001 el 2026-09-10). Ahora,
-// pedido explícito del usuario, corre CADA 30 MINUTOS como el resto de los
-// módulos del Panel de Sincronización, extrayendo ayer + hoy (sin guarda de
-// idempotencia: reemplazar() borra e inserta el rango, es idempotente).
+// (hueco de 26 unidades encontrado en Aurora / SM001 el 2026-09-10). Ahora
+// extrae ayer + hoy, sin guarda de idempotencia (reemplazar() borra e inserta
+// el rango, es idempotente). Primer carril del ciclo escalonado.
 Schedule::command('kardex:sincronizar-diario')
-  ->everyThirtyMinutes()
+  ->cron('2,32 * * * *')
   ->withoutOverlapping(180)
   ->runInBackground()
   ->when($sincActivo('kardex'));
 
-// Ventas era el único módulo (de los 5: Guías/Salidas/Requerimientos/Stock
-// Actual/Kardex ya tenían el suyo) sin NINGUNA sincronización incremental
-// programada -- ventas:procesar-automatizaciones corre cada minuto, pero
-// solo AVANZA una automatización ya creada, nunca crea una sola. Hallazgo
-// real de la auditoría de cobertura del 2026-09-03: el hueco llegaba hasta
-// 2026-07-22 porque nadie volvió a encolar un bloque nuevo desde el último
-// backfill manual.
-//
-// 2026-09-10, pedido explícito del usuario: todos los módulos del Panel de
-// Sincronización deben correr cada 30 min. Ventas es la extracción más
-// pesada (paginada, tabla más grande), así que acá la ventana incremental es
-// de 1 día (hoy + margen de solape), no 3 -- y el propio comando se saltea si
-// ya hay una automatización o extracción de Ventas en curso, así que si una
-// corrida tarda más de 30 min la siguiente no se apila. Si aun así compite
-// por el pool de sesiones de Restaurant con Guías/Kardex, se puede bajar la
-// frecuencia acá o apagar el automático desde /admin/sincronizacion.
-Schedule::command('ventas:sincronizar-diario --dias=1')
-  ->everyThirtyMinutes()
+Schedule::command('guias-internas:sincronizar --desde='.$ventanaIncremental(3))
+  ->cron('6,36 * * * *')
+  ->withoutOverlapping(180)
+  ->runInBackground()
+  ->when($sincActivo('guias-internas'));
+
+// Mantiene la copia local de Stock Actual al día sin bloquear a los usuarios.
+Schedule::command('stock-actual:sincronizar --directo --desde='.$ventanaIncremental(3))
+  ->cron('10,40 * * * *')
+  ->withoutOverlapping(180)
+  ->runInBackground()
+  ->when($sincActivo('stock-actual'));
+
+// El reporte de requerimientos consulta una copia local para que la matriz y
+// las exportaciones respondan de inmediato. Sin esta tarea, la copia quedaba
+// detenida en la última extracción manual y el filtro del día actual podía
+// mostrar cero aun cuando Restaurant ya tenía requerimientos registrados.
+Schedule::command('requerimientos-stock:sincronizar-reporte --desde='.$ventanaIncremental(3))
+  ->cron('14,44 * * * *')
+  ->withoutOverlapping(180)
+  ->runInBackground()
+  ->when($sincActivo('requerimientos-stock'));
+
+Schedule::command('salidas-stock:sincronizar --desde='.$ventanaIncremental(3))
+  ->cron('18,48 * * * *')
+  ->withoutOverlapping(180)
+  ->runInBackground()
+  ->when($sincActivo('salidas-stock'));
+
+// Ventas es la extracción más pesada (paginada, tabla más grande) y NO
+// alimenta la Directiva (la DT lee kardex_movimientos, no la tabla ventas).
+// En el ciclo de 30 min va con --dias=0 (solo hoy: la lista de páginas es la
+// mitad y los detalles se saltan solos por venta_id ya conocida) y en el
+// último carril. El barrido profundo con solape de 3 días lo hace la corrida
+// nocturna de abajo. Sus queues (ventas-pages/ventas-details) están LAST en la
+// prioridad del worker (ver compose.yaml), así que nunca desplazan a
+// guías/salidas/requerimientos.
+Schedule::command('ventas:sincronizar-diario --dias=0')
+  ->cron('22,52 * * * *')
+  ->withoutOverlapping(180)
+  ->runInBackground()
+  ->when($sincActivo('ventas'));
+
+// Barrido profundo diario de Ventas: 3 días de solape para capturar
+// correcciones tardías de Restaurant (una boleta anulada/reemitida días
+// después). A la 01:00, fuera de las horas de operación y del ciclo de 30 min.
+Schedule::command('ventas:sincronizar-diario --dias=3')
+  ->dailyAt('01:00')
   ->withoutOverlapping(180)
   ->runInBackground()
   ->when($sincActivo('ventas'));

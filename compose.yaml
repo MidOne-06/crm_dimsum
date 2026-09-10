@@ -124,7 +124,14 @@ services:
     # que nada lo notara aparte del aviso de "sin avance" en la UI. Subido a
     # 3300s (55 min, justo debajo de --max-time) para dar margen real a una
     # página lenta sin dejar de tener un techo ante un hang genuino.
-    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=ventas-pages,ventas-details,stock-actual,guias-internas,salidas-stock,requerimientos-stock,movimientos-almacenes,default", "--sleep=1", "--tries=4", "--timeout=3300", "--max-time=3600"]
+    # Orden de --queue = PRIORIDAD (el worker vacía la primera antes de mirar
+    # la siguiente). ventas-pages/ventas-details van ÚLTIMAS a propósito: son
+    # la extracción más pesada y NO alimentan la Directiva, así que nunca deben
+    # desplazar a guías/salidas/requerimientos/stock-actual ni a `default`
+    # (donde corre RecalcularSaldoStockJob, que sí alimenta la DT). Cuando
+    # ventas dispara cientos de jobs de detalle, se procesan solo en los huecos
+    # en que no hay nada más esperando.
+    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=stock-actual,guias-internas,salidas-stock,requerimientos-stock,movimientos-almacenes,default,ventas-pages,ventas-details", "--sleep=1", "--tries=4", "--timeout=3300", "--max-time=3600"]
     deploy:
       replicas: ${VENTAS_WORKER_REPLICAS:-0}
     volumes:
