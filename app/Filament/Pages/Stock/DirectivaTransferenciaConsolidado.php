@@ -151,7 +151,7 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                 ->visible(fn (): bool => ! $this->sincronizandoParaManana)
                 ->requiresConfirmation()
                 ->modalHeading('¿Sincronizar Kardex y Guías internas antes de calcular?')
-                ->modalDescription('Actualiza primero el Kardex de HOY (saldo real) y las Guías internas más recientes (mercadería en tránsito) para todos los locales, y recién cuando ambas terminen calcula la Directiva de mañana con esos datos frescos. Puede tardar varios minutos -- esta pantalla se actualiza sola mientras tanto.')
+                ->modalDescription('Actualiza primero el Kardex de ayer y hoy (saldo real) y las Guías internas más recientes (mercadería en tránsito) para todos los locales, y recién cuando ambas terminen calcula la Directiva de mañana con esos datos frescos. Puede tardar varios minutos -- esta pantalla se actualiza sola mientras tanto.')
                 ->modalSubmitActionLabel('Sí, sincronizar y calcular')
                 ->action(fn () => $this->sincronizarYCalcularManana()),
         ];
@@ -329,13 +329,14 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
      * tocan acá: no alimentan esta fórmula, sincronizarlos solo agregaría
      * espera sin cambiar el resultado.
      *
-     * Kardex normalmente solo extrae el día ANTERIOR (ver
-     * SincronizarKardexDiario) porque Restaurant lo considera más estable
-     * -- pero comprobado en vivo (2026-09-09) que extraer el día EN CURSO
-     * sí devuelve datos reales (entradas/salidas ya registradas hasta el
-     * momento de la consulta), así que acá se extrae explícitamente HOY,
-     * no ayer -- es la mejor foto disponible del saldo antes de calcular
-     * mañana.
+     * Kardex se extrae para AYER + HOY (no solo hoy, corregido 2026-09-10
+     * tras la auditoría de Aurora): la cola de ventas/entradas de la noche
+     * de ayer podría no haber entrado todavía si la última sincronización
+     * automática de ayer corrió antes de esas operaciones. `reemplazar()`
+     * borra e inserta el rango por local, así que repetir ayer no duplica
+     * nada -- solo lo deja completo. Comprobado en vivo (2026-09-09) que
+     * Restaurant devuelve datos reales del día EN CURSO (entradas/salidas
+     * hasta el momento de la consulta), así que hoy también entra.
      *
      * Ninguna de las dos sincronizaciones corre en el propio request web
      * (moriría al terminar el request, ver DespacharSincronizacionesPendientes)
@@ -350,6 +351,7 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
         abort_unless(auth()->user()?->hasPermission('directiva-transferencia.view'), 403);
 
         $hoy = now()->toDateString();
+        $ayer = now()->subDay()->toDateString();
 
         if (KardexExtraccionModel::query()->whereIn('estado', ['pendiente', 'en_progreso'])->exists()) {
             $this->kardexExtraccionId = KardexExtraccionModel::query()->whereIn('estado', ['pendiente', 'en_progreso'])->latest('id')->value('id');
@@ -368,7 +370,7 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                     'locales' => implode('-', $localesIds),
                     'localesNombres' => collect($locales)->mapWithKeys(fn (array $l): array => [(string) $l['id'] => (string) ($l['name'] ?? '')])->all(),
                     'motivo' => '-1',
-                    'fechaInicio' => $hoy,
+                    'fechaInicio' => $ayer,
                     'fechaFin' => $hoy,
                 ],
                 'iniciado_por' => auth()->id(),
