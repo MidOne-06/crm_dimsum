@@ -176,26 +176,26 @@ class DirectivaTransferenciaExportService
             'En tránsito', 'Cantidad bruta', '% ajuste', 'Cantidad sugerida',
         ];
         foreach ($encabezados as $index => $titulo) {
-            $sheet->setCellValueByColumnAndRow($index + 1, 1, $titulo);
+            $sheet->setCellValue([$index + 1, 1], $titulo);
         }
         $sheet->getStyle('A1:M1')->getFont()->setBold(true);
         $sheet->getStyle('A1:M1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DCE6F1');
 
         $fila = 2;
         foreach ($sugerencias->sortBy([['local_nombre', 'asc'], ['item_nombre', 'asc']]) as $s) {
-            $sheet->setCellValueByColumnAndRow(1, $fila, $s->local_nombre);
-            $sheet->setCellValueByColumnAndRow(2, $fila, $s->item_nombre);
-            $sheet->setCellValueByColumnAndRow(3, $fila, $s->item_codigo);
-            $sheet->setCellValueByColumnAndRow(4, $fila, (float) $s->demanda_ventana1);
-            $sheet->setCellValueByColumnAndRow(5, $fila, (float) $s->demanda_promedio);
-            $sheet->setCellValueByColumnAndRow(6, $fila, (float) $s->desviacion_estandar);
-            $sheet->setCellValueByColumnAndRow(7, $fila, $s->stockSeguridad());
-            $sheet->setCellValueByColumnAndRow(8, $fila, $s->riesgo_quiebre ? 'Quiebre antes de mañana' : 'Sin riesgo');
-            $sheet->setCellValueByColumnAndRow(9, $fila, (float) $s->saldo_actual);
-            $sheet->setCellValueByColumnAndRow(10, $fila, (float) $s->cantidad_en_transito);
-            $sheet->setCellValueByColumnAndRow(11, $fila, (float) $s->cantidad_bruta);
-            $sheet->setCellValueByColumnAndRow(12, $fila, (float) $s->porcentaje_ajuste_aplicado);
-            $sheet->setCellValueByColumnAndRow(13, $fila, (float) $s->cantidad_sugerida);
+            $sheet->setCellValue([1, $fila], $s->local_nombre);
+            $sheet->setCellValue([2, $fila], $s->item_nombre);
+            $sheet->setCellValue([3, $fila], $s->item_codigo);
+            $sheet->setCellValue([4, $fila], (float) $s->demanda_ventana1);
+            $sheet->setCellValue([5, $fila], (float) $s->demanda_promedio);
+            $sheet->setCellValue([6, $fila], (float) $s->desviacion_estandar);
+            $sheet->setCellValue([7, $fila], $s->stockSeguridad());
+            $sheet->setCellValue([8, $fila], $s->riesgo_quiebre ? 'Quiebre antes de mañana' : 'Sin riesgo');
+            $sheet->setCellValue([9, $fila], (float) $s->saldo_actual);
+            $sheet->setCellValue([10, $fila], (float) $s->cantidad_en_transito);
+            $sheet->setCellValue([11, $fila], (float) $s->cantidad_bruta);
+            $sheet->setCellValue([12, $fila], (float) $s->porcentaje_ajuste_aplicado);
+            $sheet->setCellValue([13, $fila], (float) $s->cantidad_sugerida);
             if ($s->riesgo_quiebre) {
                 $sheet->getStyle("A{$fila}:M{$fila}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FDE2E1');
             }
