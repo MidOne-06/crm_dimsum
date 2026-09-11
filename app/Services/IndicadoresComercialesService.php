@@ -5,6 +5,11 @@ namespace App\Services;
 use App\Models\CanalVentaExterna;
 use App\Models\CuotaVentaExterna;
 use App\Models\CuotaVentaRestaurant;
+use App\Models\ProductoComercialComponente;
+use App\Models\ProductoComercialComposicion;
+use App\Models\ProductoComercialCosto;
+use App\Models\ProductoComercialRecetaManual;
+use App\Models\ProductoComercialRecetaManualComponente;
 use App\Models\User;
 use App\Models\Venta;
 use App\Models\VentaDetalle;
@@ -94,8 +99,12 @@ class IndicadoresComercialesService
         $conIgv = (float) $ventas->sum('con_igv');
         $tickets = (int) $ventas->sum('tickets');
         $cuota = $cuotas['completa'] ? (float) collect($cuotas['por_unidad'])->sum('sin_igv') : null;
-        $tieneRestaurantConVenta = $ventas->contains(fn (array $venta): bool => $venta['tipo'] === 'restaurant' && $venta['sin_igv'] > 0);
-        $costo = (float) $ventas->where('tipo', 'externa')->sum('costo');
+        $costeoRestaurant = $this->costeoRestaurant($scope, $desde, $hasta);
+        $costoExterno = (float) $ventas->where('tipo', 'externa')->sum('costo');
+        $ventasExternas = (float) $ventas->where('tipo', 'externa')->sum('sin_igv');
+        $importeConCosto = $costeoRestaurant['importe_con_costo'] + $ventasExternas;
+        $costo = $costeoRestaurant['costo'] + $costoExterno;
+        $cobertura = $sinIgv > 0 ? min(100, ($importeConCosto / $sinIgv) * 100) : 100;
 
         return [
             'sin_igv' => $sinIgv,
@@ -104,12 +113,154 @@ class IndicadoresComercialesService
             'cuota_sin_igv' => $cuota,
             'avance' => $cuota !== null && $cuota > 0 ? ($sinIgv / $cuota) * 100 : null,
             'tkp' => $tickets > 0 ? $conIgv / $tickets : null,
-            // Restaurant no guarda costo de venta confiable. No se inventa MB
-            // mientras la selección incluya ventas Restaurant.
-            'mb' => ! $tieneRestaurantConVenta && $sinIgv > 0 ? (($sinIgv - $costo) / $sinIgv) * 100 : null,
+            // MB solamente se publica cuando cada venta tiene costo trazable.
+            // Ante cobertura parcial se informa la cobertura, no un margen engañoso.
+            'mb' => $sinIgv > 0 && $cobertura >= 99.999 ? (($sinIgv - $costo) / $sinIgv) * 100 : null,
+            'cobertura_costos' => $cobertura,
+            'importe_sin_costo' => max(0, $sinIgv - $importeConCosto),
             'cuotas_cargadas' => $cuotas['cargadas'],
             'cuotas_requeridas' => $cuotas['requeridas'],
         ];
+    }
+
+    /**
+     * Costea las líneas Restaurant por su producto y receta real observada.
+     *
+     * El agrupamiento conserva fecha, producto y composición: así respeta la
+     * vigencia de costos y no mezcla variantes de un combo que Restaurant
+     * haya vendido con recetas distintas.
+     *
+     * @param array{restaurant: Collection<int, CuotaVentaRestaurant>, externas: Collection<int, CanalVentaExterna>, unidades: Collection<int, array{tipo: string, id: string, codigo: string, nombre: string, local_id: ?string}>} $scope
+     * @return array{importe_con_costo: float, costo: float}
+     */
+    private function costeoRestaurant(array $scope, Carbon $desde, Carbon $hasta): array
+    {
+        $locales = $scope['restaurant']->pluck('local_id')->filter()->values()->all();
+        if ($locales === []) {
+            return ['importe_con_costo' => 0.0, 'costo' => 0.0];
+        }
+
+        $lineas = VentaDetalle::query()
+            ->join('ventas', 'ventas.venta_id', '=', 'venta_detalles.venta_id')
+            ->where('ventas.estado', 'Activo')
+            ->whereIn('ventas.local_id', $locales)
+            ->whereBetween('ventas.venta_fecha', [$desde->copy()->startOfDay(), $hasta->copy()->endOfDay()])
+            ->selectRaw('venta_detalles.producto_restaurant_id, venta_detalles.composicion_comercial_id, DATE(ventas.venta_fecha) as fecha, COALESCE(SUM(venta_detalles.cantidad), 0) as cantidad, COALESCE(SUM(venta_detalles.importe), 0) as importe')
+            ->groupBy('venta_detalles.producto_restaurant_id', 'venta_detalles.composicion_comercial_id')
+            ->groupByRaw('DATE(ventas.venta_fecha)')
+            ->get();
+
+        if ($lineas->isEmpty()) {
+            return ['importe_con_costo' => 0.0, 'costo' => 0.0];
+        }
+
+        $composicionIds = $lineas->pluck('composicion_comercial_id')->filter()->map(fn (mixed $id): int => (int) $id)->unique()->values();
+        $composiciones = ProductoComercialComposicion::query()
+            ->whereIn('id', $composicionIds->all())
+            ->get()
+            ->keyBy('id');
+        $componentesComposicion = ProductoComercialComponente::query()
+            ->whereIn('composicion_id', $composicionIds->all())
+            ->get()
+            ->groupBy('composicion_id');
+        $costos = ProductoComercialCosto::query()
+            ->orderByDesc('vigente_desde')
+            ->get()
+            ->groupBy('producto_restaurant_id');
+        $recetas = ProductoComercialRecetaManual::query()
+            ->orderByDesc('vigente_desde')
+            ->get()
+            ->groupBy('producto_restaurant_id');
+        $recetaIds = $recetas->flatten(1)->pluck('id')->all();
+        $componentesReceta = ProductoComercialRecetaManualComponente::query()
+            ->whereIn('receta_manual_id', $recetaIds)
+            ->get()
+            ->groupBy('receta_manual_id');
+
+        $importeConCosto = 0.0;
+        $costoTotal = 0.0;
+        foreach ($lineas as $linea) {
+            $fecha = Carbon::parse((string) $linea->fecha)->toDateString();
+            $productoId = filled($linea->producto_restaurant_id) ? (string) $linea->producto_restaurant_id : null;
+            $costoUnitario = $this->costoLineaRestaurant(
+                $productoId,
+                $linea->composicion_comercial_id ? (int) $linea->composicion_comercial_id : null,
+                $fecha,
+                $composiciones,
+                $componentesComposicion,
+                $costos,
+                $recetas,
+                $componentesReceta,
+            );
+
+            if ($costoUnitario === null) {
+                continue;
+            }
+
+            $importeConCosto += (float) $linea->importe;
+            $costoTotal += (float) $linea->cantidad * $costoUnitario;
+        }
+
+        return ['importe_con_costo' => $importeConCosto, 'costo' => $costoTotal];
+    }
+
+    /** @param Collection<int, ProductoComercialComposicion> $composiciones @param Collection<int, Collection<int, ProductoComercialComponente>> $componentesComposicion @param Collection<string, Collection<int, ProductoComercialCosto>> $costos @param Collection<string, Collection<int, ProductoComercialRecetaManual>> $recetas @param Collection<int, Collection<int, ProductoComercialRecetaManualComponente>> $componentesReceta */
+    private function costoLineaRestaurant(?string $productoId, ?int $composicionId, string $fecha, Collection $composiciones, Collection $componentesComposicion, Collection $costos, Collection $recetas, Collection $componentesReceta): ?float
+    {
+        if ($composicionId !== null && $composiciones->has($composicionId)) {
+            $componentes = $componentesComposicion->get($composicionId, collect());
+            if ($componentes->isEmpty()) {
+                return null;
+            }
+
+            $total = 0.0;
+            foreach ($componentes as $componente) {
+                $costo = $this->costoProductoRestaurant((string) $componente->componente_restaurant_producto_id, $fecha, $costos, $recetas, $componentesReceta, []);
+                if ($costo === null) {
+                    return null;
+                }
+                $total += $costo * (float) $componente->cantidad_por_producto;
+            }
+
+            return $total;
+        }
+
+        return $productoId === null ? null : $this->costoProductoRestaurant($productoId, $fecha, $costos, $recetas, $componentesReceta, []);
+    }
+
+    /** @param Collection<string, Collection<int, ProductoComercialCosto>> $costos @param Collection<string, Collection<int, ProductoComercialRecetaManual>> $recetas @param Collection<int, Collection<int, ProductoComercialRecetaManualComponente>> $componentesReceta @param array<int, string> $camino */
+    private function costoProductoRestaurant(string $productoId, string $fecha, Collection $costos, Collection $recetas, Collection $componentesReceta, array $camino): ?float
+    {
+        if (in_array($productoId, $camino, true)) {
+            return null;
+        }
+        $camino[] = $productoId;
+
+        $costo = $costos->get($productoId, collect())->first(fn (ProductoComercialCosto $fila): bool => $fila->vigente_desde->toDateString() <= $fecha);
+        if ($costo !== null) {
+            return (float) $costo->costo_unitario;
+        }
+
+        $receta = $recetas->get($productoId, collect())->first(fn (ProductoComercialRecetaManual $fila): bool => $fila->vigente_desde->toDateString() <= $fecha);
+        if ($receta === null) {
+            return null;
+        }
+
+        $componentes = $componentesReceta->get($receta->id, collect());
+        if ($componentes->isEmpty()) {
+            return null;
+        }
+
+        $total = 0.0;
+        foreach ($componentes as $componente) {
+            $costoComponente = $this->costoProductoRestaurant((string) $componente->componente_restaurant_producto_id, $fecha, $costos, $recetas, $componentesReceta, $camino);
+            if ($costoComponente === null) {
+                return null;
+            }
+            $total += $costoComponente * (float) $componente->cantidad_por_producto;
+        }
+
+        return $total;
     }
 
     /** @param array{restaurant: Collection<int, CuotaVentaRestaurant>, externas: Collection<int, CanalVentaExterna>, unidades: Collection<int, array{tipo: string, id: string, codigo: string, nombre: string, local_id: ?string}>} $scope @return Collection<int, array{tipo: string, id: string, sin_igv: float, con_igv: float, costo: float, tickets: int}> */

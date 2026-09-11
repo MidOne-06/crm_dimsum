@@ -5,6 +5,9 @@
         $ytd = $tablero['ytd'];
         $dinero = static fn (?float $valor): string => $valor === null ? '—' : 'S/ '.number_format($valor, 2);
         $porcentaje = static fn (?float $valor): string => $valor === null ? '—' : number_format($valor, 2).'%';
+        $estadoCosto = static fn (array $metricas): string => ($metricas['cobertura_costos'] ?? 0) >= 99.999
+            ? 'Costos verificados'
+            : 'Cobertura de costos: '.number_format((float) ($metricas['cobertura_costos'] ?? 0), 1).'%';
     @endphp
 
     <div class="space-y-5">
@@ -41,7 +44,7 @@
                     <p class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">MB</p>
                     <p class="text-xl font-semibold text-gray-950 dark:text-white">{{ $porcentaje($periodo['mb']) }}</p>
                     @if ($periodo['mb'] === null)
-                        <p class="text-xs text-gray-500 dark:text-gray-400">Costo Restaurant no cargado</p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">{{ $estadoCosto($periodo) }}</p>
                     @endif
                 </div>
             </div>
@@ -73,7 +76,7 @@
                     <p class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">MB</p>
                     <p class="text-xl font-semibold text-gray-950 dark:text-white">{{ $porcentaje($ytd['mb']) }}</p>
                     @if ($ytd['mb'] === null)
-                        <p class="text-xs text-gray-500 dark:text-gray-400">Costo Restaurant no cargado</p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">{{ $estadoCosto($ytd) }}</p>
                     @endif
                 </div>
             </div>
