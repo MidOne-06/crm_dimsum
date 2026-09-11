@@ -91,7 +91,7 @@
                 <x-slot name="heading">Ranking ventas</x-slot>
 
                 <div class="overflow-x-auto">
-                    <table class="w-full text-sm">
+                    <table class="w-full min-w-[40rem] text-sm">
                         <thead class="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-white/10 dark:text-gray-400">
                             <tr>
                                 <th class="px-2 py-2">#</th>
@@ -106,11 +106,11 @@
                             @forelse ($rankingVentas as $indice => $fila)
                                 <tr>
                                     <td class="px-2 py-2 text-gray-500">{{ (($rankingVentas->currentPage() - 1) * $rankingVentas->perPage()) + $indice + 1 }}</td>
-                                    <td class="px-2 py-2 font-medium">{{ $fila['codigo'] }}</td>
+                                    <td class="px-2 py-2 font-medium whitespace-nowrap">{{ $fila['codigo'] }}</td>
                                     <td class="px-2 py-2">{{ $fila['nombre'] }}</td>
-                                    <td class="px-2 py-2 text-right">{{ $dinero($fila['sin_igv']) }}</td>
-                                    <td class="px-2 py-2 text-right">{{ $dinero($fila['cuota_sin_igv']) }}</td>
-                                    <td class="px-2 py-2 text-right">{{ $porcentaje($fila['avance']) }}</td>
+                                    <td class="px-2 py-2 text-right whitespace-nowrap">{{ $dinero($fila['sin_igv']) }}</td>
+                                    <td class="px-2 py-2 text-right whitespace-nowrap">{{ $dinero($fila['cuota_sin_igv']) }}</td>
+                                    <td class="px-2 py-2 text-right whitespace-nowrap">{{ $porcentaje($fila['avance']) }}</td>
                                 </tr>
                             @empty
                                 <tr><td colspan="6" class="px-2 py-6 text-center text-gray-500">No hay unidades para el filtro.</td></tr>
@@ -119,7 +119,13 @@
                     </table>
                 </div>
                 @if ($rankingVentas->hasPages())
-                    <div class="mt-3">{{ $rankingVentas->links() }}</div>
+                    <div class="mt-3">
+                        @include('filament.pages.stock.partials.pagination-pages', [
+                            'paginationCurrent' => $rankingVentasPage,
+                            'paginationPages' => $rankingVentas->lastPage(),
+                            'paginationAction' => 'goToRankingVentasPage',
+                        ])
+                    </div>
                 @endif
             </x-filament::section>
 
@@ -127,7 +133,7 @@
                 <x-slot name="heading">Ranking productos</x-slot>
 
                 <div class="overflow-x-auto">
-                    <table class="w-full text-sm">
+                    <table class="w-full min-w-[32rem] text-sm">
                         <thead class="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-white/10 dark:text-gray-400">
                             <tr>
                                 <th class="px-2 py-2">Ítem</th>
@@ -139,19 +145,25 @@
                         <tbody class="divide-y divide-gray-100 dark:divide-white/10">
                             @forelse ($rankingProductos as $fila)
                                 <tr>
-                                    <td class="px-2 py-2 font-medium">{{ $fila['codigo'] }}</td>
+                                    <td class="px-2 py-2 font-medium whitespace-nowrap">{{ $fila['codigo'] }}</td>
                                     <td class="px-2 py-2">{{ $fila['descripcion'] }}</td>
-                                    <td class="px-2 py-2 text-right">{{ $dinero($fila['importe']) }}</td>
-                                    <td class="px-2 py-2 text-right">{{ $porcentaje($fila['participacion']) }}</td>
+                                    <td class="px-2 py-2 text-right whitespace-nowrap">{{ $dinero($fila['importe']) }}</td>
+                                    <td class="px-2 py-2 text-right whitespace-nowrap">{{ $porcentaje($fila['participacion']) }}</td>
                                 </tr>
                             @empty
-                                <tr><td colspan="4" class="px-2 py-6 text-center text-gray-500">No hay productos Restaurant para el filtro.</td></tr>
+                                <tr><td colspan="4" class="px-2 py-6 text-center text-gray-500">No hay productos para el filtro.</td></tr>
                             @endforelse
                         </tbody>
                     </table>
                 </div>
                 @if ($rankingProductos->hasPages())
-                    <div class="mt-3">{{ $rankingProductos->links() }}</div>
+                    <div class="mt-3">
+                        @include('filament.pages.stock.partials.pagination-pages', [
+                            'paginationCurrent' => $rankingProductosPage,
+                            'paginationPages' => $rankingProductos->lastPage(),
+                            'paginationAction' => 'goToRankingProductosPage',
+                        ])
+                    </div>
                 @endif
             </x-filament::section>
         </div>
