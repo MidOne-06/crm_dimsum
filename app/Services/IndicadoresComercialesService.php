@@ -242,8 +242,10 @@ class IndicadoresComercialesService
             ->where('ventas.estado', 'Activo')
             ->whereIn('ventas.local_id', $locales)
             ->whereBetween('ventas.venta_fecha', [$desde->copy()->startOfDay(), $hasta->copy()->endOfDay()])
-            ->selectRaw('venta_detalles.item_id, MAX(venta_detalles.descripcion) as descripcion, COALESCE(SUM(venta_detalles.importe), 0) as importe')
-            ->groupBy('venta_detalles.item_id')
+            // Restaurant persiste variantes del mismo producto con item_id
+            // distintos. El ranking comercial se consolida por descripción.
+            ->selectRaw('MIN(venta_detalles.item_id) as item_id, venta_detalles.descripcion, COALESCE(SUM(venta_detalles.importe), 0) as importe')
+            ->groupBy('venta_detalles.descripcion')
             ->orderByDesc('importe')
             ->limit(15)
             ->get();

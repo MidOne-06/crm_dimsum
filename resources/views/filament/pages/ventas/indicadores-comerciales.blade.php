@@ -122,7 +122,7 @@
                     <table class="w-full text-sm">
                         <thead class="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-white/10 dark:text-gray-400">
                             <tr>
-                                <th class="px-2 py-2">SKU</th>
+                                <th class="px-2 py-2">Ítem</th>
                                 <th class="px-2 py-2">Producto</th>
                                 <th class="px-2 py-2 text-right">Venta</th>
                                 <th class="px-2 py-2 text-right">Participación</th>
