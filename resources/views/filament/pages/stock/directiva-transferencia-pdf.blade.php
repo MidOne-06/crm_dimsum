@@ -19,7 +19,7 @@
     td.num { text-align: right; }
     tbody tr:nth-child(even) td { background: #f3f4f6; }
     tr.total td, td.total { font-weight: bold; background: #dce6f1 !important; }
-    .producto { width: 16%; } .sku { width: 6%; }
+    .producto { width: 11%; } .sku { width: 3%; }
     .pie-pagina {
         position: fixed;
         bottom: -22px;
