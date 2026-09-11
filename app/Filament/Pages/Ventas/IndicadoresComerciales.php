@@ -9,6 +9,8 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 
 class IndicadoresComerciales extends Page
 {
@@ -63,19 +65,34 @@ class IndicadoresComerciales extends Page
                 ->fillForm(fn (): array => [
                     'desde' => $this->desde,
                     'hasta' => $this->hasta,
+                    'alcance' => $this->unidades === [] ? 'todas' : 'seleccion',
                     'unidades' => $this->unidades,
                 ])
                 ->schema([
                     Grid::make(['default' => 1, 'md' => 4])->schema([
+                        Select::make('alcance')
+                            ->label('Tiendas / canales')
+                            ->options(['todas' => 'Todas', 'seleccion' => 'Seleccionar'])
+                            ->native()
+                            ->required()
+                            ->live()
+                            ->afterStateUpdated(function (Set $set, mixed $state): void {
+                                if ($state === 'todas') {
+                                    $set('unidades', []);
+                                }
+                            })
+                            ->columnSpan(['default' => 1, 'md' => 2]),
                         DatePicker::make('desde')->label('Desde')->native(false)->required(),
                         DatePicker::make('hasta')->label('Hasta')->native(false)->required(),
                         Select::make('unidades')
-                            ->label('Tiendas / canales')
+                            ->label('Seleccionar tiendas / canales')
                             ->options(fn (): array => $this->opcionesUnidades())
                             ->multiple()
                             ->searchable()
                             ->native(false)
-                            ->columnSpan(['default' => 1, 'md' => 2]),
+                            ->optionsLimit(12)
+                            ->hidden(fn (Get $get): bool => $get('alcance') !== 'seleccion')
+                            ->columnSpanFull(),
                     ]),
                 ])
                 ->action(function (array $data): void {
@@ -87,7 +104,9 @@ class IndicadoresComerciales extends Page
 
                     $this->desde = $desde->toDateString();
                     $this->hasta = $hasta->toDateString();
-                    $this->unidades = array_values(array_filter((array) ($data['unidades'] ?? []), 'is_string'));
+                    $this->unidades = ($data['alcance'] ?? 'todas') === 'seleccion'
+                        ? array_values(array_filter((array) ($data['unidades'] ?? []), 'is_string'))
+                        : [];
                     $this->tableroCache = null;
                 }),
         ];
