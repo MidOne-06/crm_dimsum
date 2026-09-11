@@ -9,6 +9,7 @@ use App\Models\GuiaInternaSincronizacion;
 use App\Models\KardexExtraccion as KardexExtraccionModel;
 use App\Models\StockInicialLocal;
 use App\Services\DirectivaTransferenciaService;
+use App\Services\GuiasInternasGatewayClient;
 use App\Services\GuiasInternasHistoricoService;
 use App\Services\KardexGatewayClient;
 use Filament\Forms\Components\Select;
@@ -180,7 +181,22 @@ class IniciarDirectivaTransferencia extends Page
         if (GuiaInternaSincronizacion::query()->whereIn('estado', ['pendiente', 'en_progreso'])->exists()) {
             $this->guiasSincronizacionId = GuiaInternaSincronizacion::query()->whereIn('estado', ['pendiente', 'en_progreso'])->latest('id')->value('id');
         } else {
-            $run = app(GuiasInternasHistoricoService::class)->iniciar(now()->subDays(3)->toDateString(), $hoy, [], auth()->id());
+            try {
+                // OJO, bug real encontrado en producción (2026-09-11): un
+                // `locales=[]` acá NO significa "todos" para el gateway --
+                // sin lista explícita, Restaurant cae al local de la propia
+                // sesión de login (uno solo, no la cadena real), así que la
+                // sincronización nunca traía guías nuevas para casi ningún
+                // local. Hay que pedir la lista real y pasarla explícita,
+                // igual que ya hace "Extracción de guías internas".
+                $localesGuias = collect(app(GuiasInternasGatewayClient::class)->locales())
+                    ->pluck('id')->map(fn (mixed $id): string => (string) $id)->all();
+            } catch (Throwable $exception) {
+                $this->error = 'No se pudo iniciar la sincronización de Guías internas: '.$exception->getMessage();
+
+                return;
+            }
+            $run = app(GuiasInternasHistoricoService::class)->iniciar(now()->subDays(3)->toDateString(), $hoy, $localesGuias, auth()->id());
             $this->guiasSincronizacionId = $run->id;
         }
 
