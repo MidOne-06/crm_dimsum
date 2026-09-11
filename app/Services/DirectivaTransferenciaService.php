@@ -76,13 +76,28 @@ use Illuminate\Support\Facades\DB;
  *
  * El resto del diseño no cambia: universo de ítems (Presentación de
  * Despacho) y locales (Stock Inicial confirmado), stock proyectado = saldo
- * actual + tránsito, `cantidad_sugerida = redondear(max(0, demanda -
- * proyectado))`. Ver StockSaldoRecalculadorService para saldo_actual.
- * cantidad_en_tránsito: guías sin recepcionar con `fecha_traslado` entre
- * HOY y la fecha de destino del PRIMER tramo (mañana), ambas incluidas --
- * no se extiende a la ventana completa (pasado mañana) porque una guía con
- * traslado a pasado mañana normalmente ni existe todavía al momento de
- * calcular hoy.
+ * actual + tránsito, `cantidad_sugerida = redondear(max(0, demanda +
+ * stock_seguridad - proyectado))`. Ver StockSaldoRecalculadorService para
+ * saldo_actual. cantidad_en_tránsito: guías sin recepcionar con
+ * `fecha_traslado` entre HOY y la fecha de destino del PRIMER tramo
+ * (mañana), ambas incluidas -- no se extiende a la ventana completa
+ * (pasado mañana) porque una guía con traslado a pasado mañana normalmente
+ * ni existe todavía al momento de calcular hoy.
+ *
+ * - **Stock de seguridad** (2026-09-11, pedido explícito del usuario): el
+ *   promedio histórico es correcto EN PROMEDIO, pero hay semanas reales con
+ *   20-30% más venta de lo normal -- sin colchón, esos días terminan en
+ *   quiebre pese a que el modelo "acertó" en el promedio. En vez de estirar
+ *   a mano la hora de llegada asumida (mezclaría un dato operativo real con
+ *   una decisión de negocio) o sumar un % fijo parejo a todos (infla lo
+ *   estable igual que lo volátil), se mide la variabilidad REAL de cada
+ *   producto/local: `stock_seguridad = 1.65 × desviación estándar` de las
+ *   MISMAS semanas ya usadas para el promedio (1.65 = nivel de servicio
+ *   ~95%, elegido por el usuario entre 90/95/98% -- ver
+ *   `DirectivaTransferenciaSugerencia::FACTOR_SERVICIO_95`). No hace falta
+ *   ninguna data nueva -- las hasta 10 semanas de venta ya se traen de
+ *   Kardex para el promedio; la desviación es una cuenta adicional sobre
+ *   ese mismo array, antes de descartarlo.
  */
 class DirectivaTransferenciaService
 {
@@ -281,6 +296,7 @@ class DirectivaTransferenciaService
                 $semanasConsideradas = 0;
                 $sumaCompleta = 0.0;
                 $sumaV1 = 0.0;
+                $semanasValidas = [];
                 foreach ($totalesCompletos as $i => $totalCompleto) {
                     if ($totalCompleto <= 0) {
                         continue;
@@ -288,9 +304,31 @@ class DirectivaTransferenciaService
                     $semanasConsideradas++;
                     $sumaCompleta += $totalCompleto;
                     $sumaV1 += $totalesV1[$i];
+                    $semanasValidas[] = $totalCompleto;
                 }
                 $demandaPromedio = $semanasConsideradas > 0 ? $sumaCompleta / $semanasConsideradas : 0.0;
                 $demandaVentana1 = $semanasConsideradas > 0 ? $sumaV1 / $semanasConsideradas : 0.0;
+
+                // Stock de seguridad -- pedido explícito del usuario
+                // (2026-09-11): el promedio es correcto EN PROMEDIO, pero hay
+                // semanas reales con 20-30% más venta. Se mide la
+                // variabilidad REAL (desviación estándar muestral) sobre las
+                // MISMAS semanas ya usadas para el promedio -- ni una fuente
+                // de datos nueva, ni un +% fijo parejo para todos: un
+                // producto volátil recibe colchón real, uno estable casi no
+                // se toca. `n - 1` (muestral, no poblacional) porque estas
+                // 10 semanas son una muestra del comportamiento real, no el
+                // universo completo. Con menos de 2 semanas válidas no hay
+                // variabilidad que medir -- 0, sin sumar nada.
+                $desviacionEstandar = 0.0;
+                if ($semanasConsideradas > 1) {
+                    $sumaCuadrados = array_sum(array_map(
+                        fn (float $v): float => ($v - $demandaPromedio) ** 2,
+                        $semanasValidas,
+                    ));
+                    $desviacionEstandar = sqrt($sumaCuadrados / ($semanasConsideradas - 1));
+                }
+                $stockSeguridad = DirectivaTransferenciaSugerencia::FACTOR_SERVICIO_95 * $desviacionEstandar;
 
                 $saldoActual = (float) ($saldos->get($clave)?->saldo ?? 0);
                 $cantidadEnTransito = (float) ($transitos->get($producto->item_id)?->cantidad_transito ?? 0);
@@ -304,11 +342,12 @@ class DirectivaTransferenciaService
                 $riesgoQuiebre = $demandaVentana1 > $stockProyectado;
 
                 // cantidad_bruta usa la ventana COMPLETA (ahora->pasado
-                // mañana) contra el stock proyectado UNA sola vez -- esto
-                // arrastra correctamente cualquier sobrante (o faltante)
-                // del tramo 1 hacia el tramo 2, en vez de asumir que el
-                // tramo 1 se cubre exacto sin sobrar ni faltar nada.
-                $cantidadBruta = max(0.0, $demandaPromedio - $stockProyectado);
+                // mañana) MÁS el stock de seguridad, contra el stock
+                // proyectado UNA sola vez -- esto arrastra correctamente
+                // cualquier sobrante (o faltante) del tramo 1 hacia el tramo
+                // 2, en vez de asumir que el tramo 1 se cubre exacto sin
+                // sobrar ni faltar nada.
+                $cantidadBruta = max(0.0, ($demandaPromedio + $stockSeguridad) - $stockProyectado);
 
                 // Ajuste dinámico opcional (wizard "Iniciar Directiva de
                 // Transferencia", pedido explícito del usuario): se aplica
@@ -332,6 +371,7 @@ class DirectivaTransferenciaService
                     'item_nombre' => $producto->item_nombre,
                     'demanda_promedio' => $demandaPromedio,
                     'demanda_ventana1' => $demandaVentana1,
+                    'desviacion_estandar' => $desviacionEstandar,
                     'riesgo_quiebre' => $riesgoQuiebre,
                     'semanas_consideradas' => $semanasConsideradas,
                     'saldo_actual' => $saldoActual,
@@ -352,7 +392,7 @@ class DirectivaTransferenciaService
             DirectivaTransferenciaSugerencia::upsert(
                 $lote,
                 ['fecha_despacho', 'local_id', 'item_id', 'item_tipo'],
-                ['local_nombre', 'item_codigo', 'item_nombre', 'demanda_promedio', 'demanda_ventana1',
+                ['local_nombre', 'item_codigo', 'item_nombre', 'demanda_promedio', 'demanda_ventana1', 'desviacion_estandar',
                     'riesgo_quiebre', 'semanas_consideradas', 'saldo_actual', 'cantidad_en_transito',
                     'cantidad_bruta', 'porcentaje_ajuste_aplicado', 'cantidad_bruta_ajustada',
                     'multiplo_aplicado', 'cantidad_sugerida', 'calculado_en', 'updated_at'],
