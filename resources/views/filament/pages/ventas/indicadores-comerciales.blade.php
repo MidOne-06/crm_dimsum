@@ -84,91 +84,9 @@
 
         @livewire(\App\Filament\Widgets\Ventas\IndicadoresComercialesTendenciaChart::class, ['filters' => $this->filtrosGrafico()], key('indicadores-comerciales-tendencia-'.md5(json_encode($this->filtrosGrafico()))))
 
-        @php
-            $rankingVentas = $this->rankingVentasPaginado();
-            $rankingProductos = $this->rankingProductosPaginado();
-        @endphp
-
         <div class="grid gap-5 xl:grid-cols-2">
-            <x-filament::section compact>
-                <x-slot name="heading">Ranking ventas</x-slot>
-
-                <div class="overflow-x-auto">
-                    <table class="w-full min-w-[40rem] text-sm">
-                        <thead class="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-white/10 dark:text-gray-400">
-                            <tr>
-                                <th class="px-2 py-2">#</th>
-                                <th class="px-2 py-2">Código</th>
-                                <th class="px-2 py-2">Tienda</th>
-                                <th class="px-2 py-2 text-right">Venta</th>
-                                <th class="px-2 py-2 text-right">Cuota</th>
-                                <th class="px-2 py-2 text-right">Avance</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100 dark:divide-white/10">
-                            @forelse ($rankingVentas as $indice => $fila)
-                                <tr>
-                                    <td class="px-2 py-2 text-gray-500">{{ (($rankingVentas->currentPage() - 1) * $rankingVentas->perPage()) + $indice + 1 }}</td>
-                                    <td class="px-2 py-2 font-medium whitespace-nowrap">{{ $fila['codigo'] }}</td>
-                                    <td class="px-2 py-2">{{ $fila['nombre'] }}</td>
-                                    <td class="px-2 py-2 text-right whitespace-nowrap">{{ $dinero($fila['sin_igv']) }}</td>
-                                    <td class="px-2 py-2 text-right whitespace-nowrap">{{ $dinero($fila['cuota_sin_igv']) }}</td>
-                                    <td class="px-2 py-2 text-right whitespace-nowrap">{{ $porcentaje($fila['avance']) }}</td>
-                                </tr>
-                            @empty
-                                <tr><td colspan="6" class="px-2 py-6 text-center text-gray-500">No hay unidades para el filtro.</td></tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-                @if ($rankingVentas->hasPages())
-                    <div class="mt-3">
-                        @include('filament.pages.stock.partials.pagination-pages', [
-                            'paginationCurrent' => $rankingVentasPage,
-                            'paginationPages' => $rankingVentas->lastPage(),
-                            'paginationAction' => 'goToRankingVentasPage',
-                        ])
-                    </div>
-                @endif
-            </x-filament::section>
-
-            <x-filament::section compact>
-                <x-slot name="heading">Ranking productos</x-slot>
-
-                <div class="overflow-x-auto">
-                    <table class="w-full min-w-[32rem] text-sm">
-                        <thead class="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-white/10 dark:text-gray-400">
-                            <tr>
-                                <th class="px-2 py-2">Ítem</th>
-                                <th class="px-2 py-2">Producto</th>
-                                <th class="px-2 py-2 text-right">Venta</th>
-                                <th class="px-2 py-2 text-right">Participación</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100 dark:divide-white/10">
-                            @forelse ($rankingProductos as $fila)
-                                <tr>
-                                    <td class="px-2 py-2 font-medium whitespace-nowrap">{{ $fila['codigo'] }}</td>
-                                    <td class="px-2 py-2">{{ $fila['descripcion'] }}</td>
-                                    <td class="px-2 py-2 text-right whitespace-nowrap">{{ $dinero($fila['importe']) }}</td>
-                                    <td class="px-2 py-2 text-right whitespace-nowrap">{{ $porcentaje($fila['participacion']) }}</td>
-                                </tr>
-                            @empty
-                                <tr><td colspan="4" class="px-2 py-6 text-center text-gray-500">No hay productos para el filtro.</td></tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-                @if ($rankingProductos->hasPages())
-                    <div class="mt-3">
-                        @include('filament.pages.stock.partials.pagination-pages', [
-                            'paginationCurrent' => $rankingProductosPage,
-                            'paginationPages' => $rankingProductos->lastPage(),
-                            'paginationAction' => 'goToRankingProductosPage',
-                        ])
-                    </div>
-                @endif
-            </x-filament::section>
+            @livewire(\App\Livewire\Ventas\RankingVentasTable::class, ['rows' => $this->rankingVentas()], key('ranking-ventas-'.md5(json_encode([$desde, $hasta, $unidades]))))
+            @livewire(\App\Livewire\Ventas\RankingProductosTable::class, ['rows' => $this->rankingProductos()], key('ranking-productos-'.md5(json_encode([$desde, $hasta, $unidades]))))
         </div>
     </div>
 </x-filament-panels::page>
