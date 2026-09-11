@@ -30,4 +30,14 @@ class ProductoComercialRestaurant extends Model
     {
         return $this->hasMany(ProductoComercialComposicion::class, 'producto_restaurant_id', 'restaurant_producto_id');
     }
+
+    public function costos(): HasMany
+    {
+        return $this->hasMany(ProductoComercialCosto::class, 'producto_restaurant_id', 'restaurant_producto_id');
+    }
+
+    public function recetasManuales(): HasMany
+    {
+        return $this->hasMany(ProductoComercialRecetaManual::class, 'producto_restaurant_id', 'restaurant_producto_id');
+    }
 }

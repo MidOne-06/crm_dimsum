@@ -52,6 +52,12 @@ class IndicadoresComerciales extends Page
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('costosRecetas')
+                ->label('Costos y recetas')
+                ->icon('heroicon-o-calculator')
+                ->color('gray')
+                ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('ventas.costos.view'))
+                ->url(CostosRecetasComerciales::getUrl()),
             Action::make('filtros')
                 ->label('Filtros')
                 ->icon('heroicon-o-adjustments-horizontal')
