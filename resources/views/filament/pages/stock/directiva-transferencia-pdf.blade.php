@@ -5,11 +5,10 @@
 <style>
     @page { margin: 20px 16px 30px; }
     body { font-family: DejaVu Sans, sans-serif; font-size: 8px; color: #111827; }
-    .encabezado { width: 100%; margin-bottom: 4px; }
-    .encabezado img { height: 32px; vertical-align: middle; }
-    .encabezado .marca { display: inline-block; vertical-align: middle; margin-left: 8px; }
-    .encabezado h1 { margin: 0; font-size: 18px; display: inline-block; vertical-align: middle; }
-    .meta { margin: 6px 0 10px; color: #4b5563; }
+    .encabezado { width: 100%; margin-bottom: 2px; }
+    .encabezado .logo { height: 28px; }
+    .titulo { margin: 4px 0 6px; font-size: 20px; text-align: center; }
+    .meta { margin: 0 0 10px; color: #4b5563; }
     .meta p { margin: 0 0 2px; }
     .meta .despacho { text-transform: capitalize; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -18,7 +17,8 @@
     th.local { height: 125px; font-size: 7px; padding: 2px 0; }
     th.local .giro { display: inline-block; transform: rotate(-90deg); white-space: nowrap; }
     td.num { text-align: right; }
-    td.total, tr.total td { font-weight: bold; background: #dce6f1; }
+    tbody tr:nth-child(even) td { background: #f3f4f6; }
+    tr.total td, td.total { font-weight: bold; background: #dce6f1 !important; }
     .producto { width: 16%; } .sku { width: 6%; }
     .pie-pagina {
         position: fixed;
@@ -36,13 +36,13 @@
 <body>
     <div class="encabezado">
         @if($logoDataUri)
-            <img src="{{ $logoDataUri }}" alt="Logo">
+            <img src="{{ $logoDataUri }}" alt="Logo" class="logo">
         @endif
-        <span class="marca"><h1>Directiva de Transferencia</h1></span>
     </div>
+    <h1 class="titulo">Directiva de Transferencia</h1>
     <div class="meta">
         <p class="despacho">Despacho: {{ $fecha }}</p>
-        <p>Generado por: {{ $usuarioNombre }}</p>
+        <p>Generado por: {{ $usuarioNombre }} · {{ $generadoEn }} (hora peruana)</p>
     </div>
 
     <div class="pie-pagina">Generado el {{ $generadoEn }} (hora peruana)</div>
