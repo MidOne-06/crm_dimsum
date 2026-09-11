@@ -19,10 +19,10 @@ class RankingProductosTable extends TableComponent
             ->queryStringIdentifier('rankingProductos')
             ->records(fn (int $page, int $recordsPerPage): LengthAwarePaginator => $this->records($page, $recordsPerPage))
             ->columns([
-                TextColumn::make('codigo')->label('Ítem')->weight('medium')->visibleFrom('sm'),
+                TextColumn::make('codigo')->label('Ítem')->weight('medium'),
                 TextColumn::make('descripcion')->label('Producto')->weight('medium')->wrap(),
                 TextColumn::make('importe')->label('Venta')->money('PEN')->alignEnd(),
-                TextColumn::make('participacion')->label('Participación')->suffix('%')->numeric(2)->alignEnd()->visibleFrom('md'),
+                TextColumn::make('participacion')->label('Participación')->suffix('%')->numeric(2)->alignEnd(),
             ])
             ->stackedOnMobile()
             ->paginated([8, 25, 50])
