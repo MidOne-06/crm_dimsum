@@ -6,6 +6,7 @@ use App\Models\Venta;
 use App\Models\VentaDetalle;
 use App\Models\VentaExtraccion;
 use App\Models\VentaExtraccionVenta;
+use App\Services\CatalogoComercialRestaurantService;
 use App\Services\SalesGatewayClient;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -25,7 +26,7 @@ class ProcesarLoteVentasDetalleJob implements ShouldQueue
     {
     }
 
-    public function handle(SalesGatewayClient $gateway): void
+    public function handle(SalesGatewayClient $gateway, CatalogoComercialRestaurantService $catalogo): void
     {
         $extraccion = VentaExtraccion::find($this->extraccionId);
         if (! $extraccion || $extraccion->estado !== 'en_progreso') {
@@ -87,6 +88,7 @@ class ProcesarLoteVentasDetalleJob implements ShouldQueue
         try {
             $ventas = [];
             $detalles = [];
+            $catalogos = [];
 
             foreach ($trabajos as $trabajo) {
                 $detalle = $gateway->saleDetail($trabajo->venta_id);
@@ -114,6 +116,11 @@ class ProcesarLoteVentasDetalleJob implements ShouldQueue
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
+                $catalogos[] = [
+                    'venta_id' => $trabajo->venta_id,
+                    'payload' => is_array($detalle['sourceData'] ?? null) ? $detalle['sourceData'] : [],
+                    'fecha' => $row['venta_fecha'] ?? $now,
+                ];
 
                 foreach ($detalle['items'] ?? [] as $item) {
                     $detalles[] = [
@@ -130,12 +137,24 @@ class ProcesarLoteVentasDetalleJob implements ShouldQueue
                 }
             }
 
-            DB::transaction(function () use ($extraccion, $ids, $ventas, $detalles, $now): void {
+            DB::transaction(function () use ($catalogo, $catalogos, $extraccion, $ids, $ventas, $detalles, $now): void {
                 Venta::upsert($ventas, ['venta_id']);
                 VentaDetalle::whereIn('venta_id', array_column($ventas, 'venta_id'))->delete();
 
                 foreach (array_chunk($detalles, 1000) as $chunk) {
                     VentaDetalle::insert($chunk);
+                }
+
+                // El detalle de Restaurant trae productocomboList por cada
+                // producto vendido. Se normaliza en la MISMA transacción para
+                // que una venta nunca quede con una composición parcialmente
+                // registrada; no se escribe nada de vuelta al ERP.
+                foreach ($catalogos as $catalogoVenta) {
+                    $catalogo->sincronizarPayload(
+                        (string) $catalogoVenta['venta_id'],
+                        $catalogoVenta['payload'],
+                        $catalogoVenta['fecha'],
+                    );
                 }
 
                 VentaExtraccionVenta::whereIn('id', $ids)->update(['estado' => 'completado', 'locked_at' => null, 'updated_at' => $now]);

@@ -11,6 +11,8 @@ class VentaDetalle extends Model
 
     protected $fillable = [
         'venta_id',
+        'producto_restaurant_id',
+        'composicion_comercial_id',
         'item_id',
         'descripcion',
         'cantidad',
