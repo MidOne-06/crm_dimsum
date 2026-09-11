@@ -37,7 +37,7 @@
     @php($historial = $this->historial())
     @if($historial->isNotEmpty())
         <details class="rounded-lg bg-gray-50 px-4 py-2 text-sm dark:bg-white/5">
-            <summary class="cursor-pointer font-medium text-gray-700 dark:text-gray-300">Últimas corridas</summary>
+            <summary class="cursor-pointer font-medium text-gray-700 dark:text-gray-300">Historial de cálculos</summary>
             <div class="mt-2 overflow-x-auto">
                 <table class="w-full text-left text-xs">
                     <tbody>

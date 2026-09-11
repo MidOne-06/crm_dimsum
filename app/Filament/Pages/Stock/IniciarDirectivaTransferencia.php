@@ -7,12 +7,10 @@ use App\Jobs\ExtraerKardexJob;
 use App\Models\DirectivaTransferenciaSugerencia;
 use App\Models\GuiaInternaSincronizacion;
 use App\Models\KardexExtraccion as KardexExtraccionModel;
-use App\Models\LocalDiaSinDt;
 use App\Models\StockInicialLocal;
 use App\Services\DirectivaTransferenciaService;
 use App\Services\GuiasInternasHistoricoService;
 use App\Services\KardexGatewayClient;
-use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -37,9 +35,9 @@ use Throwable;
  *   internas primero, pero SIEMPRE con el alcance por defecto -- ignoraba
  *   cualquier exclusión o ajuste, no tenían forma de combinarse).
  *
- * Acá es UN solo flujo: elegís el alcance y los ajustes una vez, y el único
- * botón ("Generar DT" -- pedido explícito del usuario, es el que siempre se
- * usa) sincroniza Kardex y Guías internas y calcula usando esa elección.
+ * Acá es UN solo flujo: elegís los ajustes una vez, y el único botón
+ * ("Generar DT" -- pedido explícito del usuario, es el que siempre se usa)
+ * sincroniza Kardex y Guías internas y calcula usando esa elección.
  *
  * El estado (kardexExtraccionId, guiasSincronizacionId, sincronizando) es el
  * mismo mecanismo de poll ya probado en producción -- ver docblock viejo en
@@ -50,6 +48,13 @@ use Throwable;
  * botón "Calcular sin sincronizar" (nunca es el que se usa en la práctica),
  * el contador en vivo de locales, y la foto de estado (última corrida/
  * Kardex/Guías). Solo el formulario y el botón.
+ *
+ * 2026-09-11 (segunda vuelta), pedido explícito del usuario: el alcance
+ * (Locales activos / Todos / Todos, excepto...) se quitó de este módulo --
+ * la corrida siempre calcula sobre `LocalesActivos` (ver esa página), que
+ * ahora es la única fuente de verdad para qué locales entran. El toggle
+ * "Día sin DT" también se quitó -- esa excepción se carga en su propio
+ * módulo dedicado (`LocalDiaSinDtResource`), no acá.
  */
 class IniciarDirectivaTransferencia extends Page
 {
@@ -88,10 +93,6 @@ class IniciarDirectivaTransferencia extends Page
     public function mount(): void
     {
         $this->form->fill([
-            'modo_alcance' => 'venta_activa',
-            'locales_excluir' => [],
-            'agregar_dia_sin_dt' => false,
-            'dia_sin_dt_locales' => [],
             'aplicar_ajuste' => false,
             'porcentaje_ajuste' => 10,
             'ajuste_locales' => [],
@@ -111,45 +112,10 @@ class IniciarDirectivaTransferencia extends Page
         return $schema
             ->statePath('data')
             ->schema([
-                Section::make('Locales')
-                    ->compact()
-                    ->schema([
-                        Radio::make('modo_alcance')
-                            ->hiddenLabel()
-                            ->options([
-                                'venta_activa' => 'Locales activos',
-                                'todos' => 'Todos',
-                                'manual' => 'Todos, excepto...',
-                            ])
-                            ->live()
-                            ->required(),
-                        Select::make('locales_excluir')
-                            ->label('Excluir')
-                            ->options(fn (): array => $this->localesConfirmadosOptions())
-                            ->multiple()
-                            ->searchable()
-                            ->live()
-                            ->visible(fn (callable $get): bool => $get('modo_alcance') === 'manual')
-                            ->required(fn (callable $get): bool => $get('modo_alcance') === 'manual'),
-                    ]),
-
                 Section::make('Ajustes')
                     ->compact()
-                    ->collapsed(fn (callable $get): bool => ! $get('agregar_dia_sin_dt') && ! $get('aplicar_ajuste'))
+                    ->collapsed(fn (callable $get): bool => ! $get('aplicar_ajuste'))
                     ->schema([
-                        Toggle::make('agregar_dia_sin_dt')->label('Día sin DT')->live(),
-                        Select::make('dia_sin_dt_locales')
-                            ->label('Local(es)')
-                            ->options(fn (): array => $this->localesConfirmadosOptions())
-                            ->multiple()->searchable()
-                            ->visible(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt'))
-                            ->required(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt')),
-                        Select::make('dia_sin_dt_dia')
-                            ->label('Día')
-                            ->options(LocalDiaSinDt::DIAS)
-                            ->visible(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt'))
-                            ->required(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt')),
-
                         Toggle::make('aplicar_ajuste')->label('Ajuste %')->live(),
                         TextInput::make('porcentaje_ajuste')
                             ->label('Porcentaje')->numeric()->suffix('%')->default(10)->minValue(-100)->maxValue(500)
@@ -160,8 +126,7 @@ class IniciarDirectivaTransferencia extends Page
                             ->options(fn (): array => $this->localesConfirmadosOptions())
                             ->multiple()->searchable()
                             ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste')),
-                    ])
-                    ->columns(2),
+                    ]),
             ]);
     }
 
@@ -256,20 +221,8 @@ class IniciarDirectivaTransferencia extends Page
     /** @param  array<string, mixed>  $data */
     private function calcular(array $data): void
     {
-        if ($data['agregar_dia_sin_dt'] ?? false) {
-            $localesDiaSinDt = $this->restrictLocalIdsToUser(array_map('strval', (array) ($data['dia_sin_dt_locales'] ?? [])));
-            foreach ($localesDiaSinDt as $localId) {
-                LocalDiaSinDt::firstOrCreate(['local_id' => $localId, 'dia_semana' => (int) $data['dia_sin_dt_dia']]);
-            }
-        }
-
         $localesExcluidos = [];
-        $soloVentaActiva = false;
-        match ($data['modo_alcance'] ?? 'venta_activa') {
-            'manual' => $localesExcluidos = $this->restrictLocalIdsToUser(array_map('strval', (array) ($data['locales_excluir'] ?? []))),
-            'todos' => null,
-            default => $soloVentaActiva = true,
-        };
+        $soloVentaActiva = true;
 
         $porcentajeGlobal = 0.0;
         $porcentajePorLocal = [];
