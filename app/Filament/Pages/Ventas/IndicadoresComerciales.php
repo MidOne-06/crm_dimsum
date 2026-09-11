@@ -11,14 +11,19 @@ use Filament\Pages\Page;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
+use Livewire\WithPagination;
 
 class IndicadoresComerciales extends Page
 {
+    use WithPagination;
+
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-presentation-chart-line';
 
     protected static ?string $navigationLabel = 'Indicadores';
 
-    protected static ?string $title = 'Indicadores comerciales';
+    protected static ?string $title = '';
 
     protected static string|\UnitEnum|null $navigationGroup = 'Ventas';
 
@@ -114,6 +119,8 @@ class IndicadoresComerciales extends Page
                         ? array_values(array_filter((array) ($data['unidades'] ?? []), 'is_string'))
                         : [];
                     $this->tableroCache = null;
+                    $this->resetPage('rankingVentasPage');
+                    $this->resetPage('rankingProductosPage');
                 }),
         ];
     }
@@ -139,5 +146,32 @@ class IndicadoresComerciales extends Page
     public function filtrosGrafico(): array
     {
         return ['desde' => $this->desde, 'hasta' => $this->hasta, 'unidades' => $this->unidades];
+    }
+
+    /** @return LengthAwarePaginator<int, array<string, mixed>> */
+    public function rankingVentasPaginado(): LengthAwarePaginator
+    {
+        return $this->paginarRanking($this->tablero()['ranking_locales'], 'rankingVentasPage');
+    }
+
+    /** @return LengthAwarePaginator<int, array<string, mixed>> */
+    public function rankingProductosPaginado(): LengthAwarePaginator
+    {
+        return $this->paginarRanking($this->tablero()['ranking_productos'], 'rankingProductosPage');
+    }
+
+    /** @param Collection<int, array<string, mixed>> $filas @return LengthAwarePaginator<int, array<string, mixed>> */
+    private function paginarRanking(Collection $filas, string $pageName): LengthAwarePaginator
+    {
+        $porPagina = 8;
+        $pagina = $this->getPage($pageName);
+
+        return new LengthAwarePaginator(
+            $filas->forPage($pagina, $porPagina)->values(),
+            $filas->count(),
+            $porPagina,
+            $pagina,
+            ['path' => request()->url(), 'pageName' => $pageName],
+        );
     }
 }

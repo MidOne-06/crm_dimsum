@@ -81,6 +81,11 @@
 
         @livewire(\App\Filament\Widgets\Ventas\IndicadoresComercialesTendenciaChart::class, ['filters' => $this->filtrosGrafico()], key('indicadores-comerciales-tendencia-'.md5(json_encode($this->filtrosGrafico()))))
 
+        @php
+            $rankingVentas = $this->rankingVentasPaginado();
+            $rankingProductos = $this->rankingProductosPaginado();
+        @endphp
+
         <div class="grid gap-5 xl:grid-cols-2">
             <x-filament::section compact>
                 <x-slot name="heading">Ranking ventas</x-slot>
@@ -98,9 +103,9 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100 dark:divide-white/10">
-                            @forelse ($tablero['ranking_locales'] as $indice => $fila)
+                            @forelse ($rankingVentas as $indice => $fila)
                                 <tr>
-                                    <td class="px-2 py-2 text-gray-500">{{ $indice + 1 }}</td>
+                                    <td class="px-2 py-2 text-gray-500">{{ (($rankingVentas->currentPage() - 1) * $rankingVentas->perPage()) + $indice + 1 }}</td>
                                     <td class="px-2 py-2 font-medium">{{ $fila['codigo'] }}</td>
                                     <td class="px-2 py-2">{{ $fila['nombre'] }}</td>
                                     <td class="px-2 py-2 text-right">{{ $dinero($fila['sin_igv']) }}</td>
@@ -113,10 +118,13 @@
                         </tbody>
                     </table>
                 </div>
+                @if ($rankingVentas->hasPages())
+                    <div class="mt-3">{{ $rankingVentas->links() }}</div>
+                @endif
             </x-filament::section>
 
             <x-filament::section compact>
-                <x-slot name="heading">Ranking productos Restaurant</x-slot>
+                <x-slot name="heading">Ranking productos</x-slot>
 
                 <div class="overflow-x-auto">
                     <table class="w-full text-sm">
@@ -129,7 +137,7 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100 dark:divide-white/10">
-                            @forelse ($tablero['ranking_productos'] as $fila)
+                            @forelse ($rankingProductos as $fila)
                                 <tr>
                                     <td class="px-2 py-2 font-medium">{{ $fila['codigo'] }}</td>
                                     <td class="px-2 py-2">{{ $fila['descripcion'] }}</td>
@@ -142,6 +150,9 @@
                         </tbody>
                     </table>
                 </div>
+                @if ($rankingProductos->hasPages())
+                    <div class="mt-3">{{ $rankingProductos->links() }}</div>
+                @endif
             </x-filament::section>
         </div>
     </div>
