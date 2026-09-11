@@ -105,14 +105,14 @@ class IniciarDirectivaTransferencia extends Page
         return $schema
             ->statePath('data')
             ->schema([
-                Section::make('¿A qué locales aplica?')
-                    ->description('Elegí el alcance de esta corrida.')
+                Section::make('Locales')
+                    ->compact()
                     ->schema([
                         Radio::make('modo_alcance')
-                            ->label('Locales')
+                            ->hiddenLabel()
                             ->options([
-                                'venta_activa' => 'Con venta activa (últimos 3 días) -- recomendado',
-                                'todos' => 'Todos los locales confirmados',
+                                'venta_activa' => 'Venta activa (3 días)',
+                                'todos' => 'Todos',
                                 'manual' => 'Todos, excepto...',
                             ])
                             ->live()
@@ -127,11 +127,11 @@ class IniciarDirectivaTransferencia extends Page
                             ->required(fn (callable $get): bool => $get('modo_alcance') === 'manual'),
                     ]),
 
-                Section::make('Ajustes opcionales')
-                    ->description('Dejalos apagados si no hace falta nada especial hoy.')
+                Section::make('Ajustes')
+                    ->compact()
                     ->collapsed(fn (callable $get): bool => ! $get('agregar_dia_sin_dt') && ! $get('aplicar_ajuste'))
                     ->schema([
-                        Toggle::make('agregar_dia_sin_dt')->label('Registrar un "día sin DT" para algún local')->live(),
+                        Toggle::make('agregar_dia_sin_dt')->label('Día sin DT')->live(),
                         Select::make('dia_sin_dt_locales')
                             ->label('Local(es)')
                             ->options(fn (): array => $this->localesConfirmadosOptions())
@@ -144,17 +144,18 @@ class IniciarDirectivaTransferencia extends Page
                             ->visible(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt'))
                             ->required(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt')),
 
-                        Toggle::make('aplicar_ajuste')->label('Aplicar un % de ajuste sobre la cantidad sugerida')->live(),
+                        Toggle::make('aplicar_ajuste')->label('Ajuste %')->live(),
                         TextInput::make('porcentaje_ajuste')
                             ->label('Porcentaje')->numeric()->suffix('%')->default(10)->minValue(-100)->maxValue(500)
                             ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste'))
                             ->required(fn (callable $get): bool => (bool) $get('aplicar_ajuste')),
                         Select::make('ajuste_locales')
-                            ->label('Local(es) (vacío = todos los de esta corrida)')
+                            ->label('Local(es) (vacío = todos)')
                             ->options(fn (): array => $this->localesConfirmadosOptions())
                             ->multiple()->searchable()
                             ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste')),
-                    ]),
+                    ])
+                    ->columns(2),
             ]);
     }
 
