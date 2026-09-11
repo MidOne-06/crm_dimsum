@@ -78,12 +78,24 @@ class TramosDemanda extends Page implements HasTable
 
     public function updatedLocalId(): void
     {
+        if ($this->localId && ! $this->localAllowedForUser($this->localId)) {
+            $this->localId = null;
+        }
+
         $this->resetTable();
     }
 
+    /**
+     * `localId` es una propiedad pública de Livewire -- un usuario
+     * restringido a ciertos locales podría editar el payload wire:model y
+     * pedir uno fuera de su alcance. `localesOptions()` ya filtra qué se
+     * OFRECE en el Select, pero eso por sí solo no protege nada (ver
+     * docblock de ScopesLocalsToUser::localAllowedForUser()) -- hay que
+     * validar acá el valor efectivamente recibido antes de usarlo.
+     */
     private function ultimoCalculadoEn(): ?string
     {
-        if (! $this->localId) {
+        if (! $this->localId || ! $this->localAllowedForUser($this->localId)) {
             return null;
         }
 
@@ -93,7 +105,7 @@ class TramosDemanda extends Page implements HasTable
     /** @return array{tramo1_inicio: Carbon, tramo1_fin: Carbon, tramo2_inicio: Carbon, tramo2_fin: Carbon}|null */
     public function periodos(): ?array
     {
-        if (! $this->localId) {
+        if (! $this->localId || ! $this->localAllowedForUser($this->localId)) {
             return null;
         }
 
@@ -114,15 +126,13 @@ class TramosDemanda extends Page implements HasTable
     {
         return $table
             ->query(function (): Builder {
-                if (! $this->localId) {
+                if (! $this->localId || ! $this->localAllowedForUser($this->localId)) {
                     return DirectivaTransferenciaSugerencia::query()->whereRaw('1 = 0');
                 }
 
-                $calculadoEn = $this->ultimoCalculadoEn();
-
                 return DirectivaTransferenciaSugerencia::query()
                     ->where('local_id', $this->localId)
-                    ->where('calculado_en', $calculadoEn);
+                    ->where('calculado_en', $this->ultimoCalculadoEn());
             })
             ->defaultSort('item_nombre')
             ->paginated(false)
