@@ -568,4 +568,40 @@ class DirectivaTransferenciaService
 
         return (string) ($config?->hora_llegada_estimada ?? self::HORA_POR_DEFECTO);
     }
+
+    /**
+     * Período real (fecha+hora) de cada tramo para un local puntual --
+     * mismo cálculo que hace calcularParaFecha() por dentro para ese local
+     * (proximaLlegada()/horaLlegada()), expuesto público para que una
+     * pantalla lo pueda mostrar sin tener que recalcular toda la Directiva.
+     * `$ahora` es el instante que se toma como inicio real del tramo 1 --
+     * por defecto el momento actual (ver docblock de la clase: la ventana
+     * arranca en el instante real de ejecución, no en una hora fija).
+     *
+     * @return array{tramo1_inicio: Carbon, tramo1_fin: Carbon, tramo2_inicio: Carbon, tramo2_fin: Carbon}
+     */
+    public function periodosParaLocal(string $localId, ?Carbon $ahora = null): array
+    {
+        $ahora = $ahora?->copy() ?? now();
+        $hoy = $ahora->copy()->startOfDay();
+
+        $config = LocalLogisticaConfig::where('local_id', $localId)->first();
+        $horarios = LocalLogisticaHorario::where('local_id', $localId)->get();
+        $diasSinDt = LocalDiaSinDt::where('local_id', $localId)->pluck('dia_semana')->all();
+
+        $fechaDestino = $this->proximaLlegada($hoy, $diasSinDt);
+        $horaDestino = $this->horaLlegada($horarios, $config, $fechaDestino->dayOfWeekIso);
+        $tramo1Fin = $fechaDestino->copy()->setTimeFromTimeString($horaDestino);
+
+        $fechaDestino2 = $this->proximaLlegada($fechaDestino, $diasSinDt);
+        $horaDestino2 = $this->horaLlegada($horarios, $config, $fechaDestino2->dayOfWeekIso);
+        $tramo2Fin = $fechaDestino2->copy()->setTimeFromTimeString($horaDestino2);
+
+        return [
+            'tramo1_inicio' => $ahora,
+            'tramo1_fin' => $tramo1Fin,
+            'tramo2_inicio' => $tramo1Fin,
+            'tramo2_fin' => $tramo2Fin,
+        ];
+    }
 }
