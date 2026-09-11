@@ -3,25 +3,13 @@
 namespace App\Filament\Pages\Stock;
 
 use App\Filament\Concerns\ScopesLocalsToUser;
-use App\Jobs\ExtraerKardexJob;
 use App\Models\BrandingSetting;
 use App\Models\DirectivaTransferenciaSugerencia;
-use App\Models\GuiaInternaSincronizacion;
-use App\Models\KardexExtraccion as KardexExtraccionModel;
-use App\Models\LocalDiaSinDt;
 use App\Models\ProductoPresentacionDespacho;
-use App\Models\StockInicialLocal;
 use App\Services\DirectivaTransferenciaService;
-use App\Services\GuiasInternasHistoricoService;
-use App\Services\KardexGatewayClient;
 use Dompdf\Dompdf;
 use Dompdf\Options as DompdfOptions;
 use Filament\Actions\Action;
-use Filament\Forms\Components\Placeholder;
-use Filament\Forms\Components\Radio;
-use Filament\Forms\Components\Select;
-use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Tables\Columns\TextColumn;
@@ -42,7 +30,6 @@ use PhpOffice\PhpSpreadsheet\Style\Color;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
-use Throwable;
 
 /**
  * Cantidad sugerida a despachar -- fase inicial de la Directiva de
@@ -74,18 +61,6 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
 {
     use InteractsWithTable;
     use ScopesLocalsToUser;
-
-    /**
-     * Id de la extracción de Kardex y de la sincronización de Guías internas
-     * que "Sincronizar y calcular para mañana" dejó en curso -- el poll de
-     * la vista los revisa hasta que ambas terminan, y recién ahí dispara el
-     * cálculo. Ver docblock de sincronizarYCalcularManana().
-     */
-    public ?int $kardexExtraccionId = null;
-
-    public ?int $guiasSincronizacionId = null;
-
-    public bool $sincronizandoParaManana = false;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-truck';
     protected static ?string $navigationLabel = 'Directiva de transferencia';
@@ -121,7 +96,11 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
     private function tableHeaderActions(): array
     {
         return [
-            $this->iniciarDirectivaAction(),
+            Action::make('iniciarDirectiva')
+                ->label('Iniciar Directiva de Transferencia')
+                ->icon('heroicon-o-play')
+                ->color('success')
+                ->url(fn (): string => \App\Filament\Pages\Stock\IniciarDirectivaTransferencia::getUrl()),
             Action::make('exportarExcel')
                 ->label('Exportar Excel')
                 ->icon('heroicon-o-arrow-down-tray')
@@ -138,308 +117,13 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                 ->color('gray')
                 ->requiresConfirmation()
                 ->modalHeading('¿Recalcular la Directiva de mañana?')
-                ->modalDescription('Vuelve a calcular la cantidad sugerida para todos los locales e ítems con la fecha de mañana, usando el saldo y el histórico de ventas TAL CUAL están guardados ahora mismo -- no sincroniza nada nuevo. Usa "Sincronizar y calcular para mañana" si además querés refrescar Kardex y Guías internas antes.')
+                ->modalDescription('Vuelve a calcular la cantidad sugerida para todos los locales e ítems con la fecha de mañana, usando el saldo y el histórico de ventas TAL CUAL están guardados ahora mismo -- no sincroniza nada nuevo. Usa el módulo "Iniciar Directiva de Transferencia" si además querés refrescar Kardex y Guías internas antes, o elegir el alcance.')
                 ->action(function (): void {
                     $total = app(DirectivaTransferenciaService::class)->calcularParaFecha($this->fechaReferencia());
                     Notification::make()->success()->title('Directiva recalculada')->body("{$total} sugerencias generadas para mañana.")->send();
                     $this->resetTable();
                 }),
-            Action::make('sincronizarYCalcular')
-                ->label('Sincronizar y calcular para mañana')
-                ->icon('heroicon-o-bolt')
-                ->color('primary')
-                ->visible(fn (): bool => ! $this->sincronizandoParaManana)
-                ->requiresConfirmation()
-                ->modalHeading('¿Sincronizar Kardex y Guías internas antes de calcular?')
-                ->modalDescription('Actualiza primero el Kardex de ayer y hoy (saldo real) y las Guías internas más recientes (mercadería en tránsito) para todos los locales, y recién cuando ambas terminen calcula la Directiva de mañana con esos datos frescos. Puede tardar varios minutos -- esta pantalla se actualiza sola mientras tanto.')
-                ->modalSubmitActionLabel('Sí, sincronizar y calcular')
-                ->action(fn () => $this->sincronizarYCalcularManana()),
         ];
-    }
-
-    /** @return array<string, string> */
-    private function localesConfirmadosOptions(): array
-    {
-        return $this->scopeKeyedLocalsToUser(
-            StockInicialLocal::where('estado', 'confirmado')->orderBy('local_nombre')->pluck('local_nombre', 'local_id')->all(),
-        );
-    }
-
-    /**
-     * "Iniciar Directiva de Transferencia" -- pedido explícito del usuario:
-     * un solo modal directo (sin wizard de pasos, sin texto explicativo --
-     * eso lo cubre el manual de usuario al cerrar el sistema), mismo
-     * estándar de modales del proyecto (Action con botón propio y
-     * explícito, nunca un click implícito). Todo el formulario entra de
-     * una, con visibilidad condicional donde hace falta; `calcularParaFecha()`
-     * sigue siendo el mismo motor de siempre -- esto solo arma sus 4
-     * parámetros y los pasa (ver docblock del servicio).
-     */
-    private function iniciarDirectivaAction(): Action
-    {
-        return Action::make('iniciarDirectiva')
-            ->label('Iniciar Directiva de Transferencia')
-            ->icon('heroicon-o-play')
-            ->color('success')
-            ->modalWidth('xl')
-            ->modalHeading('Iniciar Directiva de Transferencia')
-            ->modalSubmitActionLabel('Calcular')
-            ->schema([
-                Radio::make('modo_alcance')
-                    ->label('Locales')
-                    ->options([
-                        'venta_activa' => 'Con venta activa (últimos 3 días)',
-                        'todos' => 'Todos los confirmados',
-                        'manual' => 'Todos, excepto...',
-                    ])
-                    ->default('venta_activa')
-                    ->live()
-                    ->required(),
-                Select::make('locales_excluir')
-                    ->label('Excluir')
-                    ->options(fn (): array => $this->localesConfirmadosOptions())
-                    ->multiple()
-                    ->searchable()
-                    ->live()
-                    ->visible(fn (callable $get): bool => $get('modo_alcance') === 'manual')
-                    ->required(fn (callable $get): bool => $get('modo_alcance') === 'manual'),
-                Placeholder::make('conteo_alcance')
-                    ->label('')
-                    ->content(fn (callable $get): string => $this->conteoAlcanceEnVivo($get)),
-
-                Toggle::make('agregar_dia_sin_dt')
-                    ->label('Registrar día sin DT')
-                    ->live(),
-                Select::make('dia_sin_dt_locales')
-                    ->label('Local(es)')
-                    ->options(fn (): array => $this->localesConfirmadosOptions())
-                    ->multiple()
-                    ->searchable()
-                    ->visible(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt'))
-                    ->required(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt')),
-                Select::make('dia_sin_dt_dia')
-                    ->label('Día')
-                    ->options(LocalDiaSinDt::DIAS)
-                    ->visible(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt'))
-                    ->required(fn (callable $get): bool => (bool) $get('agregar_dia_sin_dt')),
-
-                Toggle::make('aplicar_ajuste')
-                    ->label('Aplicar ajuste %')
-                    ->live(),
-                TextInput::make('porcentaje_ajuste')
-                    ->label('Porcentaje')
-                    ->numeric()
-                    ->suffix('%')
-                    ->default(10)
-                    ->minValue(-100)
-                    ->maxValue(500)
-                    ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste'))
-                    ->required(fn (callable $get): bool => (bool) $get('aplicar_ajuste')),
-                Select::make('ajuste_locales')
-                    ->label('Local(es) (vacío = todos)')
-                    ->options(fn (): array => $this->localesConfirmadosOptions())
-                    ->multiple()
-                    ->searchable()
-                    ->visible(fn (callable $get): bool => (bool) $get('aplicar_ajuste')),
-            ])
-            ->action(fn (array $data) => $this->ejecutarWizardDirectiva($data));
-    }
-
-    /** Cuántos locales entran HOY MISMO con lo elegido hasta ahora -- consulta en vivo, no un texto fijo, para que el usuario vea el efecto real antes de calcular. */
-    private function conteoAlcanceEnVivo(callable $get): string
-    {
-        $confirmados = StockInicialLocal::where('estado', 'confirmado')->pluck('local_id')->all();
-
-        $incluidos = match ($get('modo_alcance')) {
-            'todos' => $confirmados,
-            'manual' => array_values(array_diff($confirmados, array_map('strval', (array) $get('locales_excluir')))),
-            default => app(DirectivaTransferenciaService::class)->localesConVentaActiva($confirmados),
-        };
-
-        return count($incluidos).' de '.count($confirmados).' locales entrarán en esta corrida.';
-    }
-
-    /**
-     * Aplica lo elegido en el wizard y dispara el cálculo real --
-     * `restrictLocalIdsToUser()` en cada local recibido del formulario
-     * (defensa en profundidad, mismo criterio que el resto del proyecto:
-     * un usuario restringido a locales no puede colar, vía wire:model, un
-     * local fuera de los suyos).
-     *
-     * @param  array<string, mixed>  $data
-     */
-    private function ejecutarWizardDirectiva(array $data): void
-    {
-        abort_unless(auth()->user()?->hasPermission('directiva-transferencia.view'), 403);
-
-        if ($data['agregar_dia_sin_dt'] ?? false) {
-            $localesDiaSinDt = $this->restrictLocalIdsToUser(array_map('strval', (array) ($data['dia_sin_dt_locales'] ?? [])));
-            foreach ($localesDiaSinDt as $localId) {
-                LocalDiaSinDt::firstOrCreate([
-                    'local_id' => $localId,
-                    'dia_semana' => (int) $data['dia_sin_dt_dia'],
-                ]);
-            }
-        }
-
-        $localesExcluidos = [];
-        $soloVentaActiva = false;
-        match ($data['modo_alcance'] ?? 'venta_activa') {
-            'manual' => $localesExcluidos = $this->restrictLocalIdsToUser(array_map('strval', (array) ($data['locales_excluir'] ?? []))),
-            'todos' => null,
-            default => $soloVentaActiva = true,
-        };
-
-        // Uno, varios, o todos -- vacío ("¿A quién se aplica?" sin elegir
-        // ninguno) significa "todos los locales de esta corrida", pedido
-        // explícito del usuario en vez del radio todos/uno-solo de antes.
-        $porcentajeGlobal = 0.0;
-        $porcentajePorLocal = [];
-        if ($data['aplicar_ajuste'] ?? false) {
-            $pct = (float) ($data['porcentaje_ajuste'] ?? 0);
-            $localesAjuste = $this->restrictLocalIdsToUser(array_map('strval', (array) ($data['ajuste_locales'] ?? [])));
-            if ($localesAjuste !== []) {
-                foreach ($localesAjuste as $localId) {
-                    $porcentajePorLocal[$localId] = $pct;
-                }
-            } else {
-                $porcentajeGlobal = $pct;
-            }
-        }
-
-        $total = app(DirectivaTransferenciaService::class)->calcularParaFecha(
-            $this->fechaReferencia(),
-            $localesExcluidos,
-            $soloVentaActiva,
-            $porcentajeGlobal,
-            $porcentajePorLocal,
-        );
-
-        Notification::make()->success()->title('Directiva calculada')->body("{$total} sugerencias generadas para mañana.")->send();
-        $this->resetTable();
-    }
-
-    /**
-     * Flujo completo pedido por el usuario: antes de calcular la Directiva
-     * de mañana, refresca las 2 únicas fuentes de las que depende el
-     * cálculo -- Kardex (saldo_actual) y Guías internas (cantidad_en_transito)
-     * -- en vez de confiar en lo que haya quedado de sincronizaciones
-     * anteriores. Los otros 4 módulos del Panel de Sincronización (Ventas,
-     * Salidas de stock, Requerimientos, Movimientos entre almacenes) NO se
-     * tocan acá: no alimentan esta fórmula, sincronizarlos solo agregaría
-     * espera sin cambiar el resultado.
-     *
-     * Kardex se extrae para AYER + HOY (no solo hoy, corregido 2026-09-10
-     * tras la auditoría de Aurora): la cola de ventas/entradas de la noche
-     * de ayer podría no haber entrado todavía si la última sincronización
-     * automática de ayer corrió antes de esas operaciones. `reemplazar()`
-     * borra e inserta el rango por local, así que repetir ayer no duplica
-     * nada -- solo lo deja completo. Comprobado en vivo (2026-09-09) que
-     * Restaurant devuelve datos reales del día EN CURSO (entradas/salidas
-     * hasta el momento de la consulta), así que hoy también entra.
-     *
-     * Ninguna de las dos sincronizaciones corre en el propio request web
-     * (moriría al terminar el request, ver DespacharSincronizacionesPendientes)
-     * -- Kardex se despacha directo a su cola dedicada (mismo patrón que el
-     * botón manual de Kardex > Extracción); Guías internas solo se encola
-     * como 'pendiente' y el despachador de cada minuto la toma. El poll de
-     * la vista revisa el estado de ambas y recién cuando las dos terminan
-     * dispara el cálculo -- ver verificarSincronizacionParaManana().
-     */
-    public function sincronizarYCalcularManana(): void
-    {
-        abort_unless(auth()->user()?->hasPermission('directiva-transferencia.view'), 403);
-
-        $hoy = now()->toDateString();
-        $ayer = now()->subDay()->toDateString();
-
-        if (KardexExtraccionModel::query()->whereIn('estado', ['pendiente', 'en_progreso'])->exists()) {
-            $this->kardexExtraccionId = KardexExtraccionModel::query()->whereIn('estado', ['pendiente', 'en_progreso'])->latest('id')->value('id');
-        } else {
-            try {
-                $locales = app(KardexGatewayClient::class)->locals();
-            } catch (Throwable $exception) {
-                Notification::make()->danger()->title('No se pudo iniciar la sincronización de Kardex')->body($exception->getMessage())->send();
-
-                return;
-            }
-            $localesIds = collect($locales)->pluck('id')->map(fn (mixed $id): string => (string) $id)->all();
-            $extraccion = KardexExtraccionModel::create([
-                'estado' => 'pendiente',
-                'filtros' => [
-                    'locales' => implode('-', $localesIds),
-                    'localesNombres' => collect($locales)->mapWithKeys(fn (array $l): array => [(string) $l['id'] => (string) ($l['name'] ?? '')])->all(),
-                    'motivo' => '-1',
-                    'fechaInicio' => $ayer,
-                    'fechaFin' => $hoy,
-                ],
-                'iniciado_por' => auth()->id(),
-            ]);
-            ExtraerKardexJob::dispatch($extraccion->id)->onQueue('kardex');
-            $this->kardexExtraccionId = $extraccion->id;
-        }
-
-        if (GuiaInternaSincronizacion::query()->whereIn('estado', ['pendiente', 'en_progreso'])->exists()) {
-            $this->guiasSincronizacionId = GuiaInternaSincronizacion::query()->whereIn('estado', ['pendiente', 'en_progreso'])->latest('id')->value('id');
-        } else {
-            // Mismo criterio de ventana que el sync incremental automático de
-            // cada 30 min (routes/console.php) -- 3 días hacia atrás, todos
-            // los locales permitidos, hasta hoy.
-            $run = app(GuiasInternasHistoricoService::class)->iniciar(now()->subDays(3)->toDateString(), $hoy, [], auth()->id());
-            $this->guiasSincronizacionId = $run->id;
-        }
-
-        $this->sincronizandoParaManana = true;
-        Notification::make()->info()->title('Sincronizando antes de calcular')
-            ->body('Actualizando Kardex de hoy y Guías internas. En cuanto ambas terminen, la Directiva de mañana se calcula sola.')
-            ->send();
-    }
-
-    /**
-     * Llamada por wire:poll desde la vista mientras sincronizandoParaManana
-     * es true. No se ata a NINGÚN progreso de "venta esperada de hoy" --
-     * solo espera a que las 2 sincronizaciones que se dispararon terminen
-     * (o fallen), y recién ahí calcula. Si una de las dos falla, se aborta
-     * el cálculo automático en vez de correrlo con datos a medias -- mejor
-     * que el usuario lo note y decida (reintentar, o usar "Recalcular para
-     * mañana" con lo que ya haya quedado bueno).
-     */
-    public function verificarSincronizacionParaManana(): void
-    {
-        if (! $this->sincronizandoParaManana) {
-            return;
-        }
-
-        $kardex = $this->kardexExtraccionId ? KardexExtraccionModel::find($this->kardexExtraccionId) : null;
-        $guias = $this->guiasSincronizacionId ? GuiaInternaSincronizacion::find($this->guiasSincronizacionId) : null;
-
-        // Guías internas puede cerrar en 'completado_con_errores' (algún
-        // local puntual falló pero el resto sí se guardó) -- se trata igual
-        // que 'completado' acá, no se queda esperando para siempre. Kardex
-        // no tiene ese estado intermedio: para él, solo 'completado' cuenta.
-        $kardexListo = ! $kardex || $kardex->estado === 'completado';
-        $guiasListo = ! $guias || in_array($guias->estado, ['completado', 'completado_con_errores'], true);
-        $kardexFallo = $kardex?->estado === 'fallido';
-        $guiasFallo = $guias?->estado === 'fallido';
-
-        if ($kardexFallo || $guiasFallo) {
-            $this->sincronizandoParaManana = false;
-            $detalle = $kardexFallo ? 'la extracción de Kardex' : 'la sincronización de Guías internas';
-            Notification::make()->danger()->title('No se pudo sincronizar')
-                ->body("Falló {$detalle}. Revisa el Panel de Sincronización -- no se calculó nada para no usar datos a medias.")
-                ->send();
-
-            return;
-        }
-
-        if ($kardexListo && $guiasListo) {
-            $this->sincronizandoParaManana = false;
-            $this->kardexExtraccionId = null;
-            $this->guiasSincronizacionId = null;
-            $total = app(DirectivaTransferenciaService::class)->calcularParaFecha($this->fechaReferencia());
-            Notification::make()->success()->title('Directiva de mañana calculada')->body("{$total} sugerencias generadas con datos recién sincronizados.")->send();
-            $this->resetTable();
-        }
     }
 
     /**
