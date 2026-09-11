@@ -27,11 +27,17 @@ class DirectivaTransferenciaSetting extends Model
         ];
     }
 
-    /** Nivel de servicio -> factor z (distribución normal estándar inversa). */
+    /**
+     * Nivel de servicio -> factor z (distribución normal estándar inversa).
+     * Como string a propósito: asignar un float a un campo `decimal:N` de
+     * Eloquent dispara un deprecation real de `brick/math` (ver bitácora
+     * 2026-09-11) -- pasar el string exacto evita la conversión float->
+     * BigNumber por dentro.
+     */
     public const NIVELES_DISPONIBLES = [
-        90 => 1.2816,
-        95 => 1.6449,
-        98 => 2.0537,
+        90 => '1.2816',
+        95 => '1.6449',
+        98 => '2.0537',
     ];
 
     public static function current(): self
