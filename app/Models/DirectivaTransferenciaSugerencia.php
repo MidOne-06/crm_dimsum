@@ -16,13 +16,21 @@ class DirectivaTransferenciaSugerencia extends Model
         'multiplo_aplicado', 'cantidad_sugerida', 'calculado_en',
     ];
 
-    /** Nivel de servicio ~95% (elegido por el usuario) -- ver docblock de la migración de desviacion_estandar. */
-    public const FACTOR_SERVICIO_95 = 1.65;
-
-    /** Colchón real que la fórmula sumó por variabilidad, antes del redondeo. */
+    /**
+     * Colchón real que la fórmula sumó por variabilidad, antes del
+     * redondeo -- mismo tope y mismo factor configurable que aplicó
+     * `DirectivaTransferenciaService` al calcular esta fila (ver
+     * `DirectivaTransferenciaSetting`). Se recalcula con el factor VIGENTE,
+     * no el que estaba activo cuando se calculó la fila -- si alguien
+     * cambia el nivel de servicio, esta columna se actualiza sola en la
+     * pantalla sin esperar al próximo cálculo (el número guardado en
+     * `cantidad_sugerida` sí queda fijo hasta el próximo cálculo real).
+     */
     public function stockSeguridad(): float
     {
-        return self::FACTOR_SERVICIO_95 * (float) $this->desviacion_estandar;
+        $bruto = DirectivaTransferenciaSetting::current()->factorServicio() * (float) $this->desviacion_estandar;
+
+        return min($bruto, (float) $this->demanda_promedio);
     }
 
     protected function casts(): array

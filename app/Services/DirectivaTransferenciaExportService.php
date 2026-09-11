@@ -100,8 +100,20 @@ class DirectivaTransferenciaExportService
             $sheet->setCellValue([2, $rowNumber], $producto->item_codigo);
             $totalFila = 0.0;
             foreach ($locales as $index => $local) {
-                $cantidad = (float) ($mapa->get("{$local->local_id}|{$producto->item_id}|{$producto->item_tipo}")?->cantidad_sugerida ?? 0);
+                $sugerencia = $mapa->get("{$local->local_id}|{$producto->item_id}|{$producto->item_tipo}");
+                $cantidad = (float) ($sugerencia?->cantidad_sugerida ?? 0);
+                $celda = Coordinate::stringFromColumnIndex($index + 3).$rowNumber;
                 $sheet->setCellValue([$index + 3, $rowNumber], $cantidad);
+                // Riesgo de quiebre (tramo 1 ya supera el stock proyectado) --
+                // pedido explícito del usuario (2026-09-11, barrida de
+                // huecos): antes esta alerta solo vivía en pantalla, nunca
+                // llegaba al Excel que de verdad circula. Fondo rojo claro,
+                // mismo criterio que el badge "¿Riesgo de quiebre?" del
+                // Consolidado -- ver hoja "Detalle" para el resto de
+                // columnas (desviación, stock de seguridad, etc).
+                if ($sugerencia?->riesgo_quiebre) {
+                    $sheet->getStyle($celda)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FDE2E1');
+                }
                 $totalFila += $cantidad;
                 $totalesColumna[$index] += $cantidad;
             }
@@ -129,12 +141,74 @@ class DirectivaTransferenciaExportService
         foreach (range(3, $lastColumn) as $index) $sheet->getColumnDimensionByColumn($index)->setWidth(9);
         $sheet->freezePane('C'.($headerRow + 1));
 
+        $leyendaFila = $filaTotal + 2;
+        $sheet->setCellValue("A{$leyendaFila}", 'Fondo rojo: riesgo de quiebre antes de mañana (ver hoja "Detalle").');
+        $sheet->getStyle("A{$leyendaFila}")->getFont()->setItalic(true)->setSize(8);
+
+        $this->agregarHojaDetalle($spreadsheet, $mapa->values());
+
         $writer = new Xlsx($spreadsheet);
         $filename = 'directiva-transferencia-'.$fechaMinima.'.xlsx';
 
         return response()->streamDownload(function () use ($writer, $spreadsheet): void {
             try { $writer->save('php://output'); } finally { $spreadsheet->disconnectWorksheets(); }
         }, $filename, ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+    }
+
+    /**
+     * Hoja "Detalle" -- pedido explícito del usuario (2026-09-11, barrida
+     * de huecos funcionales): el pivote de arriba solo lleva la cantidad
+     * final; nadie que solo abre el Excel puede ver de dónde salió (cuánto
+     * es demanda real, cuánto es colchón por variabilidad, si hay riesgo
+     * de quiebre) sin volver al Consolidado en pantalla. Una fila por
+     * local×producto, mismo criterio y mismos números que el Consolidado.
+     *
+     * @param  \Illuminate\Support\Collection<int, DirectivaTransferenciaSugerencia>  $sugerencias
+     */
+    private function agregarHojaDetalle(Spreadsheet $spreadsheet, \Illuminate\Support\Collection $sugerencias): void
+    {
+        $sheet = $spreadsheet->createSheet();
+        $sheet->setTitle('Detalle');
+
+        $encabezados = [
+            'Local', 'Producto', 'SKU', 'Demanda tramo 1', 'Demanda total (2 tramos)',
+            'Desv. estándar', 'Stock seguridad', '¿Riesgo de quiebre?', 'Saldo actual',
+            'En tránsito', 'Cantidad bruta', '% ajuste', 'Cantidad sugerida',
+        ];
+        foreach ($encabezados as $index => $titulo) {
+            $sheet->setCellValueByColumnAndRow($index + 1, 1, $titulo);
+        }
+        $sheet->getStyle('A1:M1')->getFont()->setBold(true);
+        $sheet->getStyle('A1:M1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DCE6F1');
+
+        $fila = 2;
+        foreach ($sugerencias->sortBy([['local_nombre', 'asc'], ['item_nombre', 'asc']]) as $s) {
+            $sheet->setCellValueByColumnAndRow(1, $fila, $s->local_nombre);
+            $sheet->setCellValueByColumnAndRow(2, $fila, $s->item_nombre);
+            $sheet->setCellValueByColumnAndRow(3, $fila, $s->item_codigo);
+            $sheet->setCellValueByColumnAndRow(4, $fila, (float) $s->demanda_ventana1);
+            $sheet->setCellValueByColumnAndRow(5, $fila, (float) $s->demanda_promedio);
+            $sheet->setCellValueByColumnAndRow(6, $fila, (float) $s->desviacion_estandar);
+            $sheet->setCellValueByColumnAndRow(7, $fila, $s->stockSeguridad());
+            $sheet->setCellValueByColumnAndRow(8, $fila, $s->riesgo_quiebre ? 'Quiebre antes de mañana' : 'Sin riesgo');
+            $sheet->setCellValueByColumnAndRow(9, $fila, (float) $s->saldo_actual);
+            $sheet->setCellValueByColumnAndRow(10, $fila, (float) $s->cantidad_en_transito);
+            $sheet->setCellValueByColumnAndRow(11, $fila, (float) $s->cantidad_bruta);
+            $sheet->setCellValueByColumnAndRow(12, $fila, (float) $s->porcentaje_ajuste_aplicado);
+            $sheet->setCellValueByColumnAndRow(13, $fila, (float) $s->cantidad_sugerida);
+            if ($s->riesgo_quiebre) {
+                $sheet->getStyle("A{$fila}:M{$fila}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FDE2E1');
+            }
+            $fila++;
+        }
+
+        $sheet->getStyle('D2:G'.($fila - 1))->getNumberFormat()->setFormatCode('#,##0.00');
+        $sheet->getStyle('I2:K'.($fila - 1))->getNumberFormat()->setFormatCode('#,##0.00');
+        $sheet->getStyle('L2:M'.($fila - 1))->getNumberFormat()->setFormatCode('#,##0.00');
+        foreach (range(1, 13) as $col) {
+            $sheet->getColumnDimensionByColumn($col)->setAutoSize(true);
+        }
+        $sheet->freezePane('A2');
     }
 
     /**
@@ -169,17 +243,25 @@ class DirectivaTransferenciaExportService
         ['locales' => $locales, 'productos' => $productos, 'mapa' => $mapa] = $this->pivotData($fechaMinima);
 
         $filas = $productos->map(function (ProductoPresentacionDespacho $producto) use ($locales, $mapa): array {
-            $cantidades = $locales->map(fn ($local): float => (float) ($mapa->get("{$local->local_id}|{$producto->item_id}|{$producto->item_tipo}")?->cantidad_sugerida ?? 0));
+            // Riesgo de quiebre por celda (2026-09-11, barrida de huecos
+            // funcionales, pedido explícito del usuario) -- antes esta
+            // alerta solo vivía en pantalla, nunca llegaba al PDF que de
+            // verdad circula por WhatsApp/impreso a los locales.
+            $celdas = $locales->map(function ($local) use ($producto, $mapa): array {
+                $sugerencia = $mapa->get("{$local->local_id}|{$producto->item_id}|{$producto->item_tipo}");
+
+                return ['cantidad' => (float) ($sugerencia?->cantidad_sugerida ?? 0), 'riesgo' => (bool) $sugerencia?->riesgo_quiebre];
+            });
 
             return [
                 'nombre' => $producto->item_nombre,
                 'codigo' => $producto->item_codigo,
-                'cantidades' => $cantidades,
-                'total' => $cantidades->sum(),
+                'celdas' => $celdas,
+                'total' => $celdas->sum('cantidad'),
             ];
         });
 
-        $totalesColumna = $locales->map(fn ($local, $index): float => $filas->sum(fn (array $fila) => $fila['cantidades'][$index]));
+        $totalesColumna = $locales->map(fn ($local, $index): float => $filas->sum(fn (array $fila) => $fila['celdas'][$index]['cantidad']));
         $granTotal = $totalesColumna->sum();
 
         $options = new DompdfOptions();

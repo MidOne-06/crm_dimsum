@@ -170,12 +170,17 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                     ->tooltip('Solo el primer tramo (ahora -> mañana) -- lo que el STOCK PROYECTADO ACTUAL tiene que aguantar por sí solo, sin ayuda del despacho de hoy (llega tarde para este tramo).'),
                 TextColumn::make('demanda_promedio')->label('Demanda total (2 tramos)')->numeric(2)->alignEnd()->toggleable(isToggledHiddenByDefault: true)
                     ->tooltip('Ventana completa AHORA hasta PASADO MAÑANA (tramo 1 + tramo 2) -- el número que de verdad usa la fórmula de Cantidad sugerida por dentro (resta el stock proyectado UNA sola vez, arrastrando correctamente el sobrante/faltante del tramo 1 hacia el tramo 2). Se deja visible aparte, oculta por defecto, solo para quien quiera auditar el cálculo completo.'),
-                TextColumn::make('desviacion_estandar')->label('Desv. estándar')->numeric(2)->alignEnd()->toggleable(isToggledHiddenByDefault: true)
-                    ->tooltip('Variabilidad real de venta entre las semanas consideradas (mientras más alta, más volátil el producto en este local) -- es la base del stock de seguridad.'),
-                TextColumn::make('stock_seguridad')->label('Stock seguridad')->numeric(2)->alignEnd()->toggleable(isToggledHiddenByDefault: true)
+                // Visibles por defecto desde el 2026-09-11 (barrida de
+                // huecos funcionales, pedido explícito del usuario) --
+                // antes empezaban ocultas (isToggledHiddenByDefault: true)
+                // y nadie las veía sin saber que existían de antemano.
+                TextColumn::make('desviacion_estandar')->label('Desv. estándar')->numeric(2)->alignEnd()->toggleable()
+                    ->tooltip('Variabilidad real de venta entre las semanas consideradas (mientras más alta, más volátil el producto en este local) -- es la base del stock de seguridad.')
+                    ->color(fn (DirectivaTransferenciaSugerencia $r): string => $r->esConfianzaBaja() ? 'gray' : 'success'),
+                TextColumn::make('stock_seguridad')->label('Stock seguridad')->numeric(2)->alignEnd()->toggleable()
                     ->getStateUsing(fn (DirectivaTransferenciaSugerencia $r): float => $r->stockSeguridad())
-                    ->tooltip('1.65 × desviación estándar (nivel de servicio ~95%) -- colchón real por variabilidad, ya sumado dentro de "Cantidad sugerida" antes del redondeo. Un producto estable da un número chico; uno volátil, uno grande.')
-                    ->color(fn (DirectivaTransferenciaSugerencia $r): string => $r->stockSeguridad() > 0 ? 'info' : 'gray'),
+                    ->tooltip('factor de servicio (configurable en "Stock de seguridad") × desviación estándar, con tope al 100% de la demanda promedio -- colchón real por variabilidad, ya sumado dentro de "Cantidad sugerida" antes del redondeo. Un producto estable da un número chico; uno volátil, uno grande. Gris = calculado con menos de 3 semanas de historia real, poco confiable todavía.')
+                    ->color(fn (DirectivaTransferenciaSugerencia $r): string => $r->esConfianzaBaja() ? 'gray' : ($r->stockSeguridad() > 0 ? 'info' : 'gray')),
                 TextColumn::make('riesgo_quiebre')->label('¿Riesgo de quiebre?')->badge()
                     ->formatStateUsing(fn ($state): string => $state ? 'Quiebre antes de mañana' : 'Sin riesgo')
                     ->color(fn ($state): string => $state ? 'danger' : 'gray')

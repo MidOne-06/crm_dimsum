@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\DirectivaTransferenciaSetting;
 use App\Models\DirectivaTransferenciaSugerencia;
 use App\Models\LocalActivoOverride;
 use App\Models\LocalDiaSinDt;
@@ -91,13 +92,21 @@ use Illuminate\Support\Facades\DB;
  *   a mano la hora de llegada asumida (mezclaría un dato operativo real con
  *   una decisión de negocio) o sumar un % fijo parejo a todos (infla lo
  *   estable igual que lo volátil), se mide la variabilidad REAL de cada
- *   producto/local: `stock_seguridad = 1.65 × desviación estándar` de las
- *   MISMAS semanas ya usadas para el promedio (1.65 = nivel de servicio
- *   ~95%, elegido por el usuario entre 90/95/98% -- ver
- *   `DirectivaTransferenciaSugerencia::FACTOR_SERVICIO_95`). No hace falta
- *   ninguna data nueva -- las hasta 10 semanas de venta ya se traen de
- *   Kardex para el promedio; la desviación es una cuenta adicional sobre
- *   ese mismo array, antes de descartarlo.
+ *   producto/local: `stock_seguridad = factor_servicio × desviación
+ *   estándar` de las MISMAS semanas ya usadas para el promedio
+ *   (factor_servicio = 90/95/98% de nivel de servicio, configurable desde
+ *   "Stock de seguridad" -- ver `DirectivaTransferenciaSetting`, 95% por
+ *   defecto). No hace falta ninguna data nueva -- las hasta 10 semanas de
+ *   venta ya se traen de Kardex para el promedio; la desviación es una
+ *   cuenta adicional sobre ese mismo array, antes de descartarlo.
+ * - **Tope al stock de seguridad** (2026-09-11, barrida de huecos
+ *   funcionales pedida por el usuario): sin tope, una sola semana atípica
+ *   (error de captura, promoción puntual, evento) dispara la desviación
+ *   estándar y el colchón queda desproporcionado frente a la demanda real
+ *   misma, mientras esa semana rara siga dentro de la ventana de 10. Se
+ *   limita a como máximo el 100% de `demanda_promedio` -- ya es un
+ *   colchón grande (duplica la cantidad sugerida) sin dejar que un
+ *   outlier lo dispare sin control.
  */
 class DirectivaTransferenciaService
 {
@@ -183,6 +192,10 @@ class DirectivaTransferenciaService
 
         $filas = [];
         $ahora = now();
+        // Una sola lectura por corrida -- el nivel de servicio es igual
+        // para todos los locales/productos de esta ejecución, no hace
+        // falta repetir la consulta 810+ veces dentro del loop.
+        $factorServicio = DirectivaTransferenciaSetting::current()->factorServicio();
 
         foreach ($locales as $local) {
             $config = $configs->get($local->local_id);
@@ -328,7 +341,10 @@ class DirectivaTransferenciaService
                     ));
                     $desviacionEstandar = sqrt($sumaCuadrados / ($semanasConsideradas - 1));
                 }
-                $stockSeguridad = DirectivaTransferenciaSugerencia::FACTOR_SERVICIO_95 * $desviacionEstandar;
+                // Tope al 100% de la demanda promedio -- ver docblock de
+                // la clase: sin esto, una sola semana atípica dentro de
+                // las 10 comparadas puede disparar el colchón sin control.
+                $stockSeguridad = min($factorServicio * $desviacionEstandar, $demandaPromedio);
 
                 $saldoActual = (float) ($saldos->get($clave)?->saldo ?? 0);
                 $cantidadEnTransito = (float) ($transitos->get($producto->item_id)?->cantidad_transito ?? 0);
@@ -356,6 +372,14 @@ class DirectivaTransferenciaService
                 // proyectado, para no ensuciar esa trazabilidad ya auditada.
                 // `cantidad_bruta` queda intacta como el número "limpio";
                 // `cantidad_bruta_ajustada` es la que de verdad se redondea.
+                //
+                // Decisión CONFIRMADA por el usuario (2026-09-11, barrida de
+                // huecos funcionales): `cantidad_bruta` ya incluye el stock
+                // de seguridad, así que este % se aplica sobre (demanda +
+                // colchón), no solo sobre la demanda -- dos colchones que se
+                // acumulan a propósito. Se le presentó al usuario la
+                // alternativa de aplicar el % solo sobre la demanda pura, y
+                // eligió explícitamente dejarlo como está.
                 $porcentajeAjuste = $porcentajeAjustePorLocal[$local->local_id] ?? $porcentajeAjusteGlobal;
                 $cantidadBrutaAjustada = $cantidadBruta * (1 + ($porcentajeAjuste / 100));
                 $cantidadSugerida = $producto->redondear($cantidadBrutaAjustada);

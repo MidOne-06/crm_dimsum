@@ -20,6 +20,9 @@
     tbody tr:nth-child(even) td { background: #f3f4f6; }
     tr.total td, td.total { font-weight: bold; background: #dce6f1 !important; }
     .producto { width: 11%; } .sku { width: 3%; }
+    td.riesgo { background: #fde2e1 !important; }
+    .leyenda { margin-top: 6px; font-size: 7px; color: #6b7280; }
+    .leyenda .marca { display: inline-block; width: 8px; height: 8px; background: #fde2e1; border: 1px solid #d1d5db; vertical-align: middle; margin-right: 3px; }
     .pie-pagina {
         position: fixed;
         bottom: -22px;
@@ -63,8 +66,8 @@
                 <tr>
                     <td>{{ $fila['nombre'] }}</td>
                     <td>{{ $fila['codigo'] }}</td>
-                    @foreach($fila['cantidades'] as $cantidad)
-                        <td class="num">{{ number_format($cantidad, 0) }}</td>
+                    @foreach($fila['celdas'] as $celda)
+                        <td class="num {{ $celda['riesgo'] ? 'riesgo' : '' }}">{{ number_format($celda['cantidad'], 0) }}</td>
                     @endforeach
                     <td class="num total">{{ number_format($fila['total'], 0) }}</td>
                 </tr>
@@ -82,5 +85,6 @@
             @endif
         </tbody>
     </table>
+    <div class="leyenda"><span class="marca"></span>Riesgo de quiebre antes de mañana (la demanda del tramo 1 ya supera el stock proyectado de ese local para ese producto).</div>
 </body>
 </html>
