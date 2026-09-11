@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\DirectivaTransferenciaSugerencia;
+use App\Models\LocalActivoOverride;
 use App\Models\LocalDiaSinDt;
 use App\Models\LocalLogisticaConfig;
 use App\Models\LocalLogisticaHorario;
@@ -157,7 +158,7 @@ class DirectivaTransferenciaService
         $locales = $localesQuery->get();
 
         if ($soloVentaActiva) {
-            $activos = $this->localesConVentaActiva($locales->pluck('local_id')->all());
+            $activos = $this->localesActivos($locales->pluck('local_id')->all());
             $locales = $locales->whereIn('local_id', $activos)->values();
         }
 
@@ -403,6 +404,92 @@ class DirectivaTransferenciaService
             ->distinct()
             ->pluck('local_id')
             ->all();
+    }
+
+    /**
+     * "Locales activos" -- pedido explícito del usuario tras el incidente
+     * real del 2026-09-11 (una corrida manual dejó cantidades de despacho
+     * calculadas para 4 tiendas cerradas). Combina la señal automática
+     * (`localesConVentaActiva()`, venta real de despacho en los últimos 3
+     * días -- dinámica, viene de Kardex sincronizado con Restaurant cada
+     * 30 min) con los overrides manuales de `local_activo_overrides` para
+     * los casos en que el automático no calza con la realidad (un local
+     * recién reabierto que todavía no acumula 3 días de venta, o un cierre
+     * reciente que Kardex aún no refleja). Un override manda siempre,
+     * sea cual sea el resultado automático para ese local.
+     *
+     * Investigado antes de programar: Restaurant expone `local_estado` y
+     * `local_esventa` por local (`obtenerLocalesPermitidosParaUsuarioID`),
+     * pero probado en vivo contra los 37 locales reales, los 5 locales ya
+     * confirmados como cerrados siguen marcados `estado=1, es_venta=1` --
+     * es una config de catálogo (¿puede este local vender en el POS?), no
+     * un indicador de operación real, y nadie la actualiza cuando un local
+     * cierra. No sirve como fuente de verdad por eso NO se usa acá.
+     *
+     * @param  array<int, string>  $localesIds
+     * @return array<int, string>
+     */
+    public function localesActivos(array $localesIds): array
+    {
+        if ($localesIds === []) {
+            return [];
+        }
+
+        $automaticos = array_flip($this->localesConVentaActiva($localesIds));
+        $overrides = LocalActivoOverride::whereIn('local_id', $localesIds)->get()->keyBy('local_id');
+
+        $resultado = [];
+        foreach ($localesIds as $id) {
+            $override = $overrides->get($id);
+            $activo = $override ? (bool) $override->activo : isset($automaticos[$id]);
+            if ($activo) {
+                $resultado[] = $id;
+            }
+        }
+
+        return $resultado;
+    }
+
+    /**
+     * Última venta real de un ítem de despacho por local, para mostrar en
+     * "Locales Activos" -- misma ventana/universo que `localesConVentaActiva()`
+     * pero sin cortar a 3 días, para poder mostrar "hace cuántos días" sin
+     * límite (una tienda cerrada hace 4 meses también tiene que aparecer).
+     *
+     * @param  array<int, string>  $localesIds
+     * @return array<string, ?\Illuminate\Support\Carbon> local_id => última fecha_hora de venta, o null si nunca vendió un ítem de despacho
+     */
+    public function ultimaVentaDespachoPorLocal(array $localesIds): array
+    {
+        if ($localesIds === []) {
+            return [];
+        }
+
+        $productos = ProductoPresentacionDespacho::get(['item_id', 'item_tipo']);
+        if ($productos->isEmpty()) {
+            return array_fill_keys($localesIds, null);
+        }
+
+        $ultimas = DB::table('kardex_movimientos')
+            ->where('almacen', self::ALMACEN)
+            ->where('motivo', self::MOTIVO_VENTA)
+            ->whereIn('local_id', $localesIds)
+            ->where(function ($query) use ($productos): void {
+                foreach ($productos as $producto) {
+                    $query->orWhere(fn ($q) => $q->where('item_id', $producto->item_id)->where('tipo_item', $producto->item_tipo));
+                }
+            })
+            ->selectRaw('local_id, max(fecha_hora) as ultima')
+            ->groupBy('local_id')
+            ->pluck('ultima', 'local_id');
+
+        $resultado = [];
+        foreach ($localesIds as $id) {
+            $fecha = $ultimas->get($id);
+            $resultado[$id] = $fecha ? Carbon::parse($fecha) : null;
+        }
+
+        return $resultado;
     }
 
     /**

@@ -27,7 +27,10 @@
         <form wire:submit="generarDt" class="space-y-3">
             {{ $this->form }}
 
-            <x-filament::button type="submit" icon="heroicon-o-bolt" size="lg">Generar DT</x-filament::button>
+            <div class="flex items-center gap-4">
+                <x-filament::button type="submit" icon="heroicon-o-bolt" size="lg">Generar DT</x-filament::button>
+                <x-filament::link tag="a" href="{{ \App\Filament\Pages\Stock\LocalesActivos::getUrl() }}" target="_blank" icon="heroicon-o-signal" size="sm">Ver locales activos</x-filament::link>
+            </div>
         </form>
     @endif
 

@@ -117,7 +117,7 @@ class IniciarDirectivaTransferencia extends Page
                         Radio::make('modo_alcance')
                             ->hiddenLabel()
                             ->options([
-                                'venta_activa' => 'Venta activa (3 días)',
+                                'venta_activa' => 'Locales activos',
                                 'todos' => 'Todos',
                                 'manual' => 'Todos, excepto...',
                             ])
