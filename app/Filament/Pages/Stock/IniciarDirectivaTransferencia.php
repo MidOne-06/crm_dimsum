@@ -3,13 +3,14 @@
 namespace App\Filament\Pages\Stock;
 
 use App\Filament\Concerns\ScopesLocalsToUser;
+use App\Jobs\CalcularDirectivaTrasSincronizacionJob;
 use App\Jobs\ExtraerKardexJob;
+use App\Models\DirectivaTransferenciaSolicitud;
 use App\Models\DirectivaTransferenciaSugerencia;
 use App\Models\GuiaInternaSincronizacion;
 use App\Models\KardexExtraccion as KardexExtraccionModel;
 use App\Models\StockInicialLocal;
 use App\Services\DirectivaTransferenciaExportService;
-use App\Services\DirectivaTransferenciaService;
 use App\Services\GuiasInternasGatewayClient;
 use App\Services\GuiasInternasHistoricoService;
 use App\Services\KardexGatewayClient;
@@ -58,6 +59,21 @@ use Throwable;
  * ahora es la única fuente de verdad para qué locales entran. El toggle
  * "Día sin DT" también se quitó -- esa excepción se carga en su propio
  * módulo dedicado (`LocalDiaSinDtResource`), no acá.
+ *
+ * 2026-09-12 (barrida de huecos funcionales, pedido explícito del usuario):
+ * dos huecos reales cerrados. (1) El cálculo dependía por completo de que
+ * esta pestaña siguiera abierta con su `wire:poll` -- cerrarla, perder
+ * conexión, o que el celular la mande a segundo plano dejaba las
+ * sincronizaciones terminando bien mientras la Directiva (con el % de
+ * ajuste elegido) nunca se calculaba, sin ningún aviso. Ahora `generarDt()`
+ * persiste la intención de cálculo (`DirectivaTransferenciaSolicitud`) y
+ * `CalcularDirectivaTrasSincronizacionJob` la termina server-side; `wire:poll`
+ * solo viene a LEER el resultado. (2) No había detección de estancamiento
+ * -- si Kardex o Guías internas quedaba trabado (pasó de verdad varias
+ * veces este mismo mes, ver bitácora de esos módulos), esta pantalla
+ * esperaba para siempre sin avisar ni ofrecer salida. El job ahora marca la
+ * solicitud como fallida tras 20 min sin avance real, y la pantalla ofrece
+ * "Cancelar espera" en cuanto pasan unos minutos.
  */
 class IniciarDirectivaTransferencia extends Page
 {
@@ -80,8 +96,16 @@ class IniciarDirectivaTransferencia extends Page
 
     public bool $sincronizando = false;
 
-    /** Guarda qué eligió el usuario para calcular apenas terminen las 2 sincronizaciones -- ver verificarSincronizacion(). */
-    public ?array $datosPendientes = null;
+    /**
+     * Id de la solicitud persistida (ver `DirectivaTransferenciaSolicitud`)
+     * -- el cálculo real corre en `CalcularDirectivaTrasSincronizacionJob`,
+     * server-side, sin depender de que esta pestaña siga abierta (hueco
+     * real cerrado 2026-09-12, barrida de huecos funcionales pedida por el
+     * usuario: antes, cerrar la pestaña mientras sincronizaba dejaba el
+     * cálculo sin hacerse, en silencio). `wire:poll` solo viene a leer el
+     * resultado, no a calcular nada él mismo.
+     */
+    public ?int $solicitudId = null;
 
     /** @var array{total: int, locales: int, fecha: string}|null */
     public ?array $ultimoResultado = null;
@@ -140,8 +164,10 @@ class IniciarDirectivaTransferencia extends Page
 
     /**
      * "Generar DT" -- el único botón, siempre se usa: sincroniza Kardex
-     * (ayer + hoy) y Guías internas, y apenas ambas terminan, calcula con
-     * el alcance/ajustes elegidos -- ver verificarSincronizacion().
+     * (ayer + hoy) y Guías internas, y deja registrada la intención de
+     * cálculo (`DirectivaTransferenciaSolicitud`) para que
+     * `CalcularDirectivaTrasSincronizacionJob` termine el trabajo
+     * server-side apenas ambas terminen -- ver docblock de esa migración.
      */
     public function generarDt(): void
     {
@@ -149,7 +175,25 @@ class IniciarDirectivaTransferencia extends Page
         $data = $this->form->getState();
         $this->error = null;
         $this->ultimoResultado = null;
-        $this->datosPendientes = $data;
+
+        // Restringido al alcance real del usuario ACÁ, mientras todavía hay
+        // sesión autenticada (auth()) -- el job de cola corre sin ella, así
+        // que la solicitud ya guarda la lista final, nunca la cruda del
+        // formulario (mismo principio que localAllowedForUser(): un
+        // wire:model es editable por el cliente, nunca confiar en él solo).
+        $porcentajeGlobal = 0.0;
+        $porcentajePorLocal = [];
+        if ($data['aplicar_ajuste'] ?? false) {
+            $pct = (float) ($data['porcentaje_ajuste'] ?? 0);
+            $localesAjuste = $this->restrictLocalIdsToUser(array_map('strval', (array) ($data['ajuste_locales'] ?? [])));
+            if ($localesAjuste !== []) {
+                foreach ($localesAjuste as $localId) {
+                    $porcentajePorLocal[$localId] = $pct;
+                }
+            } else {
+                $porcentajeGlobal = $pct;
+            }
+        }
 
         $hoy = now()->toDateString();
         $ayer = now()->subDay()->toDateString();
@@ -202,81 +246,89 @@ class IniciarDirectivaTransferencia extends Page
             $this->guiasSincronizacionId = $run->id;
         }
 
+        $solicitud = DirectivaTransferenciaSolicitud::create([
+            'fecha_referencia' => $this->fechaReferencia(),
+            'kardex_extraccion_id' => $this->kardexExtraccionId,
+            'guia_sincronizacion_id' => $this->guiasSincronizacionId,
+            'porcentaje_ajuste_global' => $porcentajeGlobal,
+            'porcentaje_ajuste_por_local' => $porcentajePorLocal,
+            'estado' => 'pendiente',
+            'iniciado_por' => auth()->id(),
+        ]);
+        CalcularDirectivaTrasSincronizacionJob::dispatch($solicitud->id);
+
+        $this->solicitudId = $solicitud->id;
         $this->sincronizando = true;
     }
 
-    /** Llamada por wire:poll mientras `sincronizando` es true -- mismo criterio ya probado en producción. */
-    public function verificarSincronizacion(): void
+    /**
+     * Cuántos minutos lleva esperando esta solicitud -- para avisar en
+     * pantalla si se está demorando de más, en vez de un spinner mudo
+     * indefinido (hueco real cerrado 2026-09-12: el estancamiento de una
+     * sincronización ya pasó de verdad varias veces en este proyecto, ver
+     * bitácora de Guías internas/Salidas de stock).
+     */
+    public function minutosEsperando(): int
     {
-        if (! $this->sincronizando) {
-            return;
+        if (! $this->solicitudId) {
+            return 0;
         }
+        $solicitud = DirectivaTransferenciaSolicitud::find($this->solicitudId);
 
-        $kardex = $this->kardexExtraccionId ? KardexExtraccionModel::find($this->kardexExtraccionId) : null;
-        $guias = $this->guiasSincronizacionId ? GuiaInternaSincronizacion::find($this->guiasSincronizacionId) : null;
-
-        $kardexListo = ! $kardex || $kardex->estado === 'completado';
-        $guiasListo = ! $guias || in_array($guias->estado, ['completado', 'completado_con_errores'], true);
-        $kardexFallo = $kardex?->estado === 'fallido';
-        $guiasFallo = $guias?->estado === 'fallido';
-
-        if ($kardexFallo || $guiasFallo) {
-            $this->sincronizando = false;
-            $detalle = $kardexFallo ? 'la extracción de Kardex' : 'la sincronización de Guías internas';
-            $this->error = "No se pudo sincronizar: falló {$detalle}. Revisá el Panel de Sincronización -- no se calculó nada para no usar datos a medias.";
-
-            return;
-        }
-
-        if ($kardexListo && $guiasListo) {
-            $this->sincronizando = false;
-            $this->kardexExtraccionId = null;
-            $this->guiasSincronizacionId = null;
-            $this->calcular($this->datosPendientes ?? []);
-        }
+        return $solicitud ? (int) $solicitud->created_at->diffInMinutes(now()) : 0;
     }
 
-    /** @param  array<string, mixed>  $data */
-    private function calcular(array $data): void
+    /** Llamada por wire:poll mientras `sincronizando` es true -- ahora solo LEE el resultado, el cálculo ya lo hizo (o lo está haciendo) el job en cola. */
+    public function verificarSincronizacion(): void
     {
-        $localesExcluidos = [];
-        $soloVentaActiva = true;
-
-        $porcentajeGlobal = 0.0;
-        $porcentajePorLocal = [];
-        if ($data['aplicar_ajuste'] ?? false) {
-            $pct = (float) ($data['porcentaje_ajuste'] ?? 0);
-            $localesAjuste = $this->restrictLocalIdsToUser(array_map('strval', (array) ($data['ajuste_locales'] ?? [])));
-            if ($localesAjuste !== []) {
-                foreach ($localesAjuste as $localId) {
-                    $porcentajePorLocal[$localId] = $pct;
-                }
-            } else {
-                $porcentajeGlobal = $pct;
-            }
+        if (! $this->sincronizando || ! $this->solicitudId) {
+            return;
         }
 
-        $total = app(DirectivaTransferenciaService::class)->calcularParaFecha(
-            $this->fechaReferencia(),
-            $localesExcluidos,
-            $soloVentaActiva,
-            $porcentajeGlobal,
-            $porcentajePorLocal,
-        );
+        $solicitud = DirectivaTransferenciaSolicitud::find($this->solicitudId);
+        if (! $solicitud || ! $solicitud->terminada()) {
+            return;
+        }
 
-        $calculadoEn = DirectivaTransferenciaSugerencia::query()->max('calculado_en');
-        $locales = DirectivaTransferenciaSugerencia::query()->where('calculado_en', $calculadoEn)->distinct()->count('local_id');
-        $fecha = DirectivaTransferenciaSugerencia::query()->where('calculado_en', $calculadoEn)->min('fecha_despacho');
+        $this->sincronizando = false;
+        $this->kardexExtraccionId = null;
+        $this->guiasSincronizacionId = null;
 
-        $this->ultimoResultado = ['total' => $total, 'locales' => $locales, 'fecha' => (string) $fecha];
-        $this->datosPendientes = null;
+        if ($solicitud->estado === 'fallido') {
+            $this->error = $solicitud->mensaje_error ?: 'No se pudo calcular la Directiva.';
 
-        Notification::make()->success()->title('Directiva calculada')->body("{$total} sugerencias generadas para {$locales} locales.")->send();
+            return;
+        }
+
+        if ($solicitud->estado === 'cancelado') {
+            return;
+        }
+
+        $this->ultimoResultado = $solicitud->resultado;
+        Notification::make()->success()->title('Directiva calculada')
+            ->body("{$solicitud->resultado['total']} sugerencias generadas para {$solicitud->resultado['locales']} locales.")->send();
 
         // Pedido explícito del usuario: apenas termina de calcular, ofrecer
         // el export en un modal automático -- sin que nadie tenga que ir a
         // buscar el botón en el Consolidado.
         $this->dispatch('open-modal', id: 'exportar-directiva');
+    }
+
+    /**
+     * Deja de esperar esta solicitud en PANTALLA -- no cancela la
+     * sincronización real de Kardex/Guías (esa se cancela desde su propia
+     * pantalla), solo evita que el job siga escribiendo un resultado que
+     * ya nadie espera si el usuario decide no seguir esperando.
+     */
+    public function cancelarEspera(): void
+    {
+        if ($this->solicitudId) {
+            DirectivaTransferenciaSolicitud::where('id', $this->solicitudId)->where('estado', 'pendiente')->update(['estado' => 'cancelado', 'completado_en' => now()]);
+        }
+        $this->sincronizando = false;
+        $this->solicitudId = null;
+        $this->kardexExtraccionId = null;
+        $this->guiasSincronizacionId = null;
     }
 
     public function exportarPdf(): ?StreamedResponse

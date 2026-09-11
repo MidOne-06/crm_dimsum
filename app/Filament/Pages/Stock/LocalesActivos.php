@@ -40,6 +40,36 @@ class LocalesActivos extends Page implements HasTable
 {
     use InteractsWithTable;
 
+    /**
+     * Las 3 columnas dinámicas de abajo llamaban a `DirectivaTransferenciaService`
+     * una vez POR FILA con un array de un solo local -- con 32 locales
+     * confirmados, hasta ~96 consultas separadas contra `kardex_movimientos`
+     * (millones de filas) en cada carga de la tabla, cuando los propios
+     * métodos ya aceptan el array completo. Corregido 2026-09-12 (barrida
+     * de huecos funcionales): se calculan las 3 listas UNA sola vez por
+     * request y las columnas solo consultan estos arrays en memoria.
+     *
+     * @var array{ultimaVenta: array<string, ?\Illuminate\Support\Carbon>, automaticos: array<int, string>, efectivos: array<int, string>}|null
+     */
+    private ?array $datosLocalesCache = null;
+
+    /** @return array{ultimaVenta: array<string, ?\Illuminate\Support\Carbon>, automaticos: array<int, string>, efectivos: array<int, string>} */
+    private function datosLocales(): array
+    {
+        if ($this->datosLocalesCache !== null) {
+            return $this->datosLocalesCache;
+        }
+
+        $localesIds = StockInicialLocal::where('estado', 'confirmado')->pluck('local_id')->all();
+        $service = app(DirectivaTransferenciaService::class);
+
+        return $this->datosLocalesCache = [
+            'ultimaVenta' => $service->ultimaVentaDespachoPorLocal($localesIds),
+            'automaticos' => $service->localesConVentaActiva($localesIds),
+            'efectivos' => $service->localesActivos($localesIds),
+        ];
+    }
+
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-signal';
     protected static ?string $navigationLabel = 'Locales activos';
     protected static ?string $title = 'Locales activos';
@@ -68,16 +98,12 @@ class LocalesActivos extends Page implements HasTable
                 TextColumn::make('local_nombre')->label('Local')->searchable()->weight('medium'),
                 TextColumn::make('ultima_venta')->label('Última venta de despacho')
                     ->getStateUsing(function (StockInicialLocal $record): string {
-                        $fecha = app(DirectivaTransferenciaService::class)->ultimaVentaDespachoPorLocal([$record->local_id])[$record->local_id] ?? null;
+                        $fecha = $this->datosLocales()['ultimaVenta'][$record->local_id] ?? null;
 
                         return $fecha ? $fecha->diffForHumans() : 'nunca';
                     }),
                 TextColumn::make('automatico')->label('Automático (Kardex)')->badge()
-                    ->getStateUsing(function (StockInicialLocal $record): string {
-                        $activos = app(DirectivaTransferenciaService::class)->localesConVentaActiva([$record->local_id]);
-
-                        return in_array($record->local_id, $activos, true) ? 'Activo' : 'Inactivo';
-                    })
+                    ->getStateUsing(fn (StockInicialLocal $record): string => in_array($record->local_id, $this->datosLocales()['automaticos'], true) ? 'Activo' : 'Inactivo')
                     ->color(fn (string $state): string => $state === 'Activo' ? 'success' : 'gray'),
                 TextColumn::make('override')->label('Forzado manualmente')->badge()
                     ->getStateUsing(function (StockInicialLocal $record): string {
@@ -90,11 +116,7 @@ class LocalesActivos extends Page implements HasTable
                     })
                     ->color(fn (string $state): string => str_contains($state, 'Forzado') ? 'warning' : 'gray'),
                 TextColumn::make('efectivo')->label('Usado por la Directiva')->badge()
-                    ->getStateUsing(function (StockInicialLocal $record): string {
-                        $activos = app(DirectivaTransferenciaService::class)->localesActivos([$record->local_id]);
-
-                        return in_array($record->local_id, $activos, true) ? 'Activo' : 'Inactivo';
-                    })
+                    ->getStateUsing(fn (StockInicialLocal $record): string => in_array($record->local_id, $this->datosLocales()['efectivos'], true) ? 'Activo' : 'Inactivo')
                     ->color(fn (string $state): string => $state === 'Activo' ? 'success' : 'danger')
                     ->weight('bold'),
             ])
