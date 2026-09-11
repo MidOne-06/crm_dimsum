@@ -240,6 +240,7 @@ sync_git_state /opt/API-TI "$gatewaySha" "$remoteGatewayBundle"
 cd /opt/crm-dimsum
 docker compose -p crm-dimsum --env-file .env.docker build app
 docker compose -p crm-dimsum --env-file .env.docker up -d --force-recreate app worker scheduler kardex-worker
+docker compose -p crm-dimsum --env-file .env.docker exec -T app php artisan migrate --force
 "@
         if (-not $SkipGateway) {
             $remoteScript += "`n" + @"
