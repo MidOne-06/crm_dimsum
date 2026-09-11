@@ -42,10 +42,10 @@
     <h1 class="titulo">Directiva de Transferencia</h1>
     <div class="meta">
         <p class="despacho">Despacho: {{ $fecha }}</p>
-        <p>Generado por: {{ $usuarioNombre }} · {{ $generadoEn }} (hora peruana)</p>
+        <p>Generado por: {{ $usuarioNombre }} · {{ $generadoEn }}</p>
     </div>
 
-    <div class="pie-pagina">Generado el {{ $generadoEn }} (hora peruana)</div>
+    <div class="pie-pagina">Generado el {{ $generadoEn }}</div>
 
     <table>
         <thead>
