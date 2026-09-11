@@ -3,12 +3,9 @@
 namespace App\Filament\Pages\Stock;
 
 use App\Filament\Concerns\ScopesLocalsToUser;
-use App\Models\BrandingSetting;
 use App\Models\DirectivaTransferenciaSugerencia;
-use App\Models\ProductoPresentacionDespacho;
+use App\Services\DirectivaTransferenciaExportService;
 use App\Services\DirectivaTransferenciaService;
-use Dompdf\Dompdf;
-use Dompdf\Options as DompdfOptions;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -19,16 +16,6 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Storage;
-use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
-use PhpOffice\PhpSpreadsheet\Spreadsheet;
-use PhpOffice\PhpSpreadsheet\Style\Alignment;
-use PhpOffice\PhpSpreadsheet\Style\Border;
-use PhpOffice\PhpSpreadsheet\Style\Color;
-use PhpOffice\PhpSpreadsheet\Style\Fill;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -127,184 +114,19 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
     }
 
     /**
-     * Arma los 3 datasets del pivote (locales, productos, mapa local×item →
-     * sugerencia) para todas las fechas de despacho futuras que existan --
-     * compartido entre exportarExcel() y exportarPdf() para no duplicar el
-     * mismo cruce dos veces. Cada local puede tener una fecha de despacho
-     * distinta (ver docblock de la clase), así que esto trae TODAS las
-     * fechas futuras juntas, no una sola.
-     *
-     * @return array{locales: \Illuminate\Support\Collection, productos: \Illuminate\Support\Collection, mapa: \Illuminate\Support\Collection}
-     */
-    private function pivotData(): array
-    {
-        $sugerenciasQuery = DirectivaTransferenciaSugerencia::query()->where('fecha_despacho', '>=', $this->fechaMinimaAMostrar());
-        if (auth()->user()?->isRestrictedToLocals()) {
-            $sugerenciasQuery->whereIn('local_id', auth()->user()->assignedLocalIds());
-        }
-        $sugerencias = $sugerenciasQuery->get();
-
-        $locales = $sugerencias->unique('local_id')->sortBy('local_nombre')->values();
-        // Mismo orden en el que se cargaron los productos (categorías
-        // agrupadas: bocaditos, luego pollo, luego bebidas...) -- no
-        // alfabético, para que el export se vea igual que la plantilla
-        // original del usuario.
-        $productos = ProductoPresentacionDespacho::query()->orderBy('id')->get()
-            ->filter(fn (ProductoPresentacionDespacho $p) => $sugerencias->contains(fn ($s) => $s->item_id === $p->item_id && $s->item_tipo === $p->item_tipo));
-
-        $mapa = $sugerencias->keyBy(fn ($s) => "{$s->local_id}|{$s->item_id}|{$s->item_tipo}");
-
-        return compact('locales', 'productos', 'mapa');
-    }
-
-    /**
-     * Consolidado pivote: filas = producto (con SKU), columnas = local, con
-     * fila y columna TOTAL -- mismo formato que la plantilla que ya usa el
-     * usuario para repartir stock inicial entre locales (una tabla, no una
-     * lista larga). Los números son la cantidad sugerida de MAÑANA, no un
-     * histórico -- se recalculan cada vez que se exporta.
+     * Excel/PDF del pivote (producto x local, fila y columna TOTAL) --
+     * armado real en `DirectivaTransferenciaExportService` (compartido con
+     * "Iniciar Directiva de Transferencia", que ofrece el mismo export
+     * apenas termina de calcular).
      */
     private function exportarExcel(): StreamedResponse
     {
-        ['locales' => $locales, 'productos' => $productos, 'mapa' => $mapa] = $this->pivotData();
-
-        $spreadsheet = new Spreadsheet();
-        $sheet = $spreadsheet->getActiveSheet();
-        $sheet->setTitle('Directiva Transferencia');
-
-        $lastColumn = $locales->count() + 3;
-        $lastColumnLetter = Coordinate::stringFromColumnIndex($lastColumn);
-        $headerRow = 1;
-
-        $sheet->setCellValue('A1', 'DIRECTIVA TRANSFERENCIA');
-        $sheet->setCellValue('B1', 'SKU');
-        foreach ($locales as $index => $local) {
-            $sheet->setCellValue([$index + 3, $headerRow], $local->local_nombre);
-        }
-        $sheet->setCellValue([$lastColumn, $headerRow], 'TOTAL');
-
-        $headerRange = "A{$headerRow}:{$lastColumnLetter}{$headerRow}";
-        $sheet->getStyle($headerRange)->getFont()->setBold(true);
-        $sheet->getStyle($headerRange)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DCE6F1');
-        $sheet->getStyle($headerRange)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER)->setWrapText(true);
-        foreach (range(3, $lastColumn) as $columnIndex) {
-            $sheet->getStyle(Coordinate::stringFromColumnIndex($columnIndex).$headerRow)->getAlignment()->setTextRotation(90);
-        }
-        $sheet->getRowDimension($headerRow)->setRowHeight(120);
-
-        $rowNumber = $headerRow + 1;
-        $totalesColumna = array_fill(0, $locales->count(), 0.0);
-        foreach ($productos as $producto) {
-            $sheet->setCellValue([1, $rowNumber], $producto->item_nombre);
-            $sheet->setCellValue([2, $rowNumber], $producto->item_codigo);
-            $totalFila = 0.0;
-            foreach ($locales as $index => $local) {
-                $cantidad = (float) ($mapa->get("{$local->local_id}|{$producto->item_id}|{$producto->item_tipo}")?->cantidad_sugerida ?? 0);
-                $sheet->setCellValue([$index + 3, $rowNumber], $cantidad);
-                $totalFila += $cantidad;
-                $totalesColumna[$index] += $cantidad;
-            }
-            $sheet->setCellValue([$lastColumn, $rowNumber], $totalFila);
-            $rowNumber++;
-        }
-
-        $filaTotal = $rowNumber;
-        $sheet->setCellValue([1, $filaTotal], 'TOTAL');
-        $granTotal = 0.0;
-        foreach ($locales as $index => $local) {
-            $sheet->setCellValue([$index + 3, $filaTotal], $totalesColumna[$index]);
-            $granTotal += $totalesColumna[$index];
-        }
-        $sheet->setCellValue([$lastColumn, $filaTotal], $granTotal);
-        $sheet->getStyle("A{$filaTotal}:{$lastColumnLetter}{$filaTotal}")->getFont()->setBold(true);
-        $sheet->getStyle("A{$filaTotal}:{$lastColumnLetter}{$filaTotal}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DCE6F1');
-
-        $sheet->getStyle("A{$headerRow}:{$lastColumnLetter}{$filaTotal}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->setColor(new Color('FFB8CCE4'));
-        $sheet->getStyle('C'.($headerRow + 1).":{$lastColumnLetter}{$filaTotal}")->getNumberFormat()->setFormatCode('#,##0');
-        $sheet->getStyle("{$lastColumnLetter}".($headerRow + 1).":{$lastColumnLetter}{$filaTotal}")->getFont()->setBold(true);
-
-        $sheet->getColumnDimension('A')->setWidth(30);
-        $sheet->getColumnDimension('B')->setWidth(10);
-        foreach (range(3, $lastColumn) as $index) $sheet->getColumnDimensionByColumn($index)->setWidth(9);
-        $sheet->freezePane('C'.($headerRow + 1));
-
-        $writer = new Xlsx($spreadsheet);
-        $filename = 'directiva-transferencia-'.$this->fechaMinimaAMostrar().'.xlsx';
-
-        return response()->streamDownload(function () use ($writer, $spreadsheet): void {
-            try { $writer->save('php://output'); } finally { $spreadsheet->disconnectWorksheets(); }
-        }, $filename, ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+        return app(DirectivaTransferenciaExportService::class)->generarExcel($this->fechaMinimaAMostrar());
     }
 
-    /**
-     * Logo de la marca embebido como data URI -- dompdf corre con
-     * `isRemoteEnabled(false)` (no puede pedir la imagen por HTTP), así que
-     * hay que leer el archivo real del disco y embeberlo en base64 directo
-     * en el HTML. Con logo subido usa ese PNG/JPG; sin logo cae al SVG de
-     * marca por defecto (`public/images/crm-dimsum-mark.svg`).
-     */
-    private function logoDataUri(): ?string
-    {
-        $branding = BrandingSetting::current();
-
-        if (filled($branding->logo_path) && Storage::disk('public')->exists($branding->logo_path)) {
-            $ruta = Storage::disk('public')->path($branding->logo_path);
-            $mime = File::mimeType($ruta) ?: 'image/png';
-
-            return 'data:'.$mime.';base64,'.base64_encode(file_get_contents($ruta));
-        }
-
-        $rutaDefault = public_path('images/crm-dimsum-mark.svg');
-        if (file_exists($rutaDefault)) {
-            return 'data:image/svg+xml;base64,'.base64_encode(file_get_contents($rutaDefault));
-        }
-
-        return null;
-    }
-
-    /**
-     * Mismo pivote que exportarExcel(), en PDF A3 apaisado -- mismo patrón
-     * ya usado en Reporte de movimientos entre almacenes
-     * (ReporteMovimientosAlmacenes::exportarPdf()). Pensado para enviar
-     * directo a producción sin que nadie tenga que abrir Excel.
-     */
     private function exportarPdf(): StreamedResponse
     {
-        ['locales' => $locales, 'productos' => $productos, 'mapa' => $mapa] = $this->pivotData();
-
-        $filas = $productos->map(function (ProductoPresentacionDespacho $producto) use ($locales, $mapa): array {
-            $cantidades = $locales->map(fn ($local): float => (float) ($mapa->get("{$local->local_id}|{$producto->item_id}|{$producto->item_tipo}")?->cantidad_sugerida ?? 0));
-
-            return [
-                'nombre' => $producto->item_nombre,
-                'codigo' => $producto->item_codigo,
-                'cantidades' => $cantidades,
-                'total' => $cantidades->sum(),
-            ];
-        });
-
-        $totalesColumna = $locales->map(fn ($local, $index): float => $filas->sum(fn (array $fila) => $fila['cantidades'][$index]));
-        $granTotal = $totalesColumna->sum();
-
-        $options = new DompdfOptions();
-        $options->set('isRemoteEnabled', false);
-        $pdf = new Dompdf($options);
-        $pdf->setPaper('a3', 'landscape');
-        $pdf->loadHtml(view('filament.pages.stock.directiva-transferencia-pdf', [
-            'fecha' => Carbon::parse($this->fechaMinimaAMostrar())->locale('es')->isoFormat('dddd D [de] MMMM [de] YYYY'),
-            'locales' => $locales,
-            'filas' => $filas,
-            'totalesColumna' => $totalesColumna,
-            'granTotal' => $granTotal,
-            'logoDataUri' => $this->logoDataUri(),
-            'usuarioNombre' => auth()->user()?->name ?? 'Sistema',
-            'generadoEn' => now()->format('d/m/Y H:i'),
-        ])->render());
-        $pdf->render();
-
-        $filename = 'directiva-transferencia-'.$this->fechaMinimaAMostrar().'.pdf';
-
-        return response()->streamDownload(fn () => print $pdf->output(), $filename, ['Content-Type' => 'application/pdf']);
+        return app(DirectivaTransferenciaExportService::class)->generarPdf($this->fechaMinimaAMostrar());
     }
 
     public function table(Table $table): Table

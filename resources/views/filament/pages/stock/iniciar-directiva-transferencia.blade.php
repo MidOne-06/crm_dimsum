@@ -34,6 +34,19 @@
         </form>
     @endif
 
+    <x-filament::modal id="exportar-directiva" width="sm" icon="heroicon-o-check-circle" icon-color="success">
+        <x-slot name="heading">Directiva generada</x-slot>
+        <x-slot name="description">
+            @if($ultimoResultado)
+                {{ $ultimoResultado['total'] }} sugerencias · {{ $ultimoResultado['locales'] }} locales · despacho {{ \Illuminate\Support\Carbon::parse($ultimoResultado['fecha'])->format('d/m/Y') }}. ¿Cómo querés exportarla?
+            @endif
+        </x-slot>
+        <x-slot name="footerActions">
+            <x-filament::button wire:click="exportarPdf" icon="heroicon-o-document-arrow-down">Exportar PDF</x-filament::button>
+            <x-filament::button wire:click="exportarExcel" color="gray" icon="heroicon-o-arrow-down-tray">Exportar Excel</x-filament::button>
+        </x-slot>
+    </x-filament::modal>
+
     @php($historial = $this->historial())
     @if($historial->isNotEmpty())
         <details class="rounded-lg bg-gray-50 px-4 py-2 text-sm dark:bg-white/5">

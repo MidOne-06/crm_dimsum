@@ -8,6 +8,7 @@ use App\Models\DirectivaTransferenciaSugerencia;
 use App\Models\GuiaInternaSincronizacion;
 use App\Models\KardexExtraccion as KardexExtraccionModel;
 use App\Models\StockInicialLocal;
+use App\Services\DirectivaTransferenciaExportService;
 use App\Services\DirectivaTransferenciaService;
 use App\Services\GuiasInternasGatewayClient;
 use App\Services\GuiasInternasHistoricoService;
@@ -20,6 +21,7 @@ use Filament\Pages\Page;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Carbon;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
 /**
@@ -270,6 +272,29 @@ class IniciarDirectivaTransferencia extends Page
         $this->datosPendientes = null;
 
         Notification::make()->success()->title('Directiva calculada')->body("{$total} sugerencias generadas para {$locales} locales.")->send();
+
+        // Pedido explícito del usuario: apenas termina de calcular, ofrecer
+        // el export en un modal automático -- sin que nadie tenga que ir a
+        // buscar el botón en el Consolidado.
+        $this->dispatch('open-modal', id: 'exportar-directiva');
+    }
+
+    public function exportarPdf(): ?StreamedResponse
+    {
+        if (! $this->ultimoResultado) {
+            return null;
+        }
+
+        return app(DirectivaTransferenciaExportService::class)->generarPdf($this->ultimoResultado['fecha']);
+    }
+
+    public function exportarExcel(): ?StreamedResponse
+    {
+        if (! $this->ultimoResultado) {
+            return null;
+        }
+
+        return app(DirectivaTransferenciaExportService::class)->generarExcel($this->ultimoResultado['fecha']);
     }
 
     /**
