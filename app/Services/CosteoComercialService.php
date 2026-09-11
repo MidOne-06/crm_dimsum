@@ -45,7 +45,7 @@ class CosteoComercialService
                     'vigente_desde' => Carbon::parse((string) $data['vigente_desde'])->toDateString(),
                 ],
                 [
-                    'costo_unitario' => round((float) $data['costo_unitario'], 6),
+                    'costo_unitario' => round((float) $data['costo_unitario'], 9),
                     'observacion' => filled($data['observacion'] ?? null) ? trim((string) $data['observacion']) : null,
                     'registrado_por' => $usuario?->id,
                 ],

@@ -16,7 +16,7 @@ class ProductoComercialCosto extends Model
     protected function casts(): array
     {
         return [
-            'costo_unitario' => 'decimal:6',
+            'costo_unitario' => 'decimal:9',
             'vigente_desde' => 'date',
         ];
     }
