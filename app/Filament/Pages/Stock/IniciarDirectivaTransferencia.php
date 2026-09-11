@@ -37,13 +37,19 @@ use Throwable;
  *   internas primero, pero SIEMPRE con el alcance por defecto -- ignoraba
  *   cualquier exclusión o ajuste, no tenían forma de combinarse).
  *
- * Acá es UN solo flujo: elegís el alcance y los ajustes una vez, y el mismo
- * botón sincroniza y calcula usando esa elección. Si ya sincronizaste hace
- * poco, "Calcular sin sincronizar" usa el mismo formulario sin esperar.
+ * Acá es UN solo flujo: elegís el alcance y los ajustes una vez, y el único
+ * botón ("Generar DT" -- pedido explícito del usuario, es el que siempre se
+ * usa) sincroniza Kardex y Guías internas y calcula usando esa elección.
  *
  * El estado (kardexExtraccionId, guiasSincronizacionId, sincronizando) es el
  * mismo mecanismo de poll ya probado en producción -- ver docblock viejo en
  * el historial de git de DirectivaTransferenciaConsolidado.
+ *
+ * 2026-09-11, pedido explícito del usuario ("debe ser lo más práctico y
+ * directo"): sin texto explicativo ni indicadores de estado -- se quitó el
+ * botón "Calcular sin sincronizar" (nunca es el que se usa en la práctica),
+ * el contador en vivo de locales, y la foto de estado (última corrida/
+ * Kardex/Guías). Solo el formulario y el botón.
  */
 class IniciarDirectivaTransferencia extends Page
 {
@@ -159,32 +165,17 @@ class IniciarDirectivaTransferencia extends Page
             ]);
     }
 
-    /** Cuántos locales entran HOY MISMO con lo elegido hasta ahora -- consulta en vivo, no un texto fijo. */
-    public function conteoAlcanceEnVivo(): string
-    {
-        $get = fn (string $key) => $this->data[$key] ?? null;
-        $confirmados = StockInicialLocal::where('estado', 'confirmado')->pluck('local_id')->all();
-
-        $incluidos = match ($get('modo_alcance')) {
-            'todos' => $confirmados,
-            'manual' => array_values(array_diff($confirmados, array_map('strval', (array) $get('locales_excluir')))),
-            default => app(DirectivaTransferenciaService::class)->localesConVentaActiva($confirmados),
-        };
-
-        return count($incluidos).' de '.count($confirmados).' locales entrarán en esta corrida.';
-    }
-
     private function fechaReferencia(): string
     {
         return now()->toDateString();
     }
 
     /**
-     * Botón principal: sincroniza Kardex (ayer + hoy) y Guías internas, y
-     * apenas ambas terminan, calcula con el alcance/ajustes elegidos --
-     * ver verificarSincronizacion().
+     * "Generar DT" -- el único botón, siempre se usa: sincroniza Kardex
+     * (ayer + hoy) y Guías internas, y apenas ambas terminan, calcula con
+     * el alcance/ajustes elegidos -- ver verificarSincronizacion().
      */
-    public function sincronizarYCalcular(): void
+    public function generarDt(): void
     {
         abort_unless(auth()->user()?->hasPermission('directiva-transferencia.view'), 403);
         $data = $this->form->getState();
@@ -262,14 +253,6 @@ class IniciarDirectivaTransferencia extends Page
         }
     }
 
-    /** Calcula ya mismo, sin sincronizar -- para cuando los datos ya están frescos y no hace falta esperar. */
-    public function calcularSinSincronizar(): void
-    {
-        abort_unless(auth()->user()?->hasPermission('directiva-transferencia.view'), 403);
-        $this->error = null;
-        $this->calcular($this->form->getState());
-    }
-
     /** @param  array<string, mixed>  $data */
     private function calcular(array $data): void
     {
@@ -318,40 +301,6 @@ class IniciarDirectivaTransferencia extends Page
         $this->datosPendientes = null;
 
         Notification::make()->success()->title('Directiva calculada')->body("{$total} sugerencias generadas para {$locales} locales.")->send();
-    }
-
-    /**
-     * Foto del estado actual para que cualquier persona vea, sin adivinar,
-     * si conviene sincronizar de nuevo o si ya está todo fresco.
-     *
-     * @return array{corrida: array{existe: bool, calculado_en: ?string, hace: ?string, total: int, locales: int, fecha: ?string}, kardex: array{estado: ?string, hace: ?string}, guias: array{estado: ?string, hace: ?string}}
-     */
-    public function estadoActual(): array
-    {
-        $calculadoEn = DirectivaTransferenciaSugerencia::query()->max('calculado_en');
-        $corrida = [
-            'existe' => filled($calculadoEn),
-            'calculado_en' => $calculadoEn,
-            'hace' => $calculadoEn ? Carbon::parse($calculadoEn)->diffForHumans() : null,
-            'total' => $calculadoEn ? DirectivaTransferenciaSugerencia::query()->where('calculado_en', $calculadoEn)->count() : 0,
-            'locales' => $calculadoEn ? DirectivaTransferenciaSugerencia::query()->where('calculado_en', $calculadoEn)->distinct()->count('local_id') : 0,
-            'fecha' => $calculadoEn ? DirectivaTransferenciaSugerencia::query()->where('calculado_en', $calculadoEn)->min('fecha_despacho') : null,
-        ];
-
-        $kardex = KardexExtraccionModel::query()->where('estado', 'completado')->latest('completado_at')->first();
-        $guias = GuiaInternaSincronizacion::query()->whereIn('estado', ['completado', 'completado_con_errores'])->latest('completado_en')->first();
-
-        return [
-            'corrida' => $corrida,
-            'kardex' => [
-                'estado' => $kardex ? 'ok' : null,
-                'hace' => $kardex?->completado_at ? Carbon::parse($kardex->completado_at)->diffForHumans() : null,
-            ],
-            'guias' => [
-                'estado' => $guias ? 'ok' : null,
-                'hace' => $guias?->completado_en ? $guias->completado_en->diffForHumans() : null,
-            ],
-        ];
     }
 
     /**
