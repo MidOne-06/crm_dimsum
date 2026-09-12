@@ -93,6 +93,25 @@ class CalcularDirectivaTrasSincronizacionJob implements ShouldQueue
             $solicitud->porcentaje_ajuste_por_local ?? [],
         );
 
+        // Bug real encontrado revalidando en producción un sábado
+        // (2026-09-12): con "Sábado sin DT" cargado para los 32 locales
+        // (bitácora 2026-09-10), calcularParaFecha() devuelve 0 filas de
+        // verdad -- correcto, nadie despacha hoy -- pero como no hubo
+        // upsert, `max(calculado_en)` seguía apuntando a la corrida VIEJA
+        // de ayer, y el resultado mezclaba "0 sugerencias" con "27 locales"
+        // y una fecha de despacho de una corrida distinta -- confuso y
+        // engañoso. Con total=0 no hay ninguna corrida fresca que describir.
+        if ($total === 0) {
+            $solicitud->update([
+                'estado' => 'calculado',
+                'resultado' => ['total' => 0, 'locales' => 0, 'fecha' => $solicitud->fecha_referencia->toDateString()],
+                'mensaje_error' => 'No se generó ninguna sugerencia -- probablemente hoy está marcado como "día sin DT" para todos los locales activos (ver esa pantalla), o no queda ningún local activo (ver "Locales activos").',
+                'completado_en' => now(),
+            ]);
+
+            return;
+        }
+
         $calculadoEn = \App\Models\DirectivaTransferenciaSugerencia::query()->max('calculado_en');
         $locales = \App\Models\DirectivaTransferenciaSugerencia::query()->where('calculado_en', $calculadoEn)->distinct()->count('local_id');
         $fecha = \App\Models\DirectivaTransferenciaSugerencia::query()->where('calculado_en', $calculadoEn)->min('fecha_despacho');

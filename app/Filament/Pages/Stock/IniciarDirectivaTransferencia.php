@@ -304,6 +304,17 @@ class IniciarDirectivaTransferencia extends Page
             return;
         }
 
+        // 0 sugerencias es un resultado real y válido (ej. hoy es un "día
+        // sin DT" para todos los locales activos -- pasa de verdad los
+        // sábados, ver LocalDiaSinDt), no un error -- pero no hay nada que
+        // exportar ni "última corrida" nueva que mostrar como si fuera una
+        // normal. Encontrado revalidando en producción 2026-09-12.
+        if (($solicitud->resultado['total'] ?? 0) === 0) {
+            $this->error = $solicitud->mensaje_error ?: 'No se generó ninguna sugerencia para la fecha calculada.';
+
+            return;
+        }
+
         $this->ultimoResultado = $solicitud->resultado;
         Notification::make()->success()->title('Directiva calculada')
             ->body("{$solicitud->resultado['total']} sugerencias generadas para {$solicitud->resultado['locales']} locales.")->send();
