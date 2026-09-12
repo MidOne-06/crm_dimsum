@@ -107,6 +107,22 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                 ->modalDescription('Vuelve a calcular la cantidad sugerida para los locales activos (ver "Locales activos") con la fecha de mañana, usando el saldo y el histórico de ventas TAL CUAL están guardados ahora mismo -- no sincroniza nada nuevo. Usa el módulo "Iniciar Directiva de Transferencia" si además querés refrescar Kardex y Guías internas antes.')
                 ->action(function (): void {
                     $total = app(DirectivaTransferenciaService::class)->calcularParaFecha($this->fechaReferencia(), soloVentaActiva: true);
+
+                    // Bug real encontrado revalidando en producción un
+                    // sábado (2026-09-12, mismo hallazgo que en "Iniciar
+                    // Directiva de Transferencia"): con "día sin DT"
+                    // cargado para todos los locales activos, esto da 0 de
+                    // verdad -- correcto, pero mostrarlo como notificación
+                    // de ÉXITO sin explicar por qué confunde a cualquiera
+                    // que no sepa de memoria la configuración de días sin DT.
+                    if ($total === 0) {
+                        Notification::make()->warning()->title('No se generó ninguna sugerencia')
+                            ->body('Probablemente hoy está marcado como "día sin DT" para todos los locales activos (ver esa pantalla), o no queda ningún local activo (ver "Locales activos").')
+                            ->send();
+
+                        return;
+                    }
+
                     Notification::make()->success()->title('Directiva recalculada')->body("{$total} sugerencias generadas para mañana.")->send();
                     $this->resetTable();
                 }),
