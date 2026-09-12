@@ -26,7 +26,23 @@ class ConfirmarCanjeMasivoJob implements ShouldQueue
 {
     use Queueable;
 
-    public int $timeout = 7200;
+    /**
+     * Bug real encontrado en una barrida de huecos funcionales (2026-09-12):
+     * este job declaraba `$timeout = 7200` (2h) como si esa fuera la
+     * duración real permitida, pero corre en la cola `movimientos-almacenes`
+     * del worker (`compose.yaml`), que se ejecuta con `--timeout=3300`
+     * (55 min) -- Laravel hace cumplir el MENOR de los dos (mismo hallazgo
+     * ya documentado el 2026-09-03 para los jobs de sincronización, nunca
+     * aplicado acá). Con una corrida real de cientos de guías (611
+     * documentadas el 2026-09-08, tardó horas), el worker mataba el
+     * proceso a la fuerza mucho antes de los 7200s declarados -- un SIGKILL
+     * no ejecuta el `finally` que libera el `Cache::lock` de abajo, así que
+     * quedaba tomado por casi 2h en vez de los ~56 min reales que tiene
+     * sentido esperar. Bajado a 3300 para que el lock (`$this->timeout + 60`)
+     * se libere en un tiempo consistente con lo que el worker de verdad
+     * permite -- ver también `confirmar()` para el fix de reanudación.
+     */
+    public int $timeout = 3300;
 
     public function __construct(public int $canjeMasivoId)
     {
@@ -73,15 +89,36 @@ class ConfirmarCanjeMasivoJob implements ShouldQueue
     private function confirmar(CanjeMasivo $canje, MovimientosAlmacenesGatewayClient $movimientos, GuiasInternasGatewayClient $guias): void
     {
         $ids = array_values(array_map('strval', (array) ($canje->resultado['ids_procesables'] ?? [])));
-        $confirmadas = 0;
-        $fallidas = 0;
         // Un job puede ser reentregado después de un corte de worker.
         // Restaurant rechaza una guía ya recepcionada, pero el historial
         // local no debe repetir la evidencia del mismo movimiento.
         $movimientosCreados = $this->normalizarMovimientosAuditados((array) ($canje->resultado['movimientos_creados'] ?? []));
+
+        // Reanudación real, no solo deduplicación de evidencia (2026-09-12,
+        // barrida de huecos funcionales): antes, un reintento tras un
+        // SIGKILL (ver docblock de $timeout) volvía a recorrer TODAS las
+        // guías de `$ids` desde cero, sin importar cuáles ya habían quedado
+        // confirmadas en el intento anterior. El propio catch de abajo ya
+        // reconoce el riesgo real (ver su comentario): reenviar a
+        // Restaurant una guía que en realidad ya se confirmó puede generar
+        // OTRO movimiento real duplicado, no solo un rechazo limpio -- acá
+        // pasaba lo mismo pero un nivel más arriba, en cada reintento
+        // completo del job. Las guías que YA tienen un movimiento
+        // registrado se excluyen de este intento -- solo se reprocesan las
+        // que de verdad quedaron pendientes o fallidas.
+        $yaConfirmadas = [];
+        foreach ($movimientosCreados as $movimiento) {
+            foreach ((array) ($movimiento['guias'] ?? []) as $guiaId) {
+                $yaConfirmadas[(string) $guiaId] = true;
+            }
+        }
+        $idsPendientes = array_values(array_filter($ids, fn (string $id): bool => ! isset($yaConfirmadas[$id])));
+
+        $confirmadas = count($yaConfirmadas);
+        $fallidas = 0;
         $fallos = [];
 
-        foreach (array_chunk($ids, 20) as $lote) {
+        foreach (array_chunk($idsPendientes, 20) as $lote) {
             // Punto de cancelación real, entre tandas -- pedido explícito
             // del usuario tras tener que cortar una corrida real matando el
             // worker a mano (sin esto, "Detener" en la pantalla no tenía

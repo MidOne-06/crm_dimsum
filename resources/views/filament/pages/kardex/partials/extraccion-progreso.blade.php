@@ -1,4 +1,5 @@
 @php($extraccion = $this->extraccionActual())
+@php($estancada = $this->estaEstancada())
 
 @if ($extraccion)
     <div @if (in_array($extraccion->estado, ['pendiente', 'en_progreso'], true)) wire:poll.3s="refreshExtraccion" @endif>
@@ -6,6 +7,12 @@
         <x-slot name="heading">
             Extracción #{{ $extraccion->id }}
             <span class="crm-status">{{ ucfirst(str_replace('_', ' ', $extraccion->estado)) }}</span>
+            @if ($estancada)
+                <span class="ml-2 inline-flex items-center gap-1 rounded-full bg-danger-50 px-2 py-0.5 text-xs font-medium text-danger-600 dark:bg-danger-500/10 dark:text-danger-400">
+                    <x-heroicon-m-exclamation-triangle class="h-3.5 w-3.5" />
+                    Sin avance desde {{ $extraccion->updated_at->diffForHumans() }}
+                </span>
+            @endif
         </x-slot>
 
         @if (in_array($extraccion->estado, ['pendiente', 'en_progreso'], true) && auth()->user()?->hasPermission('kardex.extraccion.anular'))

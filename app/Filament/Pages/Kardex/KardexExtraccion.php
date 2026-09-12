@@ -141,6 +141,27 @@ class KardexExtraccion extends Page
         return KardexExtraccionModel::query()->whereIn('estado', ['pendiente', 'en_progreso'])->exists();
     }
 
+    /**
+     * Sin ningún avance real en los últimos 15 minutos casi siempre
+     * significa que un job murió a mitad de camino (SIGKILL por timeout,
+     * worker reiniciado, etc.) sin liberar el lock -- mismo criterio y
+     * mismo umbral que `estaEstancada()` en Extracción de Guías internas/
+     * Movimientos entre almacenes. Kardex ya tenía el botón "Anular
+     * extracción" (a diferencia de esas otras pantallas cuando se creó
+     * `estaEstancada()`), pero nada le decía al usuario que valía la pena
+     * usarlo -- solo se enteraba fijándose en la "Duración" mostrada y
+     * dándose cuenta solo. Cerrado 2026-09-12, a pedido explícito del
+     * usuario ("sigue con todo lo que me indicas").
+     */
+    public function estaEstancada(): bool
+    {
+        $extraccion = $this->extraccionActual();
+
+        return $extraccion !== null
+            && in_array($extraccion->estado, ['pendiente', 'en_progreso'], true)
+            && $extraccion->updated_at->lt(now()->subMinutes(15));
+    }
+
     public function iniciarExtraccion(): void
     {
         $this->resultError = null;
