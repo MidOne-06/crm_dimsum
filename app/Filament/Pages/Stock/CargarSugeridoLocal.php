@@ -11,7 +11,6 @@ use App\Models\StockInicialLocal;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
-use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Schema;
@@ -179,26 +178,43 @@ class CargarSugeridoLocal extends Page implements HasTable
                     ->icon('heroicon-o-pencil-square')
                     ->visible(fn (ProductoPresentacionDespacho $record): bool => $this->detallePara($record)?->estado !== 'aprobado')
                     ->modalHeading(fn (ProductoPresentacionDespacho $record): string => 'Ajuste para '.$record->item_nombre)
-                    ->modalDescription(fn (ProductoPresentacionDespacho $record): string => "Múltiplo de despacho: {$record->multiplo} unidades. Indica cuántos múltiplos de más (positivo) o de menos (negativo) necesitas.")
+                    ->modalDescription(fn (ProductoPresentacionDespacho $record): string => "Múltiplo de despacho de este producto: {$record->multiplo} unidades -- elige tu ajuste en pasos de {$record->multiplo}, nunca una cantidad suelta.")
                     ->fillForm(function (ProductoPresentacionDespacho $record): array {
                         $detalle = $this->detallePara($record);
 
                         return [
-                            'multiplos' => $detalle?->multiplos_solicitados,
+                            'delta' => $detalle ? (string) (int) $detalle->delta_unidades : null,
                             'motivo' => $detalle?->motivo,
                         ];
                     })
-                    ->schema([
-                        TextInput::make('multiplos')
-                            ->label('Múltiplos de ajuste (+/-)')
-                            ->numeric()
-                            ->integer()
+                    ->schema(fn (ProductoPresentacionDespacho $record): array => [
+                        Select::make('delta')
+                            ->label('Ajuste')
+                            ->native(false)
                             ->required()
-                            ->helperText('Ej. 2 = pide 2 múltiplos más; -1 = pide 1 múltiplo menos. Nunca una cantidad suelta.'),
+                            // Las opciones son las UNIDADES reales de ajuste
+                            // (+múltiplo, +2 múltiplos, -múltiplo...) -- nunca
+                            // un número suelto ni un contador abstracto de
+                            // "múltiplos" que el local tendría que calcular a
+                            // mano. El rango de pasos depende del múltiplo de
+                            // CADA producto (pedido explícito del usuario).
+                            ->options(function () use ($record): array {
+                                $opciones = [];
+                                for ($i = 10; $i >= -10; $i--) {
+                                    if ($i === 0) {
+                                        continue;
+                                    }
+                                    $unidades = $i * $record->multiplo;
+                                    $signo = $i > 0 ? '+' : '';
+                                    $opciones[(string) $unidades] = "{$signo}{$unidades} unidades ({$signo}{$i} múltiplo".(abs($i) > 1 ? 's' : '').')';
+                                }
+
+                                return $opciones;
+                            }),
                         Textarea::make('motivo')->label('Motivo')->rows(2)->maxLength(500),
                     ])
                     ->action(function (ProductoPresentacionDespacho $record, array $data): void {
-                        $this->guardarSolicitud($record, (int) $data['multiplos'], $data['motivo'] ?? null);
+                        $this->guardarSolicitud($record, (int) $data['delta'], $data['motivo'] ?? null);
                     }),
             ])
             ->emptyStateHeading('No hay una Directiva calculada para este local todavía.');
@@ -231,7 +247,7 @@ class CargarSugeridoLocal extends Page implements HasTable
             ->first();
     }
 
-    private function guardarSolicitud(ProductoPresentacionDespacho $record, int $multiplos, ?string $motivo): void
+    private function guardarSolicitud(ProductoPresentacionDespacho $record, int $deltaUnidades, ?string $motivo): void
     {
         abort_unless(auth()->user()?->hasPermission('directiva-transferencia.ajuste-local.crear'), 403);
         abort_unless($this->localId && $this->localAllowedForUser($this->localId), 403);
@@ -247,6 +263,13 @@ class CargarSugeridoLocal extends Page implements HasTable
             ->where('activo', true)
             ->first();
         abort_unless($productoReal, 404);
+
+        // El Select solo ofrece pasos válidos del múltiplo real -- esto
+        // revalida el valor efectivamente recibido (propiedad de Livewire,
+        // tamperable) contra el múltiplo actual del producto, nunca contra
+        // el que tenía cuando se abrió el modal.
+        abort_unless($productoReal->multiplo > 0 && $deltaUnidades % $productoReal->multiplo === 0, 422);
+        $multiplos = intdiv($deltaUnidades, $productoReal->multiplo);
 
         $solicitud = DirectivaAjusteLocalSolicitud::firstOrCreate(
             ['local_id' => $this->localId, 'fecha_despacho' => $fecha],
