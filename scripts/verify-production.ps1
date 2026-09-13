@@ -65,26 +65,38 @@ if ($missingLocal.Count -gt 0) {
     $files = $files | Where-Object { $localHashes.ContainsKey($_) }
 }
 
-$fileList = ($files | ForEach-Object { "'$_'" }) -join ' '
-$remote = "docker exec crm-dimsum-app-1 sh -lc 'cd /var/www/html && sha256sum $fileList'"
-$lines = & ssh "root@$HostName" $remote
-# sha256sum devuelve código distinto de cero si CUALQUIER archivo del lote
-# falta en el contenedor, aun cuando sí calculó el hash del resto -- eso no
-# es un fallo de conexión. Solo se trata como fallo real si no llegó
-# ninguna línea de vuelta (ahí sí no se pudo leer el contenedor).
-if ($null -eq $lines -or $lines.Count -eq 0) { throw 'No se pudo leer el contenedor de producción.' }
-
+# El proyecto ya pasa de 550 archivos trackeados -- un solo comando ssh con
+# TODOS los nombres citados en una sola línea excede el límite de longitud
+# de línea de comandos que Windows aplica a la invocación de un proceso
+# nativo (ssh.exe) desde PowerShell ("El nombre del archivo o la extensión
+# es demasiado largo", encontrado en vivo al llegar a ~555 archivos -- no
+# es un problema de conexión ni un flake, es un límite real de longitud).
+# Se parte la lista en lotes chicos para que cada línea de comando quede
+# muy por debajo de ese límite, sin cambiar la lógica de comparación.
 $remoteHashes = @{}
-foreach ($line in $lines) {
-    if ($line -match '^([a-f0-9]{64})\s+(.+)$') {
-        # TrimStart('./') trata el argumento como un CONJUNTO de caracteres a
-        # recortar (no un prefijo literal) -- además de quitar el "./" que
-        # antepone sha256sum, también se comía el punto inicial de
-        # dotfiles reales como .gitignore, dejando la clave "gitignore" y
-        # marcándolos como "no coincide" por un KeyNotFound silencioso.
-        $remoteHashes[($matches[2] -replace '^\./', '')] = $matches[1]
-    } elseif ($line -match "sha256sum: can't open '(.+)'") {
-        Write-Warning "No existe en producción, se omite: $($matches[1])"
+$batchSize = 150
+for ($i = 0; $i -lt $files.Count; $i += $batchSize) {
+    $batch = $files[$i..([Math]::Min($i + $batchSize, $files.Count) - 1)]
+    $fileList = ($batch | ForEach-Object { "'$_'" }) -join ' '
+    $remote = "docker exec crm-dimsum-app-1 sh -lc 'cd /var/www/html && sha256sum $fileList'"
+    $lines = & ssh "root@$HostName" $remote
+    # sha256sum devuelve código distinto de cero si CUALQUIER archivo del lote
+    # falta en el contenedor, aun cuando sí calculó el hash del resto -- eso no
+    # es un fallo de conexión. Solo se trata como fallo real si no llegó
+    # ninguna línea de vuelta (ahí sí no se pudo leer el contenedor).
+    if ($null -eq $lines -or $lines.Count -eq 0) { throw 'No se pudo leer el contenedor de producción.' }
+
+    foreach ($line in $lines) {
+        if ($line -match '^([a-f0-9]{64})\s+(.+)$') {
+            # TrimStart('./') trata el argumento como un CONJUNTO de caracteres a
+            # recortar (no un prefijo literal) -- además de quitar el "./" que
+            # antepone sha256sum, también se comía el punto inicial de
+            # dotfiles reales como .gitignore, dejando la clave "gitignore" y
+            # marcándolos como "no coincide" por un KeyNotFound silencioso.
+            $remoteHashes[($matches[2] -replace '^\./', '')] = $matches[1]
+        } elseif ($line -match "sha256sum: can't open '(.+)'") {
+            Write-Warning "No existe en producción, se omite: $($matches[1])"
+        }
     }
 }
 
