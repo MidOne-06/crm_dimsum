@@ -300,13 +300,52 @@ class MovimientosAlmacenes extends Page implements HasTable
     {
         abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.anular'), 403);
 
+        $id = (string) ($record['id'] ?? '');
+
+        // Defensa en profundidad (2026-09-13, barrida de huecos
+        // funcionales): el listado ya viene scopeado a los locales del
+        // usuario, pero `$record` es un array plano (esta tabla no es
+        // Eloquent, no hay re-fetch server-side automático por clave
+        // firmada) -- se revalida el local REAL del movimiento contra
+        // Restaurant justo antes de anular, nunca contra un dato que pudo
+        // llegar del cliente. Mismo principio que ya se aplicó en "Mover
+        // entre almacenes". Fuera del try de abajo a propósito: una
+        // violación de alcance debe cortar en seco (403), no disfrazarse
+        // de "Restaurant no respondió".
+        $localId = $this->movimientoLocalId($id);
+        if ($localId === null) {
+            Notification::make()->danger()->title('No se pudo anular el movimiento')->body('Restaurant no respondió al verificar este movimiento.')->send();
+
+            return;
+        }
+        abort_unless($this->localAllowedForUser($localId), 403);
+
         try {
-            app(MovimientosAlmacenesGatewayClient::class)->anular((string) ($record['id'] ?? ''));
+            app(MovimientosAlmacenesGatewayClient::class)->anular($id);
             Notification::make()->success()->title('Movimiento anulado')->body('Restaurant confirmó la anulación. La lista se actualizará en tiempo real.')->send();
             $this->resetTable();
         } catch (Throwable $exception) {
             report($exception);
             Notification::make()->danger()->title('No se pudo anular el movimiento')->body($exception->getMessage())->send();
+        }
+    }
+
+    /**
+     * Local real (id) de un movimiento, leído fresco de Restaurant -- nunca
+     * de un valor que pudo llegar del cliente. `null` = Restaurant no
+     * respondió (falla cerrado: el llamador debe tratarlo como "no se pudo
+     * verificar", nunca como "está permitido").
+     */
+    private function movimientoLocalId(string $id): ?string
+    {
+        try {
+            $movimiento = app(MovimientosAlmacenesGatewayClient::class)->detalle($id);
+
+            return (string) ($movimiento['editor']['localId'] ?? '');
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return null;
         }
     }
 
@@ -433,8 +472,24 @@ class MovimientosAlmacenes extends Page implements HasTable
     {
         abort_unless(auth()->user()?->hasPermission('movimientos-almacenes.editar'), 403);
 
+        $id = (string) ($record['id'] ?? '');
+
+        // Defensa en profundidad -- ver docblock de anularMovimiento().
+        // `$data['local_id']` viaja en un campo oculto del formulario, pero
+        // sigue siendo editable por el cliente igual que cualquier otro
+        // campo -- nunca decide el alcance por sí solo. Se revalida el
+        // local REAL del movimiento contra Restaurant, fuera del try de
+        // abajo para que una violación de alcance corte en seco (403).
+        $localId = $this->movimientoLocalId($id);
+        if ($localId === null) {
+            Notification::make()->danger()->title('No se pudo actualizar el movimiento')->body('Restaurant no respondió al verificar este movimiento.')->send();
+
+            return;
+        }
+        abort_unless($this->localAllowedForUser($localId), 403);
+
         try {
-            app(MovimientosAlmacenesGatewayClient::class)->editar((string) ($record['id'] ?? ''), $data);
+            app(MovimientosAlmacenesGatewayClient::class)->editar($id, $data);
             Notification::make()->success()->title('Movimiento actualizado')->body('Restaurant confirmó los cambios. La lista se actualizará en tiempo real.')->send();
             $this->resetTable();
         } catch (Throwable $exception) {
