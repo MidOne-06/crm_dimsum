@@ -138,6 +138,12 @@ class ProcesarLoteVentasDetalleJob implements ShouldQueue
             }
 
             DB::transaction(function () use ($catalogo, $catalogos, $extraccion, $ids, $ventas, $detalles, $now): void {
+                // Los productos de TODAS las ventas del lote se bloquean en
+                // orden global antes de escribir una sola fila de catálogo.
+                // Así los 20 workers no pueden formar ciclos de locks cuando
+                // observan productos/composiciones compartidos.
+                $catalogo->bloquearCatalogos($catalogos);
+
                 Venta::upsert($ventas, ['venta_id']);
                 VentaDetalle::whereIn('venta_id', array_column($ventas, 'venta_id'))->delete();
 

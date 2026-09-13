@@ -28,6 +28,31 @@ class CatalogoComercialRestaurantService
     }
 
     /**
+     * Toma los locks del catálogo para un lote completo ANTES de persistirlo.
+     *
+     * `ProcesarLoteVentasDetalleJob` guarda varias ventas en una única
+     * transacción. Bloquear cada venta de forma aislada era insuficiente: el
+     * lote A podía tomar producto X y luego esperar Y mientras el lote B ya
+     * tenía Y y esperaba X. Al unir y ordenar los productos de todo el lote,
+     * todos los workers adquieren los mismos locks en el mismo orden.
+     *
+     * @param array<int, array{payload: array<string, mixed>}> $catalogos
+     */
+    public function bloquearCatalogos(array $catalogos): void
+    {
+        $productoIds = [];
+
+        foreach ($catalogos as $catalogo) {
+            $lineas = $catalogo['payload']['detalleventaList'] ?? [];
+            if (is_array($lineas)) {
+                $productoIds = [...$productoIds, ...$this->productoIdsDeLineas($lineas)];
+            }
+        }
+
+        $this->bloquearProductoIds($productoIds);
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      * @return array{productos: int, composiciones: int, detalles: int}
      */
@@ -97,7 +122,13 @@ class CatalogoComercialRestaurantService
     /** @param array<int, mixed> $lineas */
     private function bloquearProductosDeLineas(array $lineas): void
     {
-        $productoIds = collect($lineas)
+        $this->bloquearProductoIds($this->productoIdsDeLineas($lineas));
+    }
+
+    /** @param array<int, mixed> $lineas @return array<int, string> */
+    private function productoIdsDeLineas(array $lineas): array
+    {
+        return collect($lineas)
             ->filter(fn (mixed $linea): bool => is_array($linea))
             ->flatMap(function (array $linea): array {
                 $ids = [$this->productoId($linea)];
@@ -112,9 +143,14 @@ class CatalogoComercialRestaurantService
             ->map(fn (mixed $id): string => (string) $id)
             ->unique()
             ->sort(SORT_NATURAL)
-            ->values();
+            ->values()
+            ->all();
+    }
 
-        foreach ($productoIds as $productoId) {
+    /** @param array<int, string> $productoIds */
+    private function bloquearProductoIds(array $productoIds): void
+    {
+        foreach (collect($productoIds)->unique()->sort(SORT_NATURAL)->values() as $productoId) {
             // hashtext únicamente define el candado de sesión; los valores se
             // enlazan como parámetro y una colisión solo serializa de más, sin
             // mezclar ni modificar datos de productos distintos.
