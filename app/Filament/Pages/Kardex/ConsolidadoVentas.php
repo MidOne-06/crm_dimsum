@@ -54,30 +54,43 @@ class ConsolidadoVentas extends Page implements HasTable
      *
      * @var array<int, array{item_id: int, code: string, name: string}>
      */
+    /**
+     * `tipo_item` agregado 2026-09-13 (barrida de huecos funcionales, bug
+     * real encontrado y confirmado en producción): este catálogo cruzaba
+     * ventas SOLO por `item_id`, violando la convención documentada en el
+     * resto del proyecto ("item_id no es único -- Restaurant lo reutiliza
+     * para productos distintos según tipo_item", ver StockSaldoRecalculadorService/
+     * DirectivaTransferenciaService). De los 23 productos, 7 tenían
+     * colisión real de `item_id` contra un insumo (margarina, panceta,
+     * salsas) -- la mayoría ya quedaba filtrada de casualidad por
+     * `unidad_medida='UNIDAD'`, pero `item_id=161` (CHA SIU) SÍ sumaba de
+     * verdad 11 unidades reales de "Llavero Min Pao - REGULAR" (un
+     * merchandising, no comida) dentro del total reportado de CHA SIU.
+     */
     private const CATALOGO = [
-        ['item_id' => 153, 'code' => 'SM001', 'name' => 'SIU MAI TRADICIONAL'],
-        ['item_id' => 106, 'code' => 'SM002', 'name' => 'SIU MAI ESPECIAL'],
-        ['item_id' => 157, 'code' => 'SM003', 'name' => 'SIU MAI DE POLLO'],
-        ['item_id' => 147, 'code' => 'WK001', 'name' => 'WO TI KAO'],
-        ['item_id' => 137, 'code' => 'MP001', 'name' => 'MIN PAO DE POLLO'],
-        ['item_id' => 118, 'code' => 'MP002', 'name' => 'MIN PAO DE CERDO'],
-        ['item_id' => 159, 'code' => 'MP003', 'name' => 'MIN PAO DULCE'],
-        ['item_id' => 138, 'code' => 'MP004', 'name' => 'MIN PAO MIXTO'],
-        ['item_id' => 156, 'code' => 'ER001', 'name' => 'ENROLLADO PRIMAVERA'],
-        ['item_id' => 105, 'code' => 'AA003', 'name' => 'ALAS ASADAS'],
-        ['item_id' => 144, 'code' => 'AB001', 'name' => 'ALAS BROSTER'],
-        ['item_id' => 158, 'code' => 'KP001', 'name' => 'KAI PI'],
-        ['item_id' => 155, 'code' => 'WT001', 'name' => 'WANTAN'],
-        ['item_id' => 154, 'code' => 'SK001', 'name' => 'SIU KAO'],
-        ['item_id' => 143, 'code' => 'TP001', 'name' => 'TAYPAO'],
-        ['item_id' => 161, 'code' => 'CS001', 'name' => 'CHA SIU - 250 G'],
-        ['item_id' => 160, 'code' => 'CH001', 'name' => 'CHAUFA - 260 G'],
-        ['item_id' => 58, 'code' => 'IC001', 'name' => 'Inca Kola - 300 ML'],
-        ['item_id' => 72, 'code' => 'IC002', 'name' => 'Inca Kola - 600 ML'],
-        ['item_id' => 59, 'code' => 'CC001', 'name' => 'Coca Cola - 300 ML'],
-        ['item_id' => 71, 'code' => 'CC002', 'name' => 'Coca Cola - 600 ML'],
-        ['item_id' => 74, 'code' => 'CO002', 'name' => 'Chicha - 300 ML'],
-        ['item_id' => 78, 'code' => 'ASG002', 'name' => 'Agua - SAN MATEO 600 ML'],
+        ['item_id' => 153, 'tipo_item' => 'RECETA', 'code' => 'SM001', 'name' => 'SIU MAI TRADICIONAL'],
+        ['item_id' => 106, 'tipo_item' => 'RECETA', 'code' => 'SM002', 'name' => 'SIU MAI ESPECIAL'],
+        ['item_id' => 157, 'tipo_item' => 'RECETA', 'code' => 'SM003', 'name' => 'SIU MAI DE POLLO'],
+        ['item_id' => 147, 'tipo_item' => 'RECETA', 'code' => 'WK001', 'name' => 'WO TI KAO'],
+        ['item_id' => 137, 'tipo_item' => 'RECETA', 'code' => 'MP001', 'name' => 'MIN PAO DE POLLO'],
+        ['item_id' => 118, 'tipo_item' => 'RECETA', 'code' => 'MP002', 'name' => 'MIN PAO DE CERDO'],
+        ['item_id' => 159, 'tipo_item' => 'RECETA', 'code' => 'MP003', 'name' => 'MIN PAO DULCE'],
+        ['item_id' => 138, 'tipo_item' => 'RECETA', 'code' => 'MP004', 'name' => 'MIN PAO MIXTO'],
+        ['item_id' => 156, 'tipo_item' => 'RECETA', 'code' => 'ER001', 'name' => 'ENROLLADO PRIMAVERA'],
+        ['item_id' => 105, 'tipo_item' => 'RECETA', 'code' => 'AA003', 'name' => 'ALAS ASADAS'],
+        ['item_id' => 144, 'tipo_item' => 'RECETA', 'code' => 'AB001', 'name' => 'ALAS BROSTER'],
+        ['item_id' => 158, 'tipo_item' => 'RECETA', 'code' => 'KP001', 'name' => 'KAI PI'],
+        ['item_id' => 155, 'tipo_item' => 'RECETA', 'code' => 'WT001', 'name' => 'WANTAN'],
+        ['item_id' => 154, 'tipo_item' => 'RECETA', 'code' => 'SK001', 'name' => 'SIU KAO'],
+        ['item_id' => 143, 'tipo_item' => 'RECETA', 'code' => 'TP001', 'name' => 'TAYPAO'],
+        ['item_id' => 161, 'tipo_item' => 'DERIVADO', 'code' => 'CS001', 'name' => 'CHA SIU - 250 G'],
+        ['item_id' => 160, 'tipo_item' => 'DERIVADO', 'code' => 'CH001', 'name' => 'CHAUFA - 260 G'],
+        ['item_id' => 58, 'tipo_item' => 'PRODUCTO', 'code' => 'IC001', 'name' => 'Inca Kola - 300 ML'],
+        ['item_id' => 72, 'tipo_item' => 'PRODUCTO', 'code' => 'IC002', 'name' => 'Inca Kola - 600 ML'],
+        ['item_id' => 59, 'tipo_item' => 'PRODUCTO', 'code' => 'CC001', 'name' => 'Coca Cola - 300 ML'],
+        ['item_id' => 71, 'tipo_item' => 'PRODUCTO', 'code' => 'CC002', 'name' => 'Coca Cola - 600 ML'],
+        ['item_id' => 74, 'tipo_item' => 'PRODUCTO', 'code' => 'CO002', 'name' => 'Chicha - 300 ML'],
+        ['item_id' => 78, 'tipo_item' => 'PRODUCTO', 'code' => 'ASG002', 'name' => 'Agua - SAN MATEO 600 ML'],
     ];
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-cube';
@@ -303,7 +316,7 @@ class ConsolidadoVentas extends Page implements HasTable
             $fechas = $this->fechasComparar();
             $localIds = $this->comparativoLocalIds();
             $query = $this->ventasBaseQuery()
-                ->whereIn('item_id', self::catalogoItemIds())
+                ->tap(fn (Builder $q) => self::scopeCatalogo($q))
                 ->whereIn('fecha', $fechas)
                 ->whereIn('local_id', $localIds);
 
@@ -332,7 +345,7 @@ class ConsolidadoVentas extends Page implements HasTable
         $localIds = $this->matrixLocalIds();
 
         $sums = $this->ventasQuery()
-            ->whereIn('item_id', self::catalogoItemIds())
+            ->tap(fn (Builder $q) => self::scopeCatalogo($q))
             ->selectRaw('item_id, local_id, COALESCE(SUM(salida), 0) AS total')
             ->groupBy('item_id', 'local_id')
             ->get()
@@ -372,7 +385,7 @@ class ConsolidadoVentas extends Page implements HasTable
         $sumar = $this->sumarFechas();
 
         $sums = $this->ventasBaseQuery()
-            ->whereIn('item_id', self::catalogoItemIds())
+            ->tap(fn (Builder $q) => self::scopeCatalogo($q))
             ->whereIn('fecha', $fechas)
             ->whereIn('local_id', $localIds)
             ->selectRaw('item_id, local_id, fecha, COALESCE(SUM(salida), 0) AS total')
@@ -436,10 +449,18 @@ class ConsolidadoVentas extends Page implements HasTable
             ->where('unidad_medida', self::UNIDAD_MEDIDA);
     }
 
-    /** @return array<int, int> */
-    protected static function catalogoItemIds(): array
+    /**
+     * Filtra por el catálogo fijo de 23 productos -- SIEMPRE item_id +
+     * tipo_item juntos, nunca item_id solo (ver docblock de CATALOGO: 7 de
+     * los 23 tienen colisión real de item_id contra un insumo de Restaurant).
+     */
+    protected static function scopeCatalogo(Builder $query): Builder
     {
-        return array_column(self::CATALOGO, 'item_id');
+        return $query->where(function (Builder $grupo): void {
+            foreach (self::CATALOGO as $producto) {
+                $grupo->orWhere(fn (Builder $q) => $q->where('item_id', $producto['item_id'])->where('tipo_item', $producto['tipo_item']));
+            }
+        });
     }
 
     /**
@@ -491,7 +512,7 @@ class ConsolidadoVentas extends Page implements HasTable
         }
 
         $conVenta = $this->ventasBaseQuery()
-            ->whereIn('item_id', self::catalogoItemIds())
+            ->tap(fn (Builder $q) => self::scopeCatalogo($q))
             ->whereIn('fecha', $fechas)
             ->whereIn('local_id', $ids)
             ->select('local_id')
