@@ -124,16 +124,48 @@ services:
     # que nada lo notara aparte del aviso de "sin avance" en la UI. Subido a
     # 3300s (55 min, justo debajo de --max-time) para dar margen real a una
     # página lenta sin dejar de tener un techo ante un hang genuino.
-    # Orden de --queue = PRIORIDAD (el worker vacía la primera antes de mirar
-    # la siguiente). ventas-pages/ventas-details van ÚLTIMAS a propósito: son
-    # la extracción más pesada y NO alimentan la Directiva, así que nunca deben
-    # desplazar a guías/salidas/requerimientos/stock-actual ni a `default`
-    # (donde corre RecalcularSaldoStockJob, que sí alimenta la DT). Cuando
-    # ventas dispara cientos de jobs de detalle, se procesan solo en los huecos
-    # en que no hay nada más esperando.
-    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=stock-actual,guias-internas,salidas-stock,requerimientos-stock,movimientos-almacenes,default,ventas-pages,ventas-details", "--sleep=1", "--tries=4", "--timeout=3300", "--max-time=3600"]
+    # Las ventas históricas se atienden en `sales-worker`, aisladas de los
+    # flujos que alimentan la Directiva. Así una extracción masiva no compite
+    # por workers con kardex, guías, salidas, requerimientos ni stock actual.
+    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=stock-actual,guias-internas,salidas-stock,requerimientos-stock,movimientos-almacenes,default", "--sleep=1", "--tries=4", "--timeout=3300", "--max-time=3600"]
     deploy:
       replicas: ${VENTAS_WORKER_REPLICAS:-0}
+    volumes:
+      - app_storage:/var/www/html/storage
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    networks:
+      - backend
+
+  # Pool exclusivo para la extracción de ventas. Cada worker procesa una
+  # solicitud de detalle por vez y el gateway limita las solicitudes a las
+  # sesiones Restaurant disponibles. Mantener este pool separado evita que la
+  # aceleración histórica afecte el kardex o las operaciones logísticas.
+  sales-worker:
+    image: crm-dimsum:local
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE:-.env.docker}
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      PG_HOST: db
+      PG_PORT: 5432
+      NODE_EXECUTABLE: node
+      RUN_MIGRATIONS: "false"
+      RUN_AS_WWW_DATA: "true"
+      DB_QUEUE_RETRY_AFTER: "780"
+      STOCK_GATEWAY_URL: http://gateway:3000
+    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--queue=ventas-pages,ventas-details", "--sleep=1", "--tries=4", "--timeout=720", "--max-time=3600"]
+    deploy:
+      replicas: ${VENTAS_BACKFILL_WORKER_REPLICAS:-0}
     volumes:
       - app_storage:/var/www/html/storage
     extra_hosts:

@@ -239,7 +239,7 @@ sync_git_state /opt/API-TI "$gatewaySha" "$remoteGatewayBundle"
         $remoteScript += "`n" + @"
 cd /opt/crm-dimsum
 docker compose -p crm-dimsum --env-file .env.docker build app
-docker compose -p crm-dimsum --env-file .env.docker up -d --force-recreate app worker scheduler kardex-worker
+docker compose -p crm-dimsum --env-file .env.docker up -d --force-recreate app worker sales-worker scheduler kardex-worker
 docker compose -p crm-dimsum --env-file .env.docker exec -T app php artisan migrate --force
 "@
         if (-not $SkipGateway) {
@@ -249,7 +249,7 @@ docker compose -p crm-dimsum --env-file .env.docker up -d --force-recreate gatew
 "@
         }
         $remoteScript += "`n" + @"
-docker compose -p crm-dimsum --env-file .env.docker ps app worker scheduler kardex-worker gateway
+docker compose -p crm-dimsum --env-file .env.docker ps app worker sales-worker scheduler kardex-worker gateway
 curl -fsSI http://127.0.0.1:8080/admin | head -n 1
 
 # Limpieza post-deploy (2026-09-10): cada `docker compose build` deja capas
