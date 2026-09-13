@@ -25,9 +25,11 @@ use Illuminate\Database\Eloquent\Builder;
 /**
  * "Cargar mi sugerido" -- pedido explícito del usuario (2026-09-13): cada
  * local puede pedir un ajuste sobre la cantidad que la Directiva de
- * Transferencia ya calculó para él, pero NUNCA un número libre -- siempre
- * en MÚLTIPLOS del despacho de ese producto (ver ProductoPresentacionDespacho,
- * mismo múltiplo que usa el propio cálculo para redondear). El
+ * Transferencia ya calculó para él. El local escribe la cantidad tal cual
+ * (4, 13, -7...) -- el campo se autocorrige solo al múltiplo de despacho
+ * MÁS CERCANO de ese producto (ver ProductoPresentacionDespacho, mismo
+ * múltiplo que usa el propio cálculo para redondear -- pero acá "más
+ * cercano", no siempre hacia arriba), nunca queda una cantidad suelta. El
  * administrador aprueba o rechaza cada pedido en "Aprobar ajustes de
  * locales"; mientras siga 'pendiente' (o si se rechazó, con el comentario
  * a la vista), el local puede seguir corrigiendo su número acá mismo.
@@ -46,6 +48,26 @@ class CargarSugeridoLocal extends Page implements HasTable
     protected string $view = 'filament.pages.stock.cargar-sugerido-local';
 
     public ?string $localId = null;
+
+    /**
+     * `solicitudActual()`/`detallePara()` se llaman varias veces POR FILA
+     * (3 columnas + 2 puntos de la acción "solicitar") -- sin esta caché,
+     * cada llamada volvía a consultar la BD, mismo patrón de N+1 ya
+     * encontrado y corregido en "Locales Activos" (2026-09-12). Acá el
+     * impacto es bajo (15 productos, tabla chica, no millones de filas de
+     * Kardex), pero es la misma causa evitable: una consulta por
+     * (solicitud, detalles) alcanza para toda la tabla.
+     */
+    private ?DirectivaAjusteLocalSolicitud $solicitudCache = null;
+
+    private bool $solicitudCacheCargada = false;
+
+    private bool $ultimoCalculadoEnCargado = false;
+
+    private ?string $ultimoCalculadoEnCache = null;
+
+    /** @var \Illuminate\Support\Collection<string, DirectivaTransferenciaSugerencia>|null */
+    private ?\Illuminate\Support\Collection $sugerenciasCache = null;
 
     public static function canAccess(): bool
     {
@@ -94,11 +116,16 @@ class CargarSugeridoLocal extends Page implements HasTable
 
     private function ultimoCalculadoEn(): ?string
     {
+        if ($this->ultimoCalculadoEnCargado) {
+            return $this->ultimoCalculadoEnCache;
+        }
+        $this->ultimoCalculadoEnCargado = true;
+
         if (! $this->localId || ! $this->localAllowedForUser($this->localId)) {
-            return null;
+            return $this->ultimoCalculadoEnCache = null;
         }
 
-        return DirectivaTransferenciaSugerencia::where('local_id', $this->localId)->max('calculado_en');
+        return $this->ultimoCalculadoEnCache = DirectivaTransferenciaSugerencia::where('local_id', $this->localId)->max('calculado_en');
     }
 
     public function fechaDespacho(): ?string
@@ -106,6 +133,15 @@ class CargarSugeridoLocal extends Page implements HasTable
         $calculadoEn = $this->ultimoCalculadoEn();
         if (! $calculadoEn) {
             return null;
+        }
+
+        // sugerenciasCache ya trae fecha_despacho para las 15 filas -- si
+        // todavía no se cargó (primera llamada del render, antes de que la
+        // tabla pida algún producto), una sola fila alcanza para leerla.
+        if ($this->sugerenciasCache !== null) {
+            $fecha = $this->sugerenciasCache->first()?->fecha_despacho;
+
+            return $fecha ? $fecha->toDateString() : null;
         }
 
         $fecha = DirectivaTransferenciaSugerencia::where('local_id', $this->localId)
@@ -117,13 +153,19 @@ class CargarSugeridoLocal extends Page implements HasTable
 
     private function solicitudActual(): ?DirectivaAjusteLocalSolicitud
     {
+        if ($this->solicitudCacheCargada) {
+            return $this->solicitudCache;
+        }
+        $this->solicitudCacheCargada = true;
+
         $fecha = $this->fechaDespacho();
         if (! $fecha || ! $this->localId || ! $this->localAllowedForUser($this->localId)) {
-            return null;
+            return $this->solicitudCache = null;
         }
 
-        return DirectivaAjusteLocalSolicitud::where('local_id', $this->localId)
+        return $this->solicitudCache = DirectivaAjusteLocalSolicitud::where('local_id', $this->localId)
             ->where('fecha_despacho', $fecha)
+            ->with('detalles')
             ->first();
     }
 
@@ -230,11 +272,17 @@ class CargarSugeridoLocal extends Page implements HasTable
             return null;
         }
 
-        return DirectivaTransferenciaSugerencia::where('local_id', $this->localId)
-            ->where('calculado_en', $calculadoEn)
-            ->where('item_id', $producto->item_id)
-            ->where('item_tipo', $producto->item_tipo)
-            ->first();
+        // Una sola consulta para las 15 filas de la tabla en vez de una por
+        // producto -- mismo motivo que solicitudActual()/detallePara() de
+        // arriba.
+        if ($this->sugerenciasCache === null) {
+            $this->sugerenciasCache = DirectivaTransferenciaSugerencia::where('local_id', $this->localId)
+                ->where('calculado_en', $calculadoEn)
+                ->get()
+                ->keyBy(fn (DirectivaTransferenciaSugerencia $s): string => "{$s->item_id}|{$s->item_tipo}");
+        }
+
+        return $this->sugerenciasCache->get("{$producto->item_id}|{$producto->item_tipo}");
     }
 
     private function detallePara(ProductoPresentacionDespacho $producto): ?DirectivaAjusteLocalDetalle
@@ -244,10 +292,12 @@ class CargarSugeridoLocal extends Page implements HasTable
             return null;
         }
 
-        return $solicitud->detalles()
-            ->where('item_id', $producto->item_id)
-            ->where('item_tipo', $producto->item_tipo)
-            ->first();
+        // `->detalles` (propiedad, sin paréntesis) reutiliza la colección ya
+        // cargada por el `with('detalles')` de solicitudActual() -- llamar
+        // `->detalles()->where(...)->first()` (relación como query builder)
+        // volvería a consultar la BD en cada llamada, una por columna.
+        return $solicitud->detalles
+            ->first(fn (DirectivaAjusteLocalDetalle $d): bool => $d->item_id === $producto->item_id && $d->item_tipo === $producto->item_tipo);
     }
 
     private function guardarSolicitud(ProductoPresentacionDespacho $record, int $deltaUnidades, ?string $motivo): void
