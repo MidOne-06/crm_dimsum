@@ -41,6 +41,14 @@ class CatalogoComercialRestaurantService
         $fecha = $fechaVenta ? Carbon::parse($fechaVenta) : now();
 
         return DB::transaction(function () use ($ventaId, $lineas, $fecha): array {
+            // Varios workers pueden observar el mismo producto Restaurant en
+            // ventas distintas. Sin un orden global de locks, dos lotes que
+            // actualizan productos/composiciones compartidos forman ciclos de
+            // bloqueo en PostgreSQL. Se bloquean todos los IDs de la venta en
+            // orden estable y el lock se libera automáticamente al cerrar la
+            // transacción externa que también persiste la venta y su detalle.
+            $this->bloquearProductosDeLineas($lineas);
+
             $resultado = ['productos' => 0, 'composiciones' => 0, 'detalles' => 0];
 
             foreach ($lineas as $linea) {
@@ -84,6 +92,34 @@ class CatalogoComercialRestaurantService
 
             return $resultado;
         });
+    }
+
+    /** @param array<int, mixed> $lineas */
+    private function bloquearProductosDeLineas(array $lineas): void
+    {
+        $productoIds = collect($lineas)
+            ->filter(fn (mixed $linea): bool => is_array($linea))
+            ->flatMap(function (array $linea): array {
+                $ids = [$this->productoId($linea)];
+
+                foreach ($this->componentesPorProducto($linea) as $componente) {
+                    $ids[] = $componente['producto_id'];
+                }
+
+                return $ids;
+            })
+            ->filter(fn (mixed $id): bool => $id !== null)
+            ->map(fn (mixed $id): string => (string) $id)
+            ->unique()
+            ->sort(SORT_NATURAL)
+            ->values();
+
+        foreach ($productoIds as $productoId) {
+            // hashtext únicamente define el candado de sesión; los valores se
+            // enlazan como parámetro y una colisión solo serializa de más, sin
+            // mezclar ni modificar datos de productos distintos.
+            DB::select('SELECT pg_advisory_xact_lock(hashtext(?))', ["catalogo-comercial:{$productoId}"]);
+        }
     }
 
     /** @param array<string, mixed> $linea */
