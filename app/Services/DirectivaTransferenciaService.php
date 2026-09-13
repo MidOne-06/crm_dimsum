@@ -193,6 +193,23 @@ class DirectivaTransferenciaService
         $horarios = LocalLogisticaHorario::whereIn('local_id', $locales->pluck('local_id'))->get()->groupBy('local_id');
         $diasSinDt = LocalDiaSinDt::whereIn('local_id', $locales->pluck('local_id'))->get()->groupBy('local_id');
 
+        // Bug real encontrado revalidando (2026-09-13, módulo de ajuste de
+        // sugerido por local): el upsert de abajo sobreescribe
+        // `cantidad_sugerida` con el valor recién calculado por la fórmula,
+        // que no sabe nada de un ajuste de local ya aprobado sobre la
+        // corrida anterior -- sin este mapa, cualquier recálculo (el botón
+        // "Generar DT", "Recalcular para mañana", o el propio cron de las
+        // 03:00) borraba en silencio el ajuste ya aprobado, dejando
+        // `ajuste_local_unidades` con un número que ya no tenía nada que
+        // ver con `cantidad_sugerida`. Se relee el ajuste vigente de la
+        // fila que esta misma corrida va a reemplazar y se vuelve a sumar
+        // sobre el nuevo cálculo, para que un ajuste aprobado sobreviva a
+        // cualquier recálculo hasta que alguien lo cambie de verdad.
+        $ajustesPrevios = DirectivaTransferenciaSugerencia::whereIn('local_id', $locales->pluck('local_id'))
+            ->where('ajuste_local_unidades', '!=', 0)
+            ->get(['fecha_despacho', 'local_id', 'item_id', 'item_tipo', 'ajuste_local_unidades'])
+            ->keyBy(fn (DirectivaTransferenciaSugerencia $s) => "{$s->fecha_despacho->toDateString()}|{$s->local_id}|{$s->item_id}|{$s->item_tipo}");
+
         $filas = [];
         $ahora = now();
         // Una sola lectura por corrida -- el nivel de servicio es igual
@@ -387,6 +404,12 @@ class DirectivaTransferenciaService
                 $cantidadBrutaAjustada = $cantidadBruta * (1 + ($porcentajeAjuste / 100));
                 $cantidadSugerida = $producto->redondear($cantidadBrutaAjustada);
 
+                // Vuelve a sumar el ajuste de local YA APROBADO sobre la
+                // corrida anterior, si lo hay -- ver comentario de
+                // $ajustesPrevios más arriba.
+                $ajusteLocalUnidades = (float) ($ajustesPrevios->get("{$fechaDestino->toDateString()}|{$local->local_id}|{$producto->item_id}|{$producto->item_tipo}")?->ajuste_local_unidades ?? 0);
+                $cantidadSugerida += $ajusteLocalUnidades;
+
                 $filas[] = [
                     'fecha_despacho' => $fechaDestino->toDateString(),
                     'dia_semana' => $fechaDestino->dayOfWeekIso,
@@ -402,6 +425,7 @@ class DirectivaTransferenciaService
                     'riesgo_quiebre' => $riesgoQuiebre,
                     'semanas_consideradas' => $semanasConsideradas,
                     'saldo_actual' => $saldoActual,
+                    'ajuste_local_unidades' => $ajusteLocalUnidades,
                     'cantidad_en_transito' => $cantidadEnTransito,
                     'cantidad_bruta' => $cantidadBruta,
                     'porcentaje_ajuste_aplicado' => $porcentajeAjuste,
@@ -422,7 +446,7 @@ class DirectivaTransferenciaService
                 ['local_nombre', 'item_codigo', 'item_nombre', 'demanda_promedio', 'demanda_ventana1', 'desviacion_estandar',
                     'riesgo_quiebre', 'semanas_consideradas', 'saldo_actual', 'cantidad_en_transito',
                     'cantidad_bruta', 'porcentaje_ajuste_aplicado', 'cantidad_bruta_ajustada',
-                    'multiplo_aplicado', 'cantidad_sugerida', 'calculado_en', 'updated_at'],
+                    'multiplo_aplicado', 'cantidad_sugerida', 'ajuste_local_unidades', 'calculado_en', 'updated_at'],
             );
         }
 
