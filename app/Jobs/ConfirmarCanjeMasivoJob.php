@@ -160,6 +160,18 @@ class ConfirmarCanjeMasivoJob implements ShouldQueue
                             'movimiento_id' => $fila['id'] ?? null,
                             'guias' => $guiasDelGrupo,
                         ]);
+                        // Auditoría de cantidades editadas -- ver docblock
+                        // de CanjeGuiaCantidadAuditoria (2026-09-13, pedido
+                        // explícito del usuario). El job corre en cola, sin
+                        // sesión autenticada -- se atribuye a quien inició
+                        // esta corrida de "Canjear todo lo filtrado".
+                        \App\Models\CanjeGuiaCantidadAuditoria::registrarDesdeResultado(
+                            (array) ($fila['overrides'] ?? []),
+                            array_values(array_map('strval', $guiasDelGrupo)),
+                            filled($fila['id'] ?? null) ? (string) $fila['id'] : null,
+                            'masivo_filtrado',
+                            $canje->iniciado_por,
+                        );
                     } else {
                         $fallidas += count($guiasDelGrupo);
                         $fallos[] = ['guias' => $guiasDelGrupo, 'error' => (string) ($fila['error'] ?? 'Restaurant rechazó este grupo.')];

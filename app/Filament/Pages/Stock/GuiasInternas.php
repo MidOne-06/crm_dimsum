@@ -3,6 +3,7 @@
 namespace App\Filament\Pages\Stock;
 
 use App\Filament\Concerns\ScopesLocalsToUser;
+use App\Models\CanjeGuiaCantidadAuditoria;
 use App\Services\GuiasInternasGatewayClient;
 use App\Services\MovimientosAlmacenesGatewayClient;
 use Filament\Actions\Action;
@@ -873,6 +874,20 @@ class GuiasInternas extends Page implements HasTable
             $successful = $results->filter(fn (array $row): bool => (bool) ($row['ok'] ?? false))->values();
             $failed = $results->filter(fn (array $row): bool => ! (bool) ($row['ok'] ?? false))->values();
 
+            // Auditoría de cantidades editadas -- ver docblock de
+            // CanjeGuiaCantidadAuditoria. Cada grupo exitoso puede traer su
+            // propio detalle de ediciones (el canje masivo procesa un
+            // movimiento por grupo, cada uno con su propio `overrides`).
+            foreach ($successful as $row) {
+                CanjeGuiaCantidadAuditoria::registrarDesdeResultado(
+                    (array) ($row['overrides'] ?? []),
+                    array_values(array_map('strval', (array) ($row['ids'] ?? []))),
+                    filled($row['id'] ?? null) ? (string) $row['id'] : null,
+                    'masivo_seleccion',
+                    auth()->id(),
+                );
+            }
+
             if ($successful->isNotEmpty()) {
                 $movimientos = $successful->pluck('id')->filter()->implode(', ');
                 Notification::make()->success()->title('Recepciones confirmadas en Restaurant')
@@ -1175,6 +1190,18 @@ class GuiasInternas extends Page implements HasTable
                 'confirmar' => true,
             ]);
             $id = (string) ($result['id'] ?? '');
+            // Auditoría de cantidades editadas -- ver docblock de
+            // CanjeGuiaCantidadAuditoria (2026-09-13, pedido explícito del
+            // usuario): no se topa la cantidad editada (recibir más de lo
+            // que trae la guía es un caso real de su operación), pero cada
+            // edición real queda registrada con usuario y fecha.
+            CanjeGuiaCantidadAuditoria::registrarDesdeResultado(
+                (array) ($result['overrides'] ?? []),
+                $ids,
+                $id !== '' ? $id : null,
+                'individual',
+                auth()->id(),
+            );
             Notification::make()->success()->title('Recepción confirmada en Restaurant')
                 ->body($id !== '' ? "Restaurant registró el movimiento #{$id} y vinculó las guías seleccionadas." : 'Restaurant registró el movimiento y vinculó las guías seleccionadas.')
                 ->send();
