@@ -11,8 +11,10 @@ use App\Models\StockInicialLocal;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
@@ -178,38 +180,39 @@ class CargarSugeridoLocal extends Page implements HasTable
                     ->icon('heroicon-o-pencil-square')
                     ->visible(fn (ProductoPresentacionDespacho $record): bool => $this->detallePara($record)?->estado !== 'aprobado')
                     ->modalHeading(fn (ProductoPresentacionDespacho $record): string => 'Ajuste para '.$record->item_nombre)
-                    ->modalDescription(fn (ProductoPresentacionDespacho $record): string => "Múltiplo de despacho de este producto: {$record->multiplo} unidades -- elige tu ajuste en pasos de {$record->multiplo}, nunca una cantidad suelta.")
+                    ->modalDescription(fn (ProductoPresentacionDespacho $record): string => "Escribe la cantidad que necesitas de más o de menos -- se ajusta sola al múltiplo de despacho de este producto ({$record->multiplo} unidades). Ej. si pones 13 y el múltiplo es 15, queda en 15.")
                     ->fillForm(function (ProductoPresentacionDespacho $record): array {
                         $detalle = $this->detallePara($record);
 
                         return [
-                            'delta' => $detalle ? (string) (int) $detalle->delta_unidades : null,
+                            'delta' => $detalle ? (int) $detalle->delta_unidades : null,
                             'motivo' => $detalle?->motivo,
                         ];
                     })
                     ->schema(fn (ProductoPresentacionDespacho $record): array => [
-                        Select::make('delta')
-                            ->label('Ajuste')
-                            ->native(false)
+                        TextInput::make('delta')
+                            ->label('Ajuste (+/-)')
+                            ->numeric()
+                            ->integer()
                             ->required()
-                            // Las opciones son las UNIDADES reales de ajuste
-                            // (+múltiplo, +2 múltiplos, -múltiplo...) -- nunca
-                            // un número suelto ni un contador abstracto de
-                            // "múltiplos" que el local tendría que calcular a
-                            // mano. El rango de pasos depende del múltiplo de
-                            // CADA producto (pedido explícito del usuario).
-                            ->options(function () use ($record): array {
-                                $opciones = [];
-                                for ($i = 10; $i >= -10; $i--) {
-                                    if ($i === 0) {
-                                        continue;
-                                    }
-                                    $unidades = $i * $record->multiplo;
-                                    $signo = $i > 0 ? '+' : '';
-                                    $opciones[(string) $unidades] = "{$signo}{$unidades} unidades ({$signo}{$i} múltiplo".(abs($i) > 1 ? 's' : '').')';
+                            ->helperText("Se ajusta automáticamente al múltiplo más cercano de {$record->multiplo} unidades -- nunca queda una cantidad suelta.")
+                            // Pedido explícito del usuario: NO un desplegable
+                            // con opciones fijas -- un campo libre que el
+                            // local tipea normal (4, 13, -7...) y que se
+                            // AUTO-CORRIGE en vivo al múltiplo real más
+                            // cercano de ESTE producto (15 si escribió 13 y
+                            // el múltiplo es 15; -1 múltiplo si puso -7 y el
+                            // múltiplo es 5 -> -5, no -10, porque -7 está más
+                            // cerca de -5). El servidor vuelve a aplicar el
+                            // mismo redondeo como respaldo (ver
+                            // guardarSolicitud) por si el valor llega
+                            // tamperado.
+                            ->live(onBlur: true)
+                            ->afterStateUpdated(function ($state, Set $set) use ($record): void {
+                                if ($state === null || $state === '') {
+                                    return;
                                 }
-
-                                return $opciones;
+                                $set('delta', $this->redondearAlMultiploMasCercano((int) $state, $record->multiplo));
                             }),
                         Textarea::make('motivo')->label('Motivo')->rows(2)->maxLength(500),
                     ])
@@ -263,12 +266,14 @@ class CargarSugeridoLocal extends Page implements HasTable
             ->where('activo', true)
             ->first();
         abort_unless($productoReal, 404);
+        abort_unless($productoReal->multiplo > 0, 422);
 
-        // El Select solo ofrece pasos válidos del múltiplo real -- esto
-        // revalida el valor efectivamente recibido (propiedad de Livewire,
-        // tamperable) contra el múltiplo actual del producto, nunca contra
-        // el que tenía cuando se abrió el modal.
-        abort_unless($productoReal->multiplo > 0 && $deltaUnidades % $productoReal->multiplo === 0, 422);
+        // El campo ya se auto-corrige en vivo en el navegador (ver
+        // afterStateUpdated más arriba), pero `delta` sigue siendo una
+        // propiedad de formulario tamperable -- se vuelve a redondear acá
+        // contra el múltiplo REAL y ACTUAL del producto (nunca el que tenía
+        // cuando se abrió el modal), nunca confiando en el valor recibido.
+        $deltaUnidades = $this->redondearAlMultiploMasCercano($deltaUnidades, $productoReal->multiplo);
         $multiplos = intdiv($deltaUnidades, $productoReal->multiplo);
 
         $solicitud = DirectivaAjusteLocalSolicitud::firstOrCreate(
@@ -315,5 +320,21 @@ class CargarSugeridoLocal extends Page implements HasTable
         );
 
         Notification::make()->success()->title('Solicitud guardada')->body('Queda pendiente de aprobación.')->send();
+    }
+
+    /**
+     * Redondea al múltiplo MÁS CERCANO (no siempre hacia arriba, a
+     * diferencia de ProductoPresentacionDespacho::redondear() que sí
+     * redondea siempre hacia arriba para el despacho real) -- ej. con
+     * múltiplo=5: 13 -> 15, 12 -> 10, -7 -> -5. Un ajuste en 0 se mantiene
+     * en 0 (dispara la rama de "retirar solicitud" en guardarSolicitud()).
+     */
+    private function redondearAlMultiploMasCercano(int $valor, int $multiplo): int
+    {
+        if ($multiplo <= 0) {
+            return $valor;
+        }
+
+        return (int) (round($valor / $multiplo) * $multiplo);
     }
 }
