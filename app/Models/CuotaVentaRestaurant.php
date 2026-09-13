@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CuotaVentaRestaurant extends Model
 {
@@ -17,5 +18,10 @@ class CuotaVentaRestaurant extends Model
             'cuota_sin_igv' => 'decimal:2',
             'cuota_con_igv' => 'decimal:2',
         ];
+    }
+
+    public function auditorias(): HasMany
+    {
+        return $this->hasMany(CuotaVentaRestaurantAuditoria::class, 'cuota_venta_restaurant_id');
     }
 }

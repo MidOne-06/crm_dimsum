@@ -52,6 +52,12 @@ class IndicadoresComerciales extends Page
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('cuotas')
+                ->label('Cuotas')
+                ->icon('heroicon-o-calendar-days')
+                ->color('gray')
+                ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('ventas.cuotas.view'))
+                ->url(CuotasVentasRestaurant::getUrl()),
             Action::make('costosRecetas')
                 ->label('Costos y recetas')
                 ->icon('heroicon-o-calculator')
@@ -132,7 +138,7 @@ class IndicadoresComerciales extends Page
     /** @return array<string, string> */
     public function opcionesUnidades(): array
     {
-        return app(IndicadoresComercialesService::class)->opcionesUnidades(auth()->user());
+        return app(IndicadoresComercialesService::class)->opcionesUnidades(auth()->user(), Carbon::parse($this->desde));
     }
 
     /** @return array<string, mixed> */

@@ -20,9 +20,9 @@ use Illuminate\Support\Collection;
 class IndicadoresComercialesService
 {
     /** @return array<string, string> */
-    public function opcionesUnidades(?User $usuario = null): array
+    public function opcionesUnidades(?User $usuario = null, ?Carbon $periodo = null): array
     {
-        return $this->restaurantPermitidas($usuario)
+        return $this->restaurantPermitidas($usuario, $periodo ?? now())
             ->sortBy('local')
             ->mapWithKeys(fn (CuotaVentaRestaurant $cuota): array => ["restaurant:{$cuota->codigo}" => "{$cuota->codigo} · {$cuota->local}"])
             ->all();
@@ -32,7 +32,7 @@ class IndicadoresComercialesService
     public function tablero(Carbon $desde, Carbon $hasta, array $seleccion = [], ?User $usuario = null): array
     {
         [$desde, $hasta] = $this->ordenarRango($desde, $hasta);
-        $scope = $this->scope($seleccion, $usuario);
+        $scope = $this->scope($seleccion, $usuario, $hasta);
 
         return [
             'periodo' => $this->metricas($scope, $desde, $hasta),
@@ -45,9 +45,9 @@ class IndicadoresComercialesService
     }
 
     /** @param array<int, string> $seleccion @return array{restaurant: Collection<int, CuotaVentaRestaurant>, unidades: Collection<int, array{tipo: string, id: string, codigo: string, nombre: string, local_id: ?string}>} */
-    private function scope(array $seleccion, ?User $usuario): array
+    private function scope(array $seleccion, ?User $usuario, Carbon $periodo): array
     {
-        $restaurant = $this->restaurantPermitidas($usuario);
+        $restaurant = $this->restaurantPermitidas($usuario, $periodo);
         // El tablero comercial se limita deliberadamente a locales que
         // venden en Restaurant. Los canales externos se conservan en su
         // módulo, pero no alteran ventas, cuotas, TKP, MB ni rankings aquí.
@@ -469,10 +469,10 @@ class IndicadoresComercialesService
     }
 
     /** @return Collection<int, CuotaVentaRestaurant> */
-    private function restaurantPermitidas(?User $usuario): Collection
+    private function restaurantPermitidas(?User $usuario, Carbon $periodo): Collection
     {
         return CuotaVentaRestaurant::query()
-            ->where('periodo', '2026-09-01')
+            ->whereDate('periodo', $periodo->copy()->startOfMonth()->toDateString())
             ->when($usuario?->isRestrictedToLocals(), fn (Builder $query): Builder => $query->whereIn('local_id', $usuario->assignedLocalIds()))
             ->get();
     }
