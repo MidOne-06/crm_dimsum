@@ -24,9 +24,12 @@ class DescargasVentasLocalesChart extends DescargasVentasChart
             ->when(blank($this->analysisFilters['selectedLocals'] ?? []), fn ($query) => $query->limit(5))
             ->get();
 
+        // item_id+tipo_item, nunca item_id solo (ver ConsolidadoVentas /
+        // PromediosVentas -- Restaurant reutiliza item_id para productos
+        // distintos según tipo_item).
         $productos = (clone $query)
-            ->selectRaw('item_id, MAX(item_nombre) AS item_nombre, COALESCE(SUM(salida), 0) AS descargas')
-            ->groupBy('item_id')
+            ->selectRaw('item_id, tipo_item, MAX(item_nombre) AS item_nombre, COALESCE(SUM(salida), 0) AS descargas')
+            ->groupBy('item_id', 'tipo_item')
             ->orderByDesc('descargas')
             ->when(blank($this->analysisFilters['selectedProducts'] ?? []), fn ($query) => $query->limit(5))
             ->get();
@@ -38,10 +41,10 @@ class DescargasVentasLocalesChart extends DescargasVentasChart
         $ventas = (clone $query)
             ->whereIn('local_id', $locales->pluck('local_id')->all())
             ->whereIn('item_id', $productos->pluck('item_id')->all())
-            ->selectRaw('local_id, item_id, COALESCE(SUM(salida), 0) AS descargas')
-            ->groupBy('local_id', 'item_id')
+            ->selectRaw('local_id, item_id, tipo_item, COALESCE(SUM(salida), 0) AS descargas')
+            ->groupBy('local_id', 'item_id', 'tipo_item')
             ->get()
-            ->mapWithKeys(fn ($row): array => ["{$row->local_id}:{$row->item_id}" => (float) $row->descargas]);
+            ->mapWithKeys(fn ($row): array => ["{$row->local_id}:{$row->item_id}:{$row->tipo_item}" => (float) $row->descargas]);
 
         return [
             'datasets' => $productos->values()->map(function ($producto, int $index) use ($locales, $ventas): array {
@@ -49,7 +52,7 @@ class DescargasVentasLocalesChart extends DescargasVentasChart
 
                 return [
                     'label' => $producto->item_nombre ?: 'Sin nombre',
-                    'data' => $locales->map(fn ($local): float => $ventas["{$local->local_id}:{$producto->item_id}"] ?? 0)->all(),
+                    'data' => $locales->map(fn ($local): float => $ventas["{$local->local_id}:{$producto->item_id}:{$producto->tipo_item}"] ?? 0)->all(),
                     'backgroundColor' => $color,
                     'borderColor' => $color,
                 ];

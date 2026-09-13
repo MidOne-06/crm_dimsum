@@ -31,25 +31,37 @@ class PromediosVentas extends Page implements HasTable
 
     private const STANDARD_PRODUCTS_OPTION = '__standard_products__';
 
-    /** @var array<string, array{code: string, name: string}> */
+    /**
+     * `tipo_item` agregado 2026-09-13 (misma barrida que ConsolidadoVentas):
+     * este catálogo cruzaba Kardex SOLO por `item_id`, con la misma colisión
+     * real ya confirmada ahí -- item_id=161 es tanto "Cha Siu 1/4 KG."
+     * (DERIVADO) como "Llavero Min Pao - REGULAR" (PRODUCTO). Como esta
+     * pantalla filtra por el catálogo estándar POR DEFECTO (ver
+     * `STANDARD_PRODUCTS_OPTION`), el merge ocurría en la vista que ve
+     * cualquier usuario al abrir la pantalla, no solo con un filtro manual.
+     * `standardProductName()` usa este campo para no ponerle el nombre
+     * amigable de Cha Siu a la fila que en realidad es del Llavero.
+     *
+     * @var array<string, array{code: string, name: string, tipo_item: string}>
+     */
     private const STANDARD_PRODUCTS = [
-        '153' => ['code' => 'SM001', 'name' => 'Siu Mai - cerdo'],
-        '106' => ['code' => 'SM002', 'name' => 'Siu Mai Especial'],
-        '157' => ['code' => 'SM003', 'name' => 'Siu Mai - pollo'],
-        '147' => ['code' => 'WK001', 'name' => 'Wo Ti Kao'],
-        '137' => ['code' => 'MP001', 'name' => 'Min Pao - Pollo'],
-        '118' => ['code' => 'MP002', 'name' => 'Min Pao - Chancho'],
-        '159' => ['code' => 'MP003', 'name' => 'Min Pao - Dulce'],
-        '138' => ['code' => 'MP004', 'name' => 'Min Pao - Mixto'],
-        '156' => ['code' => 'ER001', 'name' => 'Enrollado Primavera Tradicional'],
-        '105' => ['code' => 'AA003', 'name' => 'Ala Asada'],
-        '144' => ['code' => 'AB001', 'name' => 'Ala Broaster'],
-        '158' => ['code' => 'KP001', 'name' => 'Kai Pi'],
-        '155' => ['code' => 'WT001', 'name' => 'Wantan'],
-        '154' => ['code' => 'SK001', 'name' => 'Siu Kao Frito'],
-        '143' => ['code' => 'TP001', 'name' => 'Tay Pao'],
-        '161' => ['code' => 'CS001', 'name' => 'Cha Siu 1/4 KG.'],
-        '160' => ['code' => 'CH001', 'name' => 'Chaufa x 260 gr'],
+        '153' => ['code' => 'SM001', 'name' => 'Siu Mai - cerdo', 'tipo_item' => 'RECETA'],
+        '106' => ['code' => 'SM002', 'name' => 'Siu Mai Especial', 'tipo_item' => 'RECETA'],
+        '157' => ['code' => 'SM003', 'name' => 'Siu Mai - pollo', 'tipo_item' => 'RECETA'],
+        '147' => ['code' => 'WK001', 'name' => 'Wo Ti Kao', 'tipo_item' => 'RECETA'],
+        '137' => ['code' => 'MP001', 'name' => 'Min Pao - Pollo', 'tipo_item' => 'RECETA'],
+        '118' => ['code' => 'MP002', 'name' => 'Min Pao - Chancho', 'tipo_item' => 'RECETA'],
+        '159' => ['code' => 'MP003', 'name' => 'Min Pao - Dulce', 'tipo_item' => 'RECETA'],
+        '138' => ['code' => 'MP004', 'name' => 'Min Pao - Mixto', 'tipo_item' => 'RECETA'],
+        '156' => ['code' => 'ER001', 'name' => 'Enrollado Primavera Tradicional', 'tipo_item' => 'RECETA'],
+        '105' => ['code' => 'AA003', 'name' => 'Ala Asada', 'tipo_item' => 'RECETA'],
+        '144' => ['code' => 'AB001', 'name' => 'Ala Broaster', 'tipo_item' => 'RECETA'],
+        '158' => ['code' => 'KP001', 'name' => 'Kai Pi', 'tipo_item' => 'RECETA'],
+        '155' => ['code' => 'WT001', 'name' => 'Wantan', 'tipo_item' => 'RECETA'],
+        '154' => ['code' => 'SK001', 'name' => 'Siu Kao Frito', 'tipo_item' => 'RECETA'],
+        '143' => ['code' => 'TP001', 'name' => 'Tay Pao', 'tipo_item' => 'RECETA'],
+        '161' => ['code' => 'CS001', 'name' => 'Cha Siu 1/4 KG.', 'tipo_item' => 'DERIVADO'],
+        '160' => ['code' => 'CH001', 'name' => 'Chaufa x 260 gr', 'tipo_item' => 'DERIVADO'],
     ];
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-calculator';
@@ -287,7 +299,7 @@ class PromediosVentas extends Page implements HasTable
                 TextColumn::make('cod_interno')->label('Código')->searchable(),
                 TextColumn::make('item_nombre')
                     ->label('Producto')
-                    ->state(fn (KardexMovimiento $record): string => $this->standardProductName((string) $record->item_id, (string) $record->item_nombre))
+                    ->state(fn (KardexMovimiento $record): string => $this->standardProductName((string) $record->item_id, (string) $record->tipo_item, (string) $record->item_nombre))
                     ->searchable()
                     ->wrap(),
                 TextColumn::make('promedio_total')
@@ -315,7 +327,7 @@ class PromediosVentas extends Page implements HasTable
         $this->summary = [
             'denominator' => $denominator,
             'promedio_total' => $denominator > 0 ? (float) $total / $denominator : 0,
-            'productos' => (clone $query)->distinct('item_id')->count('item_id'),
+            'productos' => (clone $query)->select('item_id', 'tipo_item')->distinct()->count(),
             'locales' => (clone $query)->distinct('local_id')->count('local_id'),
             'stockout_days' => $stockoutDays,
             'description' => $this->descriptionForMode($denominator).(blank($this->data['selectedLocals'] ?? [])
@@ -329,8 +341,8 @@ class PromediosVentas extends Page implements HasTable
         $denominator = max(1, $this->denominator());
         [$weightSql, $weightBindings] = $this->weightSql();
         $query = $this->salesQuery()
-            ->selectRaw("MIN(id) AS id, MAX(cod_interno) AS cod_interno, item_id, MAX(item_nombre) AS item_nombre, MAX(unidad_medida) AS unidad, COALESCE(SUM(salida * ({$weightSql})), 0) / ? AS promedio_total", [...$weightBindings, $denominator])
-            ->groupBy('item_id');
+            ->selectRaw("MIN(id) AS id, MAX(cod_interno) AS cod_interno, item_id, tipo_item, MAX(item_nombre) AS item_nombre, MAX(unidad_medida) AS unidad, COALESCE(SUM(salida * ({$weightSql})), 0) / ? AS promedio_total", [...$weightBindings, $denominator])
+            ->groupBy('item_id', 'tipo_item');
 
         foreach ($this->matrixLocalIds() as $index => $localId) {
             $query->selectRaw(
@@ -715,9 +727,19 @@ class PromediosVentas extends Page implements HasTable
             ->all();
     }
 
-    protected function standardProductName(string $itemId, string $fallback): string
+    protected function standardProductName(string $itemId, string $tipoItem, string $fallback): string
     {
-        return self::STANDARD_PRODUCTS[$itemId]['name'] ?? $fallback;
+        $standard = self::STANDARD_PRODUCTS[$itemId] ?? null;
+
+        // Solo aplica el nombre amigable si el tipo_item real coincide con
+        // el del catálogo -- de lo contrario esta fila es la colisión de
+        // item_id contra otro producto (ver docblock de STANDARD_PRODUCTS),
+        // y el nombre real de Kardex es el correcto, no el del catálogo.
+        if ($standard === null || $standard['tipo_item'] !== $tipoItem) {
+            return $fallback;
+        }
+
+        return $standard['name'];
     }
 
     protected function productBaseQuery(): Builder

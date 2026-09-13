@@ -398,9 +398,13 @@ class AnalisisDescargasVentas extends Page implements HasTable
 
     protected function salesMatrixQuery(): Builder
     {
+        // item_id+tipo_item, nunca item_id solo -- Restaurant lo reutiliza
+        // para productos distintos según tipo_item (ver el mismo hallazgo
+        // ya corregido en ConsolidadoVentas/PromediosVentas, item_id=161
+        // colisiona "CHA SIU" con "Llavero Min Pao").
         $query = $this->analysisQuery()
-            ->selectRaw('MIN(id) AS id, MAX(cod_interno) AS cod_interno, item_id, MAX(item_nombre) AS item_nombre, MAX(unidad_medida) AS unidad, COUNT(*) AS registros, COALESCE(SUM(salida), 0) AS descargas')
-            ->groupBy('item_id');
+            ->selectRaw('MIN(id) AS id, MAX(cod_interno) AS cod_interno, item_id, tipo_item, MAX(item_nombre) AS item_nombre, MAX(unidad_medida) AS unidad, COUNT(*) AS registros, COALESCE(SUM(salida), 0) AS descargas')
+            ->groupBy('item_id', 'tipo_item');
 
         foreach ($this->matrixLocalIds() as $index => $localId) {
             $query->selectRaw(
