@@ -133,8 +133,36 @@ class MoverEntreAlmacenes extends Page
 
     public function guardar(): void
     {
+        // Defensa en profundidad, mismo principio que ScopesLocalsToUser::
+        // localAllowedForUser() ya documenta para el resto del proyecto
+        // (ver Tramos de Demanda, Extracción de Kardex): `local_id` es una
+        // propiedad pública de Livewire -- localOptions()/originOptionsFor()
+        // solo filtran qué opciones se OFRECEN en el formulario, un usuario
+        // restringido a ciertos locales podría igual editar el payload
+        // wire:model y pedir un local (o un almacén de otro local) fuera de
+        // su alcance. `localAllowed()` ya existía pero solo se usaba en
+        // mount() para elegir el default -- nunca se revalidaba el valor
+        // efectivamente recibido antes de crear un movimiento REAL e
+        // irreversible en Restaurant. Cerrado 2026-09-13, barrida de
+        // huecos funcionales.
+        $state = $this->form->getState();
+        $localId = (string) ($state['local_id'] ?? '');
+        $origenId = (string) ($state['almacen_origen'] ?? '');
+
+        if (! $this->localAllowed($localId)) {
+            Notification::make()->danger()->title('No se pudo registrar el movimiento')->body('El local seleccionado no está dentro de tu alcance.')->send();
+
+            return;
+        }
+
+        if (! array_key_exists($origenId, $this->originOptionsFor($localId))) {
+            Notification::make()->danger()->title('No se pudo registrar el movimiento')->body('El almacén de origen no corresponde al local seleccionado.')->send();
+
+            return;
+        }
+
         try {
-            $result = $this->gateway()->crear([...$this->form->getState(), 'confirmar' => true]);
+            $result = $this->gateway()->crear([...$state, 'confirmar' => true]);
             $id = (string) ($result['id'] ?? '');
             Notification::make()->success()->title('Movimiento registrado')->body($id !== '' ? "Restaurant registró el movimiento #{$id}." : 'Restaurant confirmó el registro.')->send();
             $this->mount();
