@@ -641,6 +641,11 @@ class GuiasInternas extends Page implements HasTable
 
     public function descargarGuia(array $record, string $variant): mixed
     {
+        // Mismo hallazgo que anularGuia(): a diferencia de sus 3 hermanos
+        // en este archivo (exportarExcel/exportarExcelBatch/reportesExcelBatch),
+        // este método no tenía ningún chequeo de permiso.
+        abort_unless(auth()->user()?->hasPermission('guias-internas.descargar'), 403);
+
         $reporte = app(GuiasInternasGatewayClient::class)->reporte((string) ($record['id'] ?? ''), $variant);
         $extension = $variant === 'csv' ? 'csv' : 'pdf';
 
@@ -1214,8 +1219,42 @@ class GuiasInternas extends Page implements HasTable
 
     public function anularGuia(array $record, bool $devolverCantidades): void
     {
-        app(GuiasInternasGatewayClient::class)->anular((string) ($record['id'] ?? ''), $devolverCantidades);
-        Notification::make()->success()->title('Guía interna anulada')->body('Restaurant confirmó la anulación. El listado se actualizará desde Restaurant.')->send();
-        $this->resetTable();
+        // Bug real encontrado en la barrida de huecos funcionales
+        // (2026-09-13): este método no tenía NINGÚN chequeo de permiso --
+        // el `visible()` del botón en el listado solo oculta el botón,
+        // nunca protege el método Livewire en sí (mismo principio que
+        // ScopesLocalsToUser ya documenta para el scoping de locales:
+        // filtrar qué se OFRECE no es lo mismo que autorizar). Cualquier
+        // usuario autenticado con acceso a esta pantalla podía llamar
+        // `anularGuia()` directo y anular una guía real, sin el permiso
+        // `guias-internas.anular`.
+        abort_unless(auth()->user()?->hasPermission('guias-internas.anular'), 403);
+
+        $id = (string) ($record['id'] ?? '');
+
+        // Defensa en profundidad adicional, mismo patrón que "Movimientos
+        // entre almacenes": $record es un array plano (no Eloquent, sin
+        // re-fetch server-side por clave firmada) -- se revalida el local
+        // REAL de la guía contra Restaurant antes de anular, nunca contra
+        // un dato que pudo llegar del cliente. Falla cerrado si Restaurant
+        // no responde.
+        try {
+            $detalle = app(GuiasInternasGatewayClient::class)->detalle($id);
+        } catch (Throwable $exception) {
+            report($exception);
+            Notification::make()->danger()->title('No se pudo anular la guía interna')->body('Restaurant no respondió al verificar esta guía.')->send();
+
+            return;
+        }
+        abort_unless($this->localAllowedForUser((string) ($detalle['localOrigenId'] ?? '')), 403);
+
+        try {
+            app(GuiasInternasGatewayClient::class)->anular($id, $devolverCantidades);
+            Notification::make()->success()->title('Guía interna anulada')->body('Restaurant confirmó la anulación. El listado se actualizará desde Restaurant.')->send();
+            $this->resetTable();
+        } catch (Throwable $exception) {
+            report($exception);
+            Notification::make()->danger()->title('No se pudo anular la guía interna')->body($exception->getMessage())->send();
+        }
     }
 }
