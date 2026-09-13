@@ -14,12 +14,15 @@ use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class CuotasVentasRestaurant extends Page implements HasTable
 {
@@ -74,6 +77,26 @@ class CuotasVentasRestaurant extends Page implements HasTable
                     $this->periodo = Carbon::parse((string) $data['periodo'])->startOfMonth()->toDateString();
                     $this->resetTable();
                 }),
+            Action::make('plantilla')
+                ->label('Descargar plantilla')
+                ->icon('heroicon-o-arrow-down-tray')
+                ->color('gray')
+                ->visible(fn (): bool => $this->puedeEditar())
+                ->action(function () {
+                    abort_unless($this->puedeEditar(), 403);
+                    $libro = $this->service()->plantilla($this->periodo);
+                    $nombre = 'cuotas-restaurant-'.Carbon::parse($this->periodo)->format('Y-m').'.xlsx';
+
+                    return response()->streamDownload(function () use ($libro): void {
+                        try {
+                            (new Xlsx($libro))->save('php://output');
+                        } finally {
+                            $libro->disconnectWorksheets();
+                        }
+                    }, $nombre, [
+                        'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    ]);
+                }),
             Action::make('copiarMes')
                 ->label('Copiar mes')
                 ->icon('heroicon-o-document-duplicate')
@@ -118,17 +141,28 @@ class CuotasVentasRestaurant extends Page implements HasTable
                 ->fillForm(fn (): array => ['periodo' => $this->periodo])
                 ->schema([
                     Grid::make(['default' => 1, 'md' => 4])->schema([
-                        DatePicker::make('periodo')->label('Mes destino')->native(false)->required()->columnSpan(['md' => 2]),
-                        FileUpload::make('archivo')->label('Archivo Excel')->disk('local')->directory('imports/cuotas-restaurant')->acceptedFileTypes(['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])->maxSize(5120)->required()->columnSpan(['md' => 2]),
+                        DatePicker::make('periodo')->label('Mes destino')->native(false)->live()->required()->columnSpan(['md' => 2]),
+                        FileUpload::make('archivo')->label('Archivo Excel')->disk('local')->directory('imports/cuotas-restaurant')->acceptedFileTypes(['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])->maxSize(5120)->live()->required()->columnSpan(['md' => 2]),
+                        Toggle::make('sobrescribir')->label('Reemplazar cuotas existentes')->live()->default(false)->columnSpanFull(),
+                        View::make('filament.pages.ventas.partials.cuota-restaurant-resumen-importacion')->columnSpanFull(),
                     ]),
                 ])
                 ->action(function (array $data): void {
                     abort_unless($this->puedeEditar(), 403);
                     $ruta = (string) $data['archivo'];
                     try {
-                        $total = $this->service()->importarExcel(Storage::disk('local')->path($ruta), $data['periodo'], auth()->user());
-                    } finally {
+                        $total = $this->service()->importarExcel(
+                            Storage::disk('local')->path($ruta),
+                            $data['periodo'],
+                            auth()->user(),
+                            (bool) ($data['sobrescribir'] ?? false),
+                        );
                         Storage::disk('local')->delete($ruta);
+                    } catch (\Throwable $exception) {
+                        $mensaje = $exception instanceof \InvalidArgumentException
+                            ? $exception->getMessage()
+                            : 'No se pudo leer el archivo. Verifica que sea una plantilla Excel válida.';
+                        throw ValidationException::withMessages(['archivo' => $mensaje]);
                     }
                     $this->periodo = Carbon::parse((string) $data['periodo'])->startOfMonth()->toDateString();
                     $this->resetTable();

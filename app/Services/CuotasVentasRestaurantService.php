@@ -8,6 +8,9 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 class CuotasVentasRestaurantService
 {
@@ -72,45 +75,152 @@ class CuotasVentasRestaurantService
         return $filas->count();
     }
 
-    public function importarExcel(string $archivo, Carbon|string $periodo, ?User $usuario): int
+    /**
+     * Analiza un archivo de cuotas sin persistir cambios.
+     *
+     * @return array{total:int,nuevas:int,actualizaciones:int,errores:array<int,string>,registros:array<string,array<string,mixed>>}
+     */
+    public function prevalidarExcel(string $archivo, Carbon|string $periodo, bool $sobrescribir = false): array
     {
+        $mes = Carbon::parse($periodo)->startOfMonth()->toDateString();
         $filas = IOFactory::load($archivo)->getActiveSheet()->toArray(null, true, true, false);
-        $cabecera = $this->ubicarCabecera($filas);
-        $catalogo = CuotaVentaRestaurant::query()->orderByDesc('periodo')->get()->unique('codigo')->keyBy('codigo');
+        $errores = [];
+
+        try {
+            $cabecera = $this->ubicarCabecera($filas);
+        } catch (\InvalidArgumentException $exception) {
+            return [
+                'total' => 0,
+                'nuevas' => 0,
+                'actualizaciones' => 0,
+                'errores' => [$exception->getMessage()],
+                'registros' => [],
+            ];
+        }
+
+        $catalogo = $this->catalogoPorCodigo();
         $registros = [];
 
         foreach (array_slice($filas, $cabecera['fila'] + 1) as $indice => $fila) {
-            $codigo = trim((string) ($fila[$cabecera['codigo']] ?? ''));
+            $numeroFila = $cabecera['fila'] + $indice + 2;
+            $codigo = $this->normalizarCodigo($fila[$cabecera['codigo']] ?? '');
+            $tieneContenido = collect($fila)->contains(fn (mixed $valor): bool => filled($valor));
             if ($codigo === '') {
+                if ($tieneContenido) {
+                    $errores[] = "Fila {$numeroFila}: falta el código.";
+                }
                 continue;
             }
             if (isset($registros[$codigo])) {
-                throw new \InvalidArgumentException('El Excel repite el código '.$codigo.'.');
+                $errores[] = "Fila {$numeroFila}: el código {$codigo} está repetido.";
+                continue;
             }
             $referencia = $catalogo->get($codigo);
-            $local = trim((string) ($fila[$cabecera['local']] ?? $referencia?->local ?? ''));
-            if ($local === '') {
-                throw new \InvalidArgumentException('Falta la tienda del código '.$codigo.'.');
+            if ($referencia === null) {
+                $errores[] = "Fila {$numeroFila}: el código {$codigo} no pertenece a un local Restaurant.";
+                continue;
             }
-            $registros[$codigo] = [
-                'codigo' => $codigo,
-                'local_id' => $referencia?->local_id,
-                'local' => $local,
-                'cuota_sin_igv' => $this->numero($fila[$cabecera['sin_igv']] ?? null, $codigo, 'sin IGV'),
-                'cuota_con_igv' => $this->numero($fila[$cabecera['con_igv']] ?? null, $codigo, 'con IGV'),
-            ];
-        }
-        if ($registros === []) {
-            throw new \InvalidArgumentException('El Excel no contiene cuotas válidas.');
+
+            $local = trim((string) ($fila[$cabecera['local']] ?? ''));
+            if ($local === '') {
+                $errores[] = "Fila {$numeroFila}: falta la tienda del código {$codigo}.";
+                continue;
+            }
+            if ($this->normalizarLocal($local) !== $this->normalizarLocal($referencia->local)) {
+                $errores[] = "Fila {$numeroFila}: la tienda no corresponde al código {$codigo}.";
+                continue;
+            }
+
+            try {
+                $registros[$codigo] = [
+                    'codigo' => $codigo,
+                    'local_id' => $referencia->local_id,
+                    'local' => $referencia->local,
+                    'cuota_sin_igv' => $this->numero($fila[$cabecera['sin_igv']] ?? null, $codigo, 'sin IGV'),
+                    'cuota_con_igv' => $this->numero($fila[$cabecera['con_igv']] ?? null, $codigo, 'con IGV'),
+                ];
+            } catch (\InvalidArgumentException $exception) {
+                $errores[] = "Fila {$numeroFila}: {$exception->getMessage()}";
+            }
         }
 
-        DB::transaction(function () use ($registros, $periodo, $usuario): void {
-            foreach ($registros as $registro) {
+        if ($registros === []) {
+            $errores[] = 'El Excel no contiene cuotas válidas.';
+        }
+
+        $existentes = CuotaVentaRestaurant::query()
+            ->whereDate('periodo', $mes)
+            ->whereIn('codigo', array_keys($registros))
+            ->pluck('id', 'codigo');
+        $actualizaciones = $existentes->count();
+        if (($actualizaciones > 0) && ! $sobrescribir) {
+            $errores[] = "Hay {$actualizaciones} cuotas existentes para este mes. Activa “Reemplazar cuotas existentes” para actualizarlas.";
+        }
+
+        return [
+            'total' => count($registros),
+            'nuevas' => count($registros) - $actualizaciones,
+            'actualizaciones' => $actualizaciones,
+            'errores' => $errores,
+            'registros' => $registros,
+        ];
+    }
+
+    public function importarExcel(string $archivo, Carbon|string $periodo, ?User $usuario, bool $sobrescribir = false): int
+    {
+        $prevalidacion = $this->prevalidarExcel($archivo, $periodo, $sobrescribir);
+        if ($prevalidacion['errores'] !== []) {
+            throw new \InvalidArgumentException(implode(' ', array_slice($prevalidacion['errores'], 0, 5)));
+        }
+
+        DB::transaction(function () use ($prevalidacion, $periodo, $usuario): void {
+            foreach ($prevalidacion['registros'] as $registro) {
                 $this->guardar($registro, $periodo, $usuario, 'importada');
             }
         });
 
-        return count($registros);
+        return $prevalidacion['total'];
+    }
+
+    public function plantilla(Carbon|string $periodo): Spreadsheet
+    {
+        $mes = Carbon::parse($periodo)->startOfMonth()->toDateString();
+        $catalogo = $this->catalogoPorCodigo();
+        $existentes = CuotaVentaRestaurant::query()->whereDate('periodo', $mes)->get()->keyBy('codigo');
+
+        $libro = new Spreadsheet();
+        $hoja = $libro->getActiveSheet();
+        $hoja->setTitle('Cuotas');
+        $hoja->fromArray(['CÓDIGO', 'TIENDA', 'CUOTA SIN IGV', 'CUOTA CON IGV'], null, 'A1');
+
+        $fila = 2;
+        foreach ($catalogo as $codigo => $local) {
+            $cuota = $existentes->get($codigo);
+            $hoja->fromArray([
+                $codigo,
+                $local->local,
+                $cuota?->cuota_sin_igv,
+                $cuota?->cuota_con_igv,
+            ], null, "A{$fila}");
+            $fila++;
+        }
+        $this->estilizarPlantilla($hoja, $fila - 1);
+
+        $instrucciones = $libro->createSheet();
+        $instrucciones->setTitle('Instrucciones');
+        $instrucciones->fromArray([
+            ['PLANTILLA DE CUOTAS MENSUALES'],
+            ['1. No cambies los códigos ni los nombres de tienda.'],
+            ['2. Completa las dos columnas de cuota con importes no negativos.'],
+            ['3. Selecciona el mes destino antes de importar el archivo.'],
+        ], null, 'A1');
+        $instrucciones->getColumnDimension('A')->setWidth(78);
+        $instrucciones->getStyle('A1')->getFont()->setBold(true);
+        $instrucciones->getStyle('A1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF59E0B');
+
+        $libro->setActiveSheetIndex(0);
+
+        return $libro;
     }
 
     /** @param array<int, array<int, mixed>> $filas @return array{fila:int,codigo:int,local:int,sin_igv:int,con_igv:int} */
@@ -134,7 +244,14 @@ class CuotasVentasRestaurantService
 
     private function numero(mixed $valor, string $codigo, string $campo): float
     {
-        if (is_numeric($valor)) return (float) $valor;
+        if (is_numeric($valor)) {
+            $numero = (float) $valor;
+            if ($numero < 0) {
+                throw new \InvalidArgumentException("La cuota {$campo} del código {$codigo} no puede ser negativa.");
+            }
+
+            return $numero;
+        }
         $texto = str_replace(['S/', ' ', "\u{00A0}"], '', trim((string) $valor));
         if (str_contains($texto, ',') && str_contains($texto, '.')) {
             $texto = strrpos($texto, ',') > strrpos($texto, '.')
@@ -143,12 +260,51 @@ class CuotasVentasRestaurantService
         }
         elseif (str_contains($texto, ',')) $texto = str_replace(',', '.', $texto);
         if (! is_numeric($texto)) throw new \InvalidArgumentException("La cuota {$campo} del código {$codigo} no es numérica.");
-        return (float) $texto;
+        $numero = (float) $texto;
+        if ($numero < 0) {
+            throw new \InvalidArgumentException("La cuota {$campo} del código {$codigo} no puede ser negativa.");
+        }
+
+        return $numero;
     }
 
     private function normalizarCabecera(string $valor): string
     {
         return trim((string) preg_replace('/\s+/', ' ', mb_strtoupper(\Illuminate\Support\Str::ascii($valor))));
+    }
+
+    /** @return \Illuminate\Support\Collection<string, CuotaVentaRestaurant> */
+    private function catalogoPorCodigo(): \Illuminate\Support\Collection
+    {
+        return CuotaVentaRestaurant::query()
+            ->orderByDesc('periodo')
+            ->orderBy('codigo')
+            ->get()
+            ->unique(fn (CuotaVentaRestaurant $cuota): string => $this->normalizarCodigo($cuota->codigo))
+            ->keyBy(fn (CuotaVentaRestaurant $cuota): string => $this->normalizarCodigo($cuota->codigo));
+    }
+
+    private function normalizarCodigo(mixed $codigo): string
+    {
+        return mb_strtoupper(trim((string) $codigo));
+    }
+
+    private function normalizarLocal(string $local): string
+    {
+        return trim((string) preg_replace('/\s+/', ' ', mb_strtoupper(\Illuminate\Support\Str::ascii($local))));
+    }
+
+    private function estilizarPlantilla(Worksheet $hoja, int $ultimaFila): void
+    {
+        $hoja->freezePane('A2');
+        $hoja->setAutoFilter("A1:D{$ultimaFila}");
+        $hoja->getStyle('A1:D1')->getFont()->setBold(true)->getColor()->setARGB('FFFFFFFF');
+        $hoja->getStyle('A1:D1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF111827');
+        $hoja->getStyle("C2:D{$ultimaFila}")->getNumberFormat()->setFormatCode('#,##0.00');
+        $hoja->getColumnDimension('A')->setWidth(16);
+        $hoja->getColumnDimension('B')->setWidth(38);
+        $hoja->getColumnDimension('C')->setWidth(20);
+        $hoja->getColumnDimension('D')->setWidth(20);
     }
 
     /** @return array<string, mixed> */
