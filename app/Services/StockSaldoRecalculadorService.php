@@ -55,9 +55,21 @@ class StockSaldoRecalculadorService
                 'unidad' => $d->unidad,
             ])->all();
 
+        // Igual que Kardex: solo ajustes registrados DESDE la fecha_carga
+        // vigente -- barrida de huecos funcionales (2026-09-13). Sin este
+        // filtro, un ajuste hecho contra un baseline viejo seguiría
+        // sumándose para siempre, incluso después de un re-baseline real
+        // del stock inicial (ya pasó una vez, ver bitácora 2026-09-09):
+        // el nuevo `cantidad_inicial` ya reemplaza el conteo completo, así
+        // que un ajuste anterior a esa fecha quedaría duplicando una
+        // corrección que el recuento fresco ya absorbió. Sin datos reales
+        // afectados hoy (0 ajustes en el sistema al momento de este fix),
+        // pero el mismo patrón de "recalcular siempre desde `fecha_carga`"
+        // que ya aplica al resto de esta clase debía aplicar acá también.
         /** @var array<string, float> $ajustes */
         $ajustes = DB::table('stock_iniciales_ajustes')
             ->where('local_id', $localId)
+            ->whereDate('ajustado_en', '>=', $fechaCarga)
             ->selectRaw('item_id, item_tipo, SUM(cantidad_ajuste) AS total')
             ->groupBy('item_id', 'item_tipo')
             ->get()
