@@ -4,6 +4,7 @@ namespace App\Filament\Pages\Stock;
 
 use App\Filament\Concerns\ScopesLocalsToUser;
 use App\Models\DirectivaAjusteLocalDetalle;
+use App\Models\DirectivaAjusteLocalHistorial;
 use App\Models\DirectivaAjusteLocalSolicitud;
 use App\Models\DirectivaTransferenciaSugerencia;
 use App\Models\ProductoPresentacionDespacho;
@@ -345,13 +346,19 @@ class CargarSugeridoLocal extends Page implements HasTable
         abort_if($existente?->estado === 'aprobado', 403);
 
         if ($multiplos === 0) {
-            $existente?->delete();
+            if ($existente) {
+                $existente->setRelation('solicitud', $solicitud);
+                DirectivaAjusteLocalHistorial::registrar($existente, 'retirado');
+                $existente->delete();
+            }
             Notification::make()->success()->title('Solicitud retirada')->send();
 
             return;
         }
 
-        DirectivaAjusteLocalDetalle::updateOrCreate(
+        $eraNuevo = $existente === null;
+
+        $detalle = DirectivaAjusteLocalDetalle::updateOrCreate(
             ['solicitud_id' => $solicitud->id, 'item_id' => $productoReal->item_id, 'item_tipo' => $productoReal->item_tipo],
             [
                 'item_nombre' => $productoReal->item_nombre,
@@ -368,6 +375,12 @@ class CargarSugeridoLocal extends Page implements HasTable
                 'revisado_en' => null,
             ],
         );
+
+        // Pedido explícito del usuario: cada sugerido de un local queda
+        // como histórico, aunque la fila viva se sobrescriba o se retire
+        // después -- ver docblock de la migración/modelo del historial.
+        $detalle->setRelation('solicitud', $solicitud);
+        DirectivaAjusteLocalHistorial::registrar($detalle, $eraNuevo ? 'creado' : 'editado');
 
         Notification::make()->success()->title('Solicitud guardada')->body('Queda pendiente de aprobación.')->send();
     }

@@ -3,6 +3,7 @@
 namespace App\Filament\Pages\Stock;
 
 use App\Models\DirectivaAjusteLocalDetalle;
+use App\Models\DirectivaAjusteLocalHistorial;
 use App\Models\DirectivaTransferenciaSugerencia;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -92,6 +93,17 @@ class AprobarAjustesLocal extends Page implements HasTable
                         Textarea::make('comentario')->label('Motivo del rechazo')->required()->rows(2)->maxLength(500),
                     ])
                     ->action(fn (DirectivaAjusteLocalDetalle $record, array $data) => $this->rechazar(collect([$record]), $data['comentario'])),
+                Action::make('historial')
+                    ->label('Historial')
+                    ->icon('heroicon-o-clock')
+                    ->color('gray')
+                    ->modalHeading(fn (DirectivaAjusteLocalDetalle $record): string => 'Historial · '.$record->item_nombre.' · '.$record->solicitud->local_nombre)
+                    ->modalWidth('2xl')
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('Cerrar')
+                    ->modalContent(fn (DirectivaAjusteLocalDetalle $record) => view('filament.pages.stock.partials.ajuste-local-historial', [
+                        'eventos' => $this->historialPara($record),
+                    ])),
             ])
             ->bulkActions([
                 BulkAction::make('aprobarTodos')
@@ -112,6 +124,17 @@ class AprobarAjustesLocal extends Page implements HasTable
                     ->action(fn (Collection $records, array $data) => $this->rechazar($records->where('estado', 'pendiente'), $data['comentario'])),
             ])
             ->emptyStateHeading('No hay ajustes de locales para revisar.');
+    }
+
+    /** @return \Illuminate\Support\Collection<int, DirectivaAjusteLocalHistorial> */
+    private function historialPara(DirectivaAjusteLocalDetalle $detalle): \Illuminate\Support\Collection
+    {
+        return DirectivaAjusteLocalHistorial::where('local_id', $detalle->solicitud->local_id)
+            ->where('fecha_despacho', $detalle->solicitud->fecha_despacho)
+            ->where('item_id', $detalle->item_id)
+            ->where('item_tipo', $detalle->item_tipo)
+            ->orderByDesc('created_at')
+            ->get();
     }
 
     private function cantidadActual(DirectivaAjusteLocalDetalle $detalle): ?float
@@ -171,6 +194,7 @@ class AprobarAjustesLocal extends Page implements HasTable
                     'revisado_por' => auth()->id(),
                     'revisado_en' => now(),
                 ]);
+                DirectivaAjusteLocalHistorial::registrar($detalle, 'aprobado');
             });
             $aplicados++;
         }
@@ -202,6 +226,7 @@ class AprobarAjustesLocal extends Page implements HasTable
                 'revisado_por' => auth()->id(),
                 'revisado_en' => now(),
             ]);
+            DirectivaAjusteLocalHistorial::registrar($detalle, 'rechazado');
             $rechazados++;
         }
 
