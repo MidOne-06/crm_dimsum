@@ -10,6 +10,7 @@ use App\Models\ProductoComercialComposicion;
 use App\Models\ProductoComercialCosto;
 use App\Models\ProductoComercialRecetaManual;
 use App\Models\ProductoComercialRecetaManualComponente;
+use App\Models\ProductoComercialRestaurant;
 use App\Models\User;
 use App\Models\Venta;
 use App\Models\VentaDetalle;
@@ -176,6 +177,9 @@ class IndicadoresComercialesService
             ->whereIn('receta_manual_id', $recetaIds)
             ->get()
             ->groupBy('receta_manual_id');
+        $productos = ProductoComercialRestaurant::query()
+            ->get()
+            ->keyBy('restaurant_producto_id');
 
         $importeConCosto = 0.0;
         $costoTotal = 0.0;
@@ -191,6 +195,7 @@ class IndicadoresComercialesService
                 $costos,
                 $recetas,
                 $componentesReceta,
+                $productos,
             );
 
             if ($costoUnitario === null) {
@@ -204,8 +209,8 @@ class IndicadoresComercialesService
         return ['importe_con_costo' => $importeConCosto, 'costo' => $costoTotal];
     }
 
-    /** @param Collection<int, ProductoComercialComposicion> $composiciones @param Collection<int, Collection<int, ProductoComercialComponente>> $componentesComposicion @param Collection<string, Collection<int, ProductoComercialCosto>> $costos @param Collection<string, Collection<int, ProductoComercialRecetaManual>> $recetas @param Collection<int, Collection<int, ProductoComercialRecetaManualComponente>> $componentesReceta */
-    private function costoLineaRestaurant(?string $productoId, ?int $composicionId, string $fecha, Collection $composiciones, Collection $componentesComposicion, Collection $costos, Collection $recetas, Collection $componentesReceta): ?float
+    /** @param Collection<int, ProductoComercialComposicion> $composiciones @param Collection<int, Collection<int, ProductoComercialComponente>> $componentesComposicion @param Collection<string, Collection<int, ProductoComercialCosto>> $costos @param Collection<string, Collection<int, ProductoComercialRecetaManual>> $recetas @param Collection<int, Collection<int, ProductoComercialRecetaManualComponente>> $componentesReceta @param Collection<string, ProductoComercialRestaurant> $productos */
+    private function costoLineaRestaurant(?string $productoId, ?int $composicionId, string $fecha, Collection $composiciones, Collection $componentesComposicion, Collection $costos, Collection $recetas, Collection $componentesReceta, Collection $productos): ?float
     {
         if ($composicionId !== null && $composiciones->has($composicionId)) {
             $componentes = $componentesComposicion->get($composicionId, collect());
@@ -215,7 +220,7 @@ class IndicadoresComercialesService
 
             $total = 0.0;
             foreach ($componentes as $componente) {
-                $costo = $this->costoProductoRestaurant((string) $componente->componente_restaurant_producto_id, $fecha, $costos, $recetas, $componentesReceta, []);
+                $costo = $this->costoProductoRestaurant((string) $componente->componente_restaurant_producto_id, $fecha, $costos, $recetas, $componentesReceta, $productos, []);
                 if ($costo === null) {
                     return null;
                 }
@@ -225,11 +230,11 @@ class IndicadoresComercialesService
             return $total;
         }
 
-        return $productoId === null ? null : $this->costoProductoRestaurant($productoId, $fecha, $costos, $recetas, $componentesReceta, []);
+        return $productoId === null ? null : $this->costoProductoRestaurant($productoId, $fecha, $costos, $recetas, $componentesReceta, $productos, []);
     }
 
-    /** @param Collection<string, Collection<int, ProductoComercialCosto>> $costos @param Collection<string, Collection<int, ProductoComercialRecetaManual>> $recetas @param Collection<int, Collection<int, ProductoComercialRecetaManualComponente>> $componentesReceta @param array<int, string> $camino */
-    private function costoProductoRestaurant(string $productoId, string $fecha, Collection $costos, Collection $recetas, Collection $componentesReceta, array $camino): ?float
+    /** @param Collection<string, Collection<int, ProductoComercialCosto>> $costos @param Collection<string, Collection<int, ProductoComercialRecetaManual>> $recetas @param Collection<int, Collection<int, ProductoComercialRecetaManualComponente>> $componentesReceta @param Collection<string, ProductoComercialRestaurant> $productos @param array<int, string> $camino */
+    private function costoProductoRestaurant(string $productoId, string $fecha, Collection $costos, Collection $recetas, Collection $componentesReceta, Collection $productos, array $camino): ?float
     {
         if (in_array($productoId, $camino, true)) {
             return null;
@@ -243,7 +248,7 @@ class IndicadoresComercialesService
 
         $receta = $recetas->get($productoId, collect())->first(fn (ProductoComercialRecetaManual $fila): bool => $fila->vigente_desde->toDateString() <= $fecha);
         if ($receta === null) {
-            return null;
+            return $this->costoPresentacionDerivada($productoId, $fecha, $costos, $recetas, $componentesReceta, $productos, $camino);
         }
 
         $componentes = $componentesReceta->get($receta->id, collect());
@@ -253,7 +258,7 @@ class IndicadoresComercialesService
 
         $total = 0.0;
         foreach ($componentes as $componente) {
-            $costoComponente = $this->costoProductoRestaurant((string) $componente->componente_restaurant_producto_id, $fecha, $costos, $recetas, $componentesReceta, $camino);
+            $costoComponente = $this->costoProductoRestaurant((string) $componente->componente_restaurant_producto_id, $fecha, $costos, $recetas, $componentesReceta, $productos, $camino);
             if ($costoComponente === null) {
                 return null;
             }
@@ -261,6 +266,89 @@ class IndicadoresComercialesService
         }
 
         return $total;
+    }
+
+    /**
+     * Restaurant identifica cada presentación con un producto distinto. Las
+     * presentaciones que declaran una fracción exacta de docena son, sin
+     * embargo, el mismo producto unitario multiplicado por su cantidad. Esta
+     * regla conserva el costo base vigente y evita duplicar costos manuales.
+     *
+     * No se aplica a presentaciones ambiguas (ciento, gramos, botellas, etc.):
+     * esas continúan requiriendo un costo o receta explícita.
+     *
+     * @param Collection<string, Collection<int, ProductoComercialCosto>> $costos
+     * @param Collection<string, Collection<int, ProductoComercialRecetaManual>> $recetas
+     * @param Collection<int, Collection<int, ProductoComercialRecetaManualComponente>> $componentesReceta
+     * @param Collection<string, ProductoComercialRestaurant> $productos
+     * @param array<int, string> $camino
+     */
+    private function costoPresentacionDerivada(string $productoId, string $fecha, Collection $costos, Collection $recetas, Collection $componentesReceta, Collection $productos, array $camino): ?float
+    {
+        $producto = $productos->get($productoId);
+        if (! $producto) {
+            return null;
+        }
+
+        $presentacion = $this->presentacionPorDocena($this->descripcionProducto($producto));
+        if ($presentacion === null) {
+            return null;
+        }
+
+        [$base, $multiplicador] = $presentacion;
+        $baseId = $productos
+            ->reject(fn (ProductoComercialRestaurant $candidato): bool => $candidato->restaurant_producto_id === $productoId)
+            ->first(function (ProductoComercialRestaurant $candidato) use ($base): bool {
+                return $this->presentacionPorDocena($this->descripcionProducto($candidato)) === null
+                    && $this->claveProductoUnitario($this->descripcionProducto($candidato)) === $base;
+            })
+            ?->restaurant_producto_id;
+
+        if (! $baseId) {
+            return null;
+        }
+
+        $costoBase = $this->costoProductoRestaurant((string) $baseId, $fecha, $costos, $recetas, $componentesReceta, $productos, $camino);
+
+        return $costoBase === null ? null : $costoBase * $multiplicador;
+    }
+
+    /** @return array{0: string, 1: float}|null */
+    private function presentacionPorDocena(string $descripcion): ?array
+    {
+        $texto = mb_strtoupper(\Illuminate\Support\Str::ascii($descripcion));
+        $reglas = [
+            '/\b1\s*\/\s*2\s+DOCENA\b|\bMEDIA\s+DOCENA\b/' => 6.0,
+            '/\b1\s*\/\s*3\s+DOCENA\b/' => 4.0,
+            '/\bDOCENA\b/' => 12.0,
+        ];
+
+        foreach ($reglas as $patron => $multiplicador) {
+            if (preg_match($patron, $texto) !== 1) {
+                continue;
+            }
+
+            $base = preg_replace($patron, '', $texto);
+
+            return [$this->claveProductoUnitario((string) $base), $multiplicador];
+        }
+
+        return null;
+    }
+
+    private function descripcionProducto(ProductoComercialRestaurant $producto): string
+    {
+        return (string) ($producto->descripcion_venta ?: $producto->nombre ?: '');
+    }
+
+    private function claveProductoUnitario(string $descripcion): string
+    {
+        $texto = mb_strtoupper(\Illuminate\Support\Str::ascii($descripcion));
+        $texto = preg_replace('/\s*[:\-]\s*(?:UND|UN|UNIDAD)\b.*$/', '', $texto);
+        $texto = preg_replace('/\s*[:\-]\s*$/', '', (string) $texto);
+        $texto = preg_replace('/\s+/', ' ', (string) $texto);
+
+        return trim((string) $texto);
     }
 
     /** @param array{restaurant: Collection<int, CuotaVentaRestaurant>, externas: Collection<int, CanalVentaExterna>, unidades: Collection<int, array{tipo: string, id: string, codigo: string, nombre: string, local_id: ?string}>} $scope @return Collection<int, array{tipo: string, id: string, sin_igv: float, con_igv: float, costo: float, tickets: int}> */
