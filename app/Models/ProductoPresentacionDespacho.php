@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ProductoPresentacionDespacho extends Model
 {
@@ -10,11 +11,17 @@ class ProductoPresentacionDespacho extends Model
 
     protected $fillable = [
         'item_id', 'item_tipo', 'item_codigo', 'item_nombre', 'multiplo', 'nota',
+        'activo', 'motivo_pausa', 'pausado_por', 'pausado_en',
     ];
 
     protected function casts(): array
     {
-        return ['multiplo' => 'integer'];
+        return ['multiplo' => 'integer', 'activo' => 'boolean', 'pausado_en' => 'datetime'];
+    }
+
+    public function auditorias(): HasMany
+    {
+        return $this->hasMany(ProductoPresentacionDespachoAuditoria::class)->latest('created_at');
     }
 
     /** Redondea una cantidad hacia arriba al múltiplo válido más cercano. */

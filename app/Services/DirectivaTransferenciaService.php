@@ -169,7 +169,10 @@ class DirectivaTransferenciaService
     ): int {
         $hoy = Carbon::parse($fechaReferencia)->startOfDay();
 
-        $productos = ProductoPresentacionDespacho::all()->keyBy(fn ($p) => "{$p->item_id}|{$p->item_tipo}");
+        // `activo=false` = producto pausado manualmente desde "Presentación
+        // de despacho" (pedido explícito del usuario 2026-09-13) -- no
+        // participa en ningún cálculo hasta que se reactive.
+        $productos = ProductoPresentacionDespacho::where('activo', true)->get()->keyBy(fn ($p) => "{$p->item_id}|{$p->item_tipo}");
         if ($productos->isEmpty()) {
             return 0;
         }
@@ -446,7 +449,7 @@ class DirectivaTransferenciaService
             return [];
         }
 
-        $productos = ProductoPresentacionDespacho::get(['item_id', 'item_tipo']);
+        $productos = ProductoPresentacionDespacho::where('activo', true)->get(['item_id', 'item_tipo']);
         if ($productos->isEmpty()) {
             return [];
         }
@@ -529,7 +532,7 @@ class DirectivaTransferenciaService
             return [];
         }
 
-        $productos = ProductoPresentacionDespacho::get(['item_id', 'item_tipo']);
+        $productos = ProductoPresentacionDespacho::where('activo', true)->get(['item_id', 'item_tipo']);
         if ($productos->isEmpty()) {
             return array_fill_keys($localesIds, null);
         }

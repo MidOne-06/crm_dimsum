@@ -3,12 +3,15 @@
 namespace App\Filament\Resources;
 
 use App\Models\ProductoPresentacionDespacho;
+use App\Models\ProductoPresentacionDespachoAuditoria;
+use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -117,11 +120,73 @@ class ProductoPresentacionDespachoResource extends Resource
                 Tables\Columns\TextColumn::make('item_nombre')->label('Producto')->searchable()->sortable()->wrap(),
                 Tables\Columns\TextColumn::make('multiplo')->label('Múltiplo')->numeric()->alignEnd()->sortable()->badge()->color('info'),
                 Tables\Columns\TextColumn::make('nota')->label('Nota')->wrap()->limit(60)->placeholder('--'),
+                Tables\Columns\TextColumn::make('activo')->label('Estado')->badge()
+                    ->formatStateUsing(fn (bool $state): string => $state ? 'Activo' : 'Pausado')
+                    ->color(fn (bool $state): string => $state ? 'success' : 'gray')
+                    ->description(fn (ProductoPresentacionDespacho $record): ?string => $record->activo ? null : $record->motivo_pausa)
+                    ->tooltip(fn (ProductoPresentacionDespacho $record): ?string => $record->activo ? null : $record->motivo_pausa),
             ])
             ->defaultSort('item_nombre')
             ->recordTitleAttribute('item_nombre')
             ->actions([
                 EditAction::make()->iconButton()->tooltip('Editar')->modalWidth('xl')->stickyModalHeader()->stickyModalFooter()->modalSubmitActionLabel('Guardar')->modalCancelActionLabel('Cancelar'),
+                Action::make('pausar')
+                    ->label('Pausar')
+                    ->icon('heroicon-o-pause-circle')
+                    ->color('warning')
+                    ->iconButton()
+                    ->tooltip('Pausar -- deja de salir en la Directiva de Transferencia')
+                    ->visible(fn (ProductoPresentacionDespacho $record): bool => $record->activo)
+                    ->modalHeading(fn (ProductoPresentacionDespacho $record): string => 'Pausar '.$record->item_nombre)
+                    ->modalDescription('El producto deja de entrar en cualquier cálculo de la Directiva de Transferencia hasta que lo reactives -- su múltiplo y nota quedan guardados tal cual.')
+                    ->schema([
+                        Textarea::make('motivo')->label('Motivo')->required()->rows(2)->maxLength(500),
+                    ])
+                    ->action(function (ProductoPresentacionDespacho $record, array $data): void {
+                        abort_unless(auth()->user()?->hasPermission('presentacion-despacho.manage'), 403);
+
+                        $record->update([
+                            'activo' => false,
+                            'motivo_pausa' => $data['motivo'],
+                            'pausado_por' => auth()->id(),
+                            'pausado_en' => now(),
+                        ]);
+                        ProductoPresentacionDespachoAuditoria::create([
+                            'producto_presentacion_despacho_id' => $record->id,
+                            'accion' => 'pausado',
+                            'motivo' => $data['motivo'],
+                            'usuario_id' => auth()->id(),
+                            'created_at' => now(),
+                        ]);
+                        Notification::make()->success()->title('Producto pausado')->body("{$record->item_nombre} ya no saldrá en la Directiva de Transferencia.")->send();
+                    }),
+                Action::make('reactivar')
+                    ->label('Reactivar')
+                    ->icon('heroicon-o-play-circle')
+                    ->color('success')
+                    ->iconButton()
+                    ->tooltip('Reactivar -- vuelve a salir en la Directiva de Transferencia')
+                    ->visible(fn (ProductoPresentacionDespacho $record): bool => ! $record->activo)
+                    ->requiresConfirmation()
+                    ->modalHeading(fn (ProductoPresentacionDespacho $record): string => 'Reactivar '.$record->item_nombre)
+                    ->modalDescription('El producto vuelve a participar en el próximo cálculo de la Directiva de Transferencia.')
+                    ->action(function (ProductoPresentacionDespacho $record): void {
+                        abort_unless(auth()->user()?->hasPermission('presentacion-despacho.manage'), 403);
+
+                        $record->update([
+                            'activo' => true,
+                            'motivo_pausa' => null,
+                            'pausado_por' => null,
+                            'pausado_en' => null,
+                        ]);
+                        ProductoPresentacionDespachoAuditoria::create([
+                            'producto_presentacion_despacho_id' => $record->id,
+                            'accion' => 'reactivado',
+                            'usuario_id' => auth()->id(),
+                            'created_at' => now(),
+                        ]);
+                        Notification::make()->success()->title('Producto reactivado')->body("{$record->item_nombre} vuelve a participar en la Directiva de Transferencia.")->send();
+                    }),
                 DeleteAction::make()->iconButton()->tooltip('Eliminar'),
             ]);
     }
