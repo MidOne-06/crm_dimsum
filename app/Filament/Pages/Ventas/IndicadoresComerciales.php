@@ -94,8 +94,8 @@ class IndicadoresComerciales extends Page
                                 }
                             })
                             ->columnSpan(['default' => 1, 'md' => 2]),
-                        DatePicker::make('desde')->label('Desde')->native(false)->required(),
-                        DatePicker::make('hasta')->label('Hasta')->native(false)->required(),
+                        DatePicker::make('desde')->label('Desde')->native()->required(),
+                        DatePicker::make('hasta')->label('Hasta')->native()->required(),
                         Select::make('unidades')
                             ->label('Seleccionar tiendas / canales')
                             ->options(fn (): array => $this->opcionesUnidades())

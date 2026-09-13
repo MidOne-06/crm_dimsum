@@ -70,7 +70,7 @@ class CuotasVentasRestaurant extends Page implements HasTable
                 ->fillForm(fn (): array => ['periodo' => $this->periodo])
                 ->schema([
                     Grid::make(['default' => 1, 'md' => 4])->schema([
-                        DatePicker::make('periodo')->label('Mes')->native(false)->required()->columnSpan(['md' => 2]),
+                        DatePicker::make('periodo')->label('Mes')->native()->required()->columnSpan(['md' => 2]),
                     ]),
                 ])
                 ->action(function (array $data): void {
@@ -115,8 +115,8 @@ class CuotasVentasRestaurant extends Page implements HasTable
                 ])
                 ->schema([
                     Grid::make(['default' => 1, 'md' => 4])->schema([
-                        Select::make('origen')->label('Mes origen')->options(fn (): array => $this->opcionesPeriodos())->native(false)->required()->columnSpan(['md' => 2]),
-                        DatePicker::make('destino')->label('Mes destino')->native(false)->required()->columnSpan(['md' => 2]),
+                        Select::make('origen')->label('Mes origen')->options(fn (): array => $this->opcionesPeriodos())->native()->required()->columnSpan(['md' => 2]),
+                        DatePicker::make('destino')->label('Mes destino')->native()->required()->columnSpan(['md' => 2]),
                         Toggle::make('sobrescribir')->label('Reemplazar cuotas existentes')->default(false)->columnSpanFull(),
                     ]),
                 ])
@@ -141,7 +141,7 @@ class CuotasVentasRestaurant extends Page implements HasTable
                 ->fillForm(fn (): array => ['periodo' => $this->periodo])
                 ->schema([
                     Grid::make(['default' => 1, 'md' => 4])->schema([
-                        DatePicker::make('periodo')->label('Mes destino')->native(false)->live()->required()->columnSpan(['md' => 2]),
+                        DatePicker::make('periodo')->label('Mes destino')->native()->live()->required()->columnSpan(['md' => 2]),
                         FileUpload::make('archivo')->label('Archivo Excel')->disk('local')->directory('imports/cuotas-restaurant')->acceptedFileTypes(['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])->maxSize(5120)->live()->required()->columnSpan(['md' => 2]),
                         Toggle::make('sobrescribir')->label('Reemplazar cuotas existentes')->live()->default(false)->columnSpanFull(),
                         View::make('filament.pages.ventas.partials.cuota-restaurant-resumen-importacion')->columnSpanFull(),
