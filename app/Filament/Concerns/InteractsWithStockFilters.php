@@ -345,8 +345,26 @@ trait InteractsWithStockFilters
     {
         $state = $this->form->getState();
 
+        // `selectedLocals` es una propiedad del formulario Livewire
+        // (tamperable vía wire:model) -- `mountInteractsWithStockFilters()`
+        // ya filtra qué OPCIONES se ofrecen con `scopeLocalsToUser()`, pero
+        // eso solo protege el checkbox visible, no el valor efectivamente
+        // recibido acá (ver docblock de ScopesLocalsToUser). Sin esta
+        // revalidación, un usuario restringido podía editar el estado y
+        // pedirle al gateway el stock de un local fuera de su alcance.
+        $selectedLocals = $this->restrictLocalIdsToUser(array_map('strval', $state['selectedLocals'] ?? []));
+
+        // Un usuario restringido que deja el filtro vacío debe ver SOLO sus
+        // locales asignados -- 'locales' vacío en el gateway NO significa
+        // "todos" (cae al local de la sesión de Restaurant, mismo hallazgo
+        // real ya documentado para Guías internas el 2026-09-11), así que
+        // hay que completarlo explícitamente en vez de mandar una lista vacía.
+        if (blank($selectedLocals) && auth()->user()?->isRestrictedToLocals()) {
+            $selectedLocals = auth()->user()->assignedLocalIds();
+        }
+
         return [
-            'locales' => implode('-', $state['selectedLocals'] ?? []),
+            'locales' => implode('-', $selectedLocals),
             'estado' => (string) ($state['estado'] ?? '1'),
             'tipo' => (string) ($state['tipo'] ?? '-1'),
             'fechaInicio' => (string) ($this->data['fechaInicio'] ?? now()->toDateString()),
