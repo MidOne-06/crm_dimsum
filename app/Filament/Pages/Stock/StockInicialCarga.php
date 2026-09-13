@@ -83,6 +83,20 @@ class StockInicialCarga extends Page implements HasTable
 
     private function cargarCabecera(): void
     {
+        // Defensa en profundidad (2026-09-13, barrida de huecos
+        // funcionales): `localId` es una propiedad pública de Livewire --
+        // el Select ya filtra qué opciones se OFRECEN (`localOptions()`),
+        // pero eso no impide que alguien edite el payload `wire:model` y
+        // pida un local fuera de su alcance. Hoy `stock-inicial.crear`
+        // solo lo tiene `superadministrador` (nunca restringido a
+        // locales), así que no hay explotación real posible todavía, pero
+        // es el mismo patrón ya corregido en "Mover entre almacenes" y
+        // otras pantallas -- se cierra igual para no depender de que ese
+        // permiso nunca se le dé a un rol restringido más adelante.
+        if (! $this->localAllowedForUser((string) $this->localId)) {
+            $this->localId = null;
+        }
+
         if (! $this->localId) {
             $this->cabecera = null;
 
