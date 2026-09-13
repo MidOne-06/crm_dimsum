@@ -110,6 +110,14 @@ class VentasExternas extends Page implements HasTable
                 ->fillForm(fn (): array => ['fecha' => now()->toDateString(), 'canal_id' => $this->canalId, 'tickets' => 1, 'venta_sin_igv' => 0, 'igv' => 0, 'costo_sin_igv' => 0, 'venta_con_igv' => 0])
                 ->schema($this->ventaSchema())
                 ->action(function (array $data): void {
+                    // `visible()` de arriba solo oculta el botón -- Filament
+                    // no revisa isVisible() al montar/ejecutar una acción, así
+                    // que sin este chequeo cualquier usuario con acceso a la
+                    // pantalla (permiso .view) podría invocar esta acción
+                    // directo por Livewire sin tener el permiso específico
+                    // (mismo hallazgo real ya corregido en GuiasInternas).
+                    abort_unless((bool) auth()->user()?->hasPermission('ventas-externas.registrar'), 403);
+
                     app(VentasExternasService::class)->registrar($data, auth()->id());
                     $this->resetTable();
                     Notification::make()->success()->title('Venta externa registrada')->send();
@@ -134,7 +142,11 @@ class VentasExternas extends Page implements HasTable
                         TextInput::make('cuota_con_igv')->label('Cuota con IGV')->numeric()->prefix('S/')->minValue(0)->required(),
                     ]),
                 ])
-                ->action(fn (array $data) => $this->guardarCuota($data)),
+                ->action(function (array $data): void {
+                    abort_unless((bool) auth()->user()?->hasPermission('ventas-externas.cuotas'), 403);
+
+                    $this->guardarCuota($data);
+                }),
         ];
     }
 
@@ -187,6 +199,8 @@ class VentasExternas extends Page implements HasTable
                     ->fillForm(fn (VentaExternaDiaria $record): array => ['fecha' => $record->fecha->toDateString(), 'canal_id' => $record->canal_id, 'tickets' => $record->tickets, 'venta_sin_igv' => $record->venta_sin_igv, 'igv' => $record->igv, 'venta_con_igv' => $record->venta_con_igv, 'costo_sin_igv' => $record->costo_sin_igv, 'observacion' => $record->observacion])
                     ->schema($this->ventaSchema())
                     ->action(function (VentaExternaDiaria $record, array $data): void {
+                        abort_unless((bool) auth()->user()?->hasPermission('ventas-externas.editar'), 403);
+
                         app(VentasExternasService::class)->actualizar($record, $data, auth()->id());
                         $this->resetTable();
                         Notification::make()->success()->title('Venta externa actualizada')->send();
@@ -202,6 +216,8 @@ class VentasExternas extends Page implements HasTable
                     ->modalSubmitActionLabel('Anular venta')
                     ->schema([Textarea::make('motivo')->label('Motivo')->required()->rows(2)->maxLength(1000)])
                     ->action(function (VentaExternaDiaria $record, array $data): void {
+                        abort_unless((bool) auth()->user()?->hasPermission('ventas-externas.anular'), 403);
+
                         app(VentasExternasService::class)->anular($record, auth()->id(), $data['motivo'] ?? null);
                         $this->resetTable();
                         Notification::make()->success()->title('Venta externa anulada')->send();

@@ -101,6 +101,13 @@ class CostosRecetasComerciales extends Page implements HasTable
                     })
                     ->schema(fn (ProductoComercialRestaurant $record): array => $this->costoSchema($record))
                     ->action(function (ProductoComercialRestaurant $record, array $data): void {
+                        // `visible()` de arriba solo oculta el botón -- sin
+                        // este chequeo, un usuario con solo `.view` podría
+                        // invocar esta acción por Livewire y sobrescribir el
+                        // costo base de cualquier producto (mismo hallazgo
+                        // real ya corregido en GuiasInternas/VentasExternas).
+                        abort_unless((bool) auth()->user()?->hasPermission('ventas.costos.edit'), 403);
+
                         $this->costeo()->guardarCosto($record, $data, auth()->user());
                         $this->resetTable();
                         Notification::make()->success()->title('Costo guardado')->send();
@@ -129,6 +136,8 @@ class CostosRecetasComerciales extends Page implements HasTable
                     })
                     ->schema(fn (ProductoComercialRestaurant $record): array => $this->recetaSchema($record))
                     ->action(function (ProductoComercialRestaurant $record, array $data): void {
+                        abort_unless((bool) auth()->user()?->hasPermission('ventas.costos.edit'), 403);
+
                         $this->costeo()->guardarRecetaManual($record, $data, auth()->user());
                         $this->resetTable();
                         Notification::make()->success()->title('Receta guardada')->send();
