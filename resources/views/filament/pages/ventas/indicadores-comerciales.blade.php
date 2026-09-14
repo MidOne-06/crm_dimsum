@@ -14,7 +14,7 @@
         <x-filament::section compact>
             <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
                 <span class="font-medium text-gray-950 dark:text-white">{{ \Carbon\Carbon::parse($desde)->format('d/m/Y') }} al {{ \Carbon\Carbon::parse($hasta)->format('d/m/Y') }}</span>
-                <span class="text-gray-500 dark:text-gray-400">{{ $unidades === [] ? 'Todas las tiendas y canales' : count($unidades).' seleccionados' }} · {{ $tablero['unidades'] }} unidades</span>
+                <span class="text-gray-500 dark:text-gray-400">{{ $unidades === [] ? 'Todos los locales' : count($unidades).' locales seleccionados' }} · {{ $tablero['unidades'] }} locales</span>
             </div>
         </x-filament::section>
 

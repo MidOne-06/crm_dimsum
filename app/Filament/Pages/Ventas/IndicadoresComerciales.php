@@ -83,7 +83,7 @@ class IndicadoresComerciales extends Page
                 ->schema([
                     Grid::make(['default' => 1, 'md' => 4])->schema([
                         Select::make('alcance')
-                            ->label('Tiendas / canales')
+                            ->label('Locales')
                             ->options(['todas' => 'Todas', 'seleccion' => 'Seleccionar'])
                             ->native()
                             ->required()
@@ -97,7 +97,7 @@ class IndicadoresComerciales extends Page
                         DatePicker::make('desde')->label('Desde')->native()->required(),
                         DatePicker::make('hasta')->label('Hasta')->native()->required(),
                         Select::make('unidades')
-                            ->label('Seleccionar tiendas / canales')
+                            ->label('Seleccionar locales')
                             ->options(fn (): array => $this->opcionesUnidades())
                             ->multiple()
                             ->searchable()

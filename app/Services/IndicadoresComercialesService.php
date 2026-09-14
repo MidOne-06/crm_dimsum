@@ -125,7 +125,7 @@ class IndicadoresComercialesService
             ->where('ventas.estado', 'Activo')
             ->whereIn('ventas.local_id', $locales)
             ->whereBetween('ventas.venta_fecha', [$desde->copy()->startOfDay(), $hasta->copy()->endOfDay()])
-            ->selectRaw('venta_detalles.producto_restaurant_id, venta_detalles.composicion_comercial_id, DATE(ventas.venta_fecha) as fecha, COALESCE(SUM(venta_detalles.cantidad), 0) as cantidad, COALESCE(SUM(venta_detalles.importe), 0) as importe')
+            ->selectRaw('venta_detalles.producto_restaurant_id, venta_detalles.composicion_comercial_id, DATE(ventas.venta_fecha) as fecha, COALESCE(SUM(venta_detalles.cantidad), 0) as cantidad, COALESCE(SUM(venta_detalles.importe * COALESCE(ventas.subtotal / NULLIF(ventas.total, 0), 0)), 0) as importe_sin_igv')
             ->groupBy('venta_detalles.producto_restaurant_id', 'venta_detalles.composicion_comercial_id')
             ->groupByRaw('DATE(ventas.venta_fecha)')
             ->get();
@@ -181,7 +181,10 @@ class IndicadoresComercialesService
                 continue;
             }
 
-            $importeConCosto += (float) $linea->importe;
+            // La métrica de ventas y el margen se expresan sin IGV. Cada
+            // detalle llega desde Restaurant con importe de venta; se lo
+            // prorratea por comprobante antes de usarlo como cobertura.
+            $importeConCosto += (float) $linea->importe_sin_igv;
             $costoTotal += (float) $linea->cantidad * $costoUnitario;
         }
 
