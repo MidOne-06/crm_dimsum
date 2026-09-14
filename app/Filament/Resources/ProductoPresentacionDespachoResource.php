@@ -125,10 +125,13 @@ class ProductoPresentacionDespachoResource extends Resource
                     ->color(fn (bool $state): string => $state ? 'success' : 'gray')
                     // El motivo real puede ser largo (visto en producción: 353
                     // caracteres) -- mostrarlo completo como description()
-                    // estiraba toda la fila/columna. Se trunca a 40 caracteres
-                    // en pantalla; el texto completo sigue disponible al pasar
+                    // estiraba toda la fila/columna. Se resume a las primeras
+                    // 6 palabras completas (Str::words, no Str::limit -- este
+                    // último corta a la mitad de una palabra, ej. "despac...",
+                    // que no se lee como un resumen sino como texto truncado a
+                    // la fuerza). El texto completo sigue disponible al pasar
                     // el mouse (tooltip) sin truncar.
-                    ->description(fn (ProductoPresentacionDespacho $record): ?string => $record->activo ? null : \Illuminate\Support\Str::limit($record->motivo_pausa, 40))
+                    ->description(fn (ProductoPresentacionDespacho $record): ?string => $record->activo ? null : \Illuminate\Support\Str::words($record->motivo_pausa, 8))
                     ->tooltip(fn (ProductoPresentacionDespacho $record): ?string => $record->activo ? null : $record->motivo_pausa),
             ])
             ->defaultSort('item_nombre')
