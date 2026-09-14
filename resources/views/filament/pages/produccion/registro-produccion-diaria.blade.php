@@ -1,33 +1,35 @@
 <x-filament-panels::page>
     @if (count($productosParaRegistro))
-        <x-filament::section heading="Productos">
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                @foreach ($productosParaRegistro as $producto)
-                    @if ($this->puedeRegistrar() && ! $this->soloLectura())
-                        <x-filament::button
-                            type="button"
-                            color="gray"
-                            class="min-h-28 w-full !justify-start text-left"
-                            wire:click="mountAction('registrarTandaProducto', { productoId: {{ $producto['id'] }} })"
-                            wire:loading.attr="disabled"
-                            wire:target="mountAction"
-                        >
-                            <span class="flex w-full flex-col items-start gap-1">
-                                <span class="text-xs text-gray-500 dark:text-gray-400">{{ $producto['codigo'] ?: 'Sin código' }}</span>
-                                <span class="font-semibold text-gray-950 dark:text-white">{{ $producto['nombre'] }}</span>
-                                <span class="text-xs text-gray-500 dark:text-gray-400">{{ number_format($producto['disponible'], 2) }} {{ $producto['unidad'] }} · {{ $producto['tandas'] }} {{ $producto['tandas'] === 1 ? 'tanda' : 'tandas' }}</span>
-                            </span>
-                        </x-filament::button>
-                    @else
-                        <div class="min-h-28 rounded-xl border border-gray-200 p-4 dark:border-white/10">
-                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ $producto['codigo'] ?: 'Sin código' }}</div>
-                            <div class="mt-1 font-semibold text-gray-950 dark:text-white">{{ $producto['nombre'] }}</div>
-                            <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ number_format($producto['disponible'], 2) }} {{ $producto['unidad'] }} · {{ $producto['tandas'] }} {{ $producto['tandas'] === 1 ? 'tanda' : 'tandas' }}</div>
-                        </div>
-                    @endif
-                @endforeach
-            </div>
-        </x-filament::section>
+        @foreach ($productosPorCategoria as $categoria => $productos)
+            <x-filament::section :heading="$categoria" compact>
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    @foreach ($productos as $producto)
+                        @if ($this->puedeRegistrar() && ! $this->soloLectura())
+                            <x-filament::button
+                                type="button"
+                                color="gray"
+                                class="min-h-28 w-full !justify-start text-left"
+                                wire:click="mountAction('registrarTandaProducto', { productoId: {{ $producto['id'] }} })"
+                                wire:loading.attr="disabled"
+                                wire:target="mountAction"
+                            >
+                                <span class="flex w-full flex-col items-start gap-1">
+                                    <span class="text-xs text-gray-500 dark:text-gray-400">{{ $producto['codigo'] ?: 'Sin código' }}</span>
+                                    <span class="font-semibold text-gray-950 dark:text-white">{{ $producto['nombre'] }}</span>
+                                    <span class="text-xs text-gray-500 dark:text-gray-400">{{ number_format($producto['disponible'], 2) }} {{ $producto['unidad'] }} · {{ $producto['tandas'] }} {{ $producto['tandas'] === 1 ? 'tanda' : 'tandas' }}</span>
+                                </span>
+                            </x-filament::button>
+                        @else
+                            <div class="min-h-28 rounded-xl border border-gray-200 p-4 dark:border-white/10">
+                                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $producto['codigo'] ?: 'Sin código' }}</div>
+                                <div class="mt-1 font-semibold text-gray-950 dark:text-white">{{ $producto['nombre'] }}</div>
+                                <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ number_format($producto['disponible'], 2) }} {{ $producto['unidad'] }} · {{ $producto['tandas'] }} {{ $producto['tandas'] === 1 ? 'tanda' : 'tandas' }}</div>
+                            </div>
+                        @endif
+                    @endforeach
+                </div>
+            </x-filament::section>
+        @endforeach
     @endif
 
     @if ($mostrarCierre)
