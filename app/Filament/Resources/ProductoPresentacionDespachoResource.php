@@ -123,7 +123,12 @@ class ProductoPresentacionDespachoResource extends Resource
                 Tables\Columns\TextColumn::make('activo')->label('Estado')->badge()
                     ->formatStateUsing(fn (bool $state): string => $state ? 'Activo' : 'Pausado')
                     ->color(fn (bool $state): string => $state ? 'success' : 'gray')
-                    ->description(fn (ProductoPresentacionDespacho $record): ?string => $record->activo ? null : $record->motivo_pausa)
+                    // El motivo real puede ser largo (visto en producción: 353
+                    // caracteres) -- mostrarlo completo como description()
+                    // estiraba toda la fila/columna. Se trunca a 40 caracteres
+                    // en pantalla; el texto completo sigue disponible al pasar
+                    // el mouse (tooltip) sin truncar.
+                    ->description(fn (ProductoPresentacionDespacho $record): ?string => $record->activo ? null : \Illuminate\Support\Str::limit($record->motivo_pausa, 40))
                     ->tooltip(fn (ProductoPresentacionDespacho $record): ?string => $record->activo ? null : $record->motivo_pausa),
             ])
             ->defaultSort('item_nombre')
