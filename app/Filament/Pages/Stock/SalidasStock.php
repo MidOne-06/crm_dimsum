@@ -132,12 +132,12 @@ class SalidasStock extends Page implements HasTable
                     ->modalHeading(fn (SalidaStock $record): string => 'Salida #'.$record->restaurant_id)
                     ->modalWidth('7xl')->modalAlignment(Alignment::Start)->modalSubmitAction(false)->modalCancelActionLabel('Cerrar')->stickyModalHeader()->stickyModalFooter()
                     ->schema([
-                        Section::make()->schema([
+                        Section::make()->columnSpanFull()->schema([
                             TextEntry::make('fecha')->label('Fecha')->date('d/m/Y'), TextEntry::make('hora')->label('Hora')->placeholder('—'),
                             TextEntry::make('local_nombre')->label('Local')->placeholder('—'), TextEntry::make('categoria')->label('Categoría')->badge()->placeholder('—'),
                             TextEntry::make('responsable')->label('Responsable')->placeholder('—'), TextEntry::make('razon')->label('Razón')->columnSpanFull()->placeholder('—')->wrap(),
                         ])->columns(3),
-                        Section::make('Ítems')->schema([
+                        Section::make('Ítems')->columnSpanFull()->schema([
                             RepeatableEntry::make('detalles')->label('')->table([
                                 TableColumn::make('Ítem'), TableColumn::make('Almacén'), TableColumn::make('Cantidad')->alignEnd(), TableColumn::make('Unidad'), TableColumn::make('Costo')->alignEnd(), TableColumn::make('Total')->alignEnd(),
                             ])->schema([
