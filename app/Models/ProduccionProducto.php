@@ -9,7 +9,7 @@ class ProduccionProducto extends Model
 {
     protected $table = 'produccion_productos';
 
-    protected $fillable = ['codigo', 'nombre', 'unidad', 'activo'];
+    protected $fillable = ['restaurant_item_id', 'restaurant_item_tipo', 'restaurant_presentacion_id', 'codigo', 'nombre', 'unidad', 'activo'];
 
     protected function casts(): array { return ['activo' => 'boolean']; }
 

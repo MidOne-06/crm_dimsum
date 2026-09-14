@@ -13,7 +13,8 @@ class ListProduccionProductos extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [CreateAction::make()->label('Nuevo producto')->modalWidth('5xl')->stickyModalHeader()->stickyModalFooter()->modalSubmitActionLabel('Guardar')->modalCancelActionLabel('Cancelar')];
+        return [CreateAction::make()->label('Nuevo producto')->modalWidth('5xl')->stickyModalHeader()->stickyModalFooter()->modalSubmitActionLabel('Guardar')->modalCancelActionLabel('Cancelar')
+            ->using(fn (array $data) => ProduccionProductoResource::crearDesdeRestaurant($data))];
     }
 
     protected function makeTable(): Table
