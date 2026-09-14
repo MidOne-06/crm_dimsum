@@ -2,10 +2,19 @@
 
 namespace App\Services;
 
+use App\Models\ProduccionProducto;
 use Illuminate\Support\Str;
 
 class ProduccionCatalogoRestaurantService
 {
+    /** Productos terminados de Fábrica y salsas, validados contra Restaurant. */
+    private const CODIGOS_INICIALES = [
+        'SM001', 'SM002', 'SM003', 'WK001',
+        'MP001', 'MP002', 'MP003', 'MP004',
+        'ER001', 'AA003', 'AB001', 'KP001', 'WT001', 'SK001', 'TP001',
+        'CS001', 'CH001', 'SA001', 'SA002', 'SA003', 'SA004', 'SA005',
+    ];
+
     public function __construct(private readonly MovimientosAlmacenesGatewayClient $gateway) {}
 
     /** @return array<string, string> */
@@ -38,6 +47,49 @@ class ProduccionCatalogoRestaurantService
             return null;
         }
 
+        return $this->normalizarItem($payload);
+    }
+
+    /** @return array{creados:int,actualizados:int,faltantes:array<int,string>} */
+    public function sincronizarCatalogoInicial(): array
+    {
+        $creados = 0;
+        $actualizados = 0;
+        $faltantes = [];
+
+        foreach (self::CODIGOS_INICIALES as $codigo) {
+            $item = collect($this->gateway->items($codigo, '1'))
+                ->first(fn (array $fila): bool => (string) ($fila['item_tipo'] ?? '') === '1'
+                    && strtoupper(trim((string) ($fila['codigo'] ?? ''))) === $codigo
+                    && $this->esProductoProduccion($fila));
+
+            if (! $item) {
+                $faltantes[] = $codigo;
+                continue;
+            }
+
+            $datos = $this->normalizarItem($item);
+            $producto = ProduccionProducto::query()->firstOrNew([
+                'restaurant_item_id' => $datos['restaurant_item_id'],
+                'restaurant_item_tipo' => $datos['restaurant_item_tipo'],
+                'restaurant_presentacion_id' => $datos['restaurant_presentacion_id'],
+            ]);
+            $nuevo = ! $producto->exists;
+            $producto->fill($datos);
+            if ($nuevo) {
+                $producto->activo = true;
+            }
+            $producto->save();
+
+            $nuevo ? $creados++ : $actualizados++;
+        }
+
+        return compact('creados', 'actualizados', 'faltantes');
+    }
+
+    /** @param array<string, mixed> $payload @return array{restaurant_item_id:string,restaurant_item_tipo:string,restaurant_presentacion_id:?string,codigo:?string,nombre:string,unidad:string} */
+    private function normalizarItem(array $payload): array
+    {
         $codigo = trim((string) ($payload['codigo'] ?? ''));
 
         return [
