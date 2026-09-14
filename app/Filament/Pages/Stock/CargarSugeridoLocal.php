@@ -223,13 +223,12 @@ class CargarSugeridoLocal extends Page implements HasTable
                     ->icon('heroicon-o-pencil-square')
                     ->visible(fn (ProductoPresentacionDespacho $record): bool => $this->detallePara($record)?->estado !== 'aprobado')
                     ->modalHeading(fn (ProductoPresentacionDespacho $record): string => 'Ajuste para '.$record->item_nombre)
-                    ->modalDescription(fn (ProductoPresentacionDespacho $record): string => "Escribe la cantidad que necesitas de más o de menos -- se ajusta sola al múltiplo de despacho de este producto ({$record->multiplo} unidades). Ej. si pones 13 y el múltiplo es 15, queda en 15.")
                     ->fillForm(function (ProductoPresentacionDespacho $record): array {
                         $detalle = $this->detallePara($record);
 
                         return [
                             'delta' => $detalle ? (int) $detalle->delta_unidades : null,
-                            'motivo' => $detalle?->motivo,
+                            'motivo' => $detalle?->motivo ?? 'Demanda comercial',
                         ];
                     })
                     ->schema(fn (ProductoPresentacionDespacho $record): array => [
@@ -238,7 +237,7 @@ class CargarSugeridoLocal extends Page implements HasTable
                             ->numeric()
                             ->integer()
                             ->required()
-                            ->helperText("Se ajusta automáticamente al múltiplo más cercano de {$record->multiplo} unidades -- nunca queda una cantidad suelta.")
+                            ->helperText("Múltiplo: {$record->multiplo} un.")
                             // Pedido explícito del usuario: NO un desplegable
                             // con opciones fijas -- un campo libre que el
                             // local tipea normal (4, 13, -7...) y que se
@@ -257,7 +256,7 @@ class CargarSugeridoLocal extends Page implements HasTable
                                 }
                                 $set('delta', $this->redondearAlMultiploMasCercano((int) $state, $record->multiplo));
                             }),
-                        Textarea::make('motivo')->label('Motivo')->rows(2)->maxLength(500),
+                        Textarea::make('motivo')->label('Motivo')->rows(1)->maxLength(500)->default('Demanda comercial'),
                     ])
                     ->action(function (ProductoPresentacionDespacho $record, array $data): void {
                         $this->guardarSolicitud($record, (int) $data['delta'], $data['motivo'] ?? null);
