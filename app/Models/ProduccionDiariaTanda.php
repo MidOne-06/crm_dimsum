@@ -10,7 +10,7 @@ class ProduccionDiariaTanda extends Model
     protected $table = 'produccion_diaria_tandas';
 
     protected $fillable = [
-        'cierre_id', 'item_id', 'item_tipo', 'item_codigo', 'item_nombre',
+        'cierre_id', 'producto_id', 'item_id', 'item_tipo', 'item_codigo', 'item_nombre',
         'unidad', 'cantidad', 'nota', 'registrado_por',
     ];
 

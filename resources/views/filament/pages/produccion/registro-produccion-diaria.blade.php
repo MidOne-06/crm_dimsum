@@ -19,7 +19,7 @@
         @endif
         @if ($this->puedeAprobar() && $estado === 'enviado')
             <div class="flex justify-end">
-                <x-filament::button type="button" color="success" wire:click="aprobar" wire:confirm="Se aprobará el cierre y quedará bloqueado. Kardex no será modificado. ¿Continuar?" wire:loading.attr="disabled" wire:target="aprobar">Aprobar cierre</x-filament::button>
+                <x-filament::button type="button" color="success" wire:click="aprobar" wire:confirm="Se aprobará el cierre y quedará bloqueado. ¿Continuar?" wire:loading.attr="disabled" wire:target="aprobar">Aprobar cierre</x-filament::button>
             </div>
         @endif
     </form>
@@ -63,7 +63,12 @@
 
     @if (empty($data['items'] ?? []))
         <x-filament::section>
-            <p class="text-sm text-gray-600 dark:text-gray-300">No hay productos con cantidad sugerida en la DT de hoy.</p>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <p class="text-sm text-gray-600 dark:text-gray-300">No hay productos activos en el catálogo de Producción.</p>
+                @if (auth()->user()?->hasPermission('produccion-productos.manage'))
+                    <x-filament::button tag="a" :href="\App\Filament\Resources\ProduccionProductoResource::getUrl()" color="gray">Gestionar productos</x-filament::button>
+                @endif
+            </div>
         </x-filament::section>
     @endif
 </x-filament-panels::page>

@@ -9,7 +9,7 @@ class ProduccionDiariaDetalle extends Model
 {
     protected $table = 'produccion_diaria_detalles';
 
-    protected $fillable = ['cierre_id', 'item_id', 'item_tipo', 'item_codigo', 'item_nombre', 'unidad', 'stock_inicial', 'producido_hoy', 'stock_esperado', 'stock_final', 'diferencia', 'observacion'];
+    protected $fillable = ['cierre_id', 'producto_id', 'item_id', 'item_tipo', 'item_codigo', 'item_nombre', 'unidad', 'stock_inicial', 'producido_hoy', 'stock_esperado', 'stock_final', 'diferencia', 'observacion'];
 
     protected function casts(): array
     {
