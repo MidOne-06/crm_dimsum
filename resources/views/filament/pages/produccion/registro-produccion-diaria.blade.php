@@ -32,20 +32,9 @@
         @endforeach
     @endif
 
-    @if ($mostrarCierre)
-        <form class="space-y-4" wire:submit.prevent="guardarBorrador">
-            {{ $this->form }}
-
-            @if ($this->puedeRegistrar() && ! $this->soloLectura())
-                <div class="sticky bottom-3 z-10 flex flex-wrap justify-end gap-3 rounded-xl border border-gray-200 bg-white/95 p-3 shadow-lg backdrop-blur dark:border-white/10 dark:bg-gray-900/95">
-                    <x-filament::button type="submit" color="gray" wire:loading.attr="disabled" wire:target="guardarBorrador">Guardar borrador</x-filament::button>
-                    <x-filament::button type="button" color="primary" wire:click="enviarCierre" wire:loading.attr="disabled" wire:target="enviarCierre">Enviar cierre</x-filament::button>
-                </div>
-            @endif
-        </form>
-    @elseif ($this->puedeRegistrar() && ! $this->soloLectura())
+    @if ($this->puedeRegistrar() && ! $this->soloLectura())
         <div class="flex justify-end">
-            <x-filament::button type="button" color="gray" wire:click="abrirCierreFisico" wire:loading.attr="disabled" wire:target="abrirCierreFisico">Registrar cierre físico</x-filament::button>
+            <x-filament::button type="button" color="gray" wire:click="mountAction('registrarCierreFisico')" wire:loading.attr="disabled" wire:target="mountAction">Registrar cierre físico</x-filament::button>
         </div>
     @endif
 

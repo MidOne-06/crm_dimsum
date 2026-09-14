@@ -10,12 +10,12 @@ use App\Models\ProduccionProducto;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Repeater\TableColumn;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Grid;
-use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
@@ -46,7 +46,6 @@ class RegistroProduccionDiaria extends Page
     public array $productosPorCategoria = [];
     public ?int $cierreId = null;
     public string $estado = 'nuevo';
-    public bool $mostrarCierre = false;
     private string $intentoGuardar = 'borrador';
 
     public static function canAccess(): bool
@@ -59,28 +58,45 @@ class RegistroProduccionDiaria extends Page
 
     public function form(Schema $schema): Schema
     {
-        return $schema->components([
-            Section::make('Conciliación de cierre')->compact()->visible(fn (): bool => $this->mostrarCierre)->schema([
+        return $schema->components($this->cierreSchema())->statePath('data');
+    }
+
+    /** @return array<int, mixed> */
+    private function cierreSchema(): array
+    {
+        return [
+            Grid::make(1)->columnSpanFull()->schema([
                 Textarea::make('observacion')->label('Observación general')->rows(2)->maxLength(1000)->columnSpanFull()->disabled(fn (): bool => $this->soloLectura()),
-                Repeater::make('items')->label('')->hiddenLabel()->addable(false)->deletable(false)->reorderable(false)->itemNumbers(false)->compact()->columns(['default' => 1, 'md' => 12])->schema([
-                    Hidden::make('producto_id')->dehydrated(),
-                    Hidden::make('origen_inicial')->dehydrated(),
-                    TextInput::make('item_codigo')->label('Código')->readOnly()->dehydrated()->columnSpan(['md' => 1]),
-                    TextInput::make('item_nombre')->label('Producto')->readOnly()->dehydrated()->columnSpan(['md' => 3]),
-                    TextInput::make('unidad')->label('Unidad')->readOnly()->dehydrated()->columnSpan(['md' => 1]),
-                    TextInput::make('stock_inicial')->label('Stock inicial')->numeric()->minValue(0)->required()->live()->readOnly(fn (Get $get): bool => $get('origen_inicial') === 'cierre_anterior')
-                        ->disabled(fn (): bool => $this->soloLectura())->afterStateUpdated(fn (Get $get, Set $set) => $this->actualizarCalculos($get, $set))->columnSpan(['md' => 1]),
-                    TextInput::make('producido_hoy')->label('Acumulado producido')->numeric()->readOnly()->dehydrated()->columnSpan(['md' => 1]),
-                    TextInput::make('stock_esperado')->label('Stock esperado')->numeric()->readOnly()->dehydrated()->columnSpan(['md' => 1]),
-                    TextInput::make('stock_final')->label('Stock final físico')->numeric()->minValue(0)->inputMode('decimal')->live()->required(fn (): bool => $this->intentoGuardar === 'enviado')
-                        ->disabled(fn (): bool => $this->soloLectura())->afterStateUpdated(fn (Get $get, Set $set) => $this->actualizarCalculos($get, $set))->columnSpan(['md' => 1]),
-                    TextInput::make('diferencia')->label('Diferencia')->numeric()->readOnly()->dehydrated()->columnSpan(['md' => 1]),
-                    Textarea::make('observacion')->label('Motivo de diferencia')->rows(1)->maxLength(500)
-                        ->required(fn (Get $get): bool => $this->intentoGuardar === 'enviado' && abs((float) ($get('diferencia') ?? 0)) > 0.0001)
-                        ->disabled(fn (): bool => $this->soloLectura())->columnSpan(['md' => 12]),
-                ]),
+                Repeater::make('items')->label('')->hiddenLabel()->addable(false)->deletable(false)->reorderable(false)->itemNumbers(false)->compact()->columnSpanFull()
+                    ->table([
+                        TableColumn::make('Producto')->width('18rem'),
+                        TableColumn::make('Unidad')->width('6.5rem'),
+                        TableColumn::make('Inicial')->width('7rem'),
+                        TableColumn::make('Producido')->width('7rem'),
+                        TableColumn::make('Esperado')->width('7rem'),
+                        TableColumn::make('Final físico')->width('8rem'),
+                        TableColumn::make('Diferencia')->width('7rem'),
+                        TableColumn::make('Motivo')->width('15rem'),
+                    ])
+                    ->schema([
+                        Hidden::make('producto_id')->dehydrated(),
+                        Hidden::make('origen_inicial')->dehydrated(),
+                        Hidden::make('item_codigo')->dehydrated(),
+                        TextInput::make('item_nombre')->hiddenLabel()->readOnly()->dehydrated(),
+                        TextInput::make('unidad')->hiddenLabel()->readOnly()->dehydrated(),
+                        TextInput::make('stock_inicial')->hiddenLabel()->numeric()->minValue(0)->required()->live()->readOnly(fn (Get $get): bool => $get('origen_inicial') === 'cierre_anterior')
+                            ->disabled(fn (): bool => $this->soloLectura())->afterStateUpdated(fn (Get $get, Set $set) => $this->actualizarCalculos($get, $set)),
+                        TextInput::make('producido_hoy')->hiddenLabel()->numeric()->readOnly()->dehydrated(),
+                        TextInput::make('stock_esperado')->hiddenLabel()->numeric()->readOnly()->dehydrated(),
+                        TextInput::make('stock_final')->hiddenLabel()->numeric()->minValue(0)->inputMode('decimal')->live()->required(fn (): bool => $this->intentoGuardar === 'enviado')
+                            ->disabled(fn (): bool => $this->soloLectura())->afterStateUpdated(fn (Get $get, Set $set) => $this->actualizarCalculos($get, $set)),
+                        TextInput::make('diferencia')->hiddenLabel()->numeric()->readOnly()->dehydrated(),
+                        TextInput::make('observacion')->hiddenLabel()->maxLength(500)
+                            ->required(fn (Get $get): bool => $this->intentoGuardar === 'enviado' && abs((float) ($get('diferencia') ?? 0)) > 0.0001)
+                            ->disabled(fn (): bool => $this->soloLectura()),
+                    ]),
             ]),
-        ])->statePath('data');
+        ];
     }
 
     public function registrarTandaProductoAction(): Action
@@ -150,9 +166,34 @@ class RegistroProduccionDiaria extends Page
         });
     }
 
-    public function abrirCierreFisico(): void { $this->mostrarCierre = true; $this->cargarHoy(); }
-    public function guardarBorrador(): void { $this->guardar('borrador'); }
-    public function enviarCierre(): void { $this->guardar('enviado'); }
+    public function registrarCierreFisicoAction(): Action
+    {
+        return Action::make('registrarCierreFisico')
+            ->label('Registrar cierre físico')
+            ->icon('heroicon-o-clipboard-document-check')
+            ->visible(fn (): bool => $this->puedeRegistrar() && ! $this->soloLectura())
+            ->modalHeading('Conciliación de cierre')
+            ->modalWidth('7xl')
+            ->stickyModalHeader()
+            ->stickyModalFooter()
+            ->modalSubmitActionLabel('Enviar cierre')
+            ->modalCancelActionLabel('Cancelar')
+            ->extraModalFooterActions(fn (Action $action): array => [
+                $action->makeModalSubmitAction('guardarBorrador', ['destino' => 'borrador'])->label('Guardar borrador')->color('gray'),
+            ])
+            ->fillForm(function (): array {
+                $this->cargarHoy();
+
+                return $this->data;
+            })
+            ->schema($this->cierreSchema())
+            ->beforeFormValidated(function (Action $action): void {
+                $this->intentoGuardar = ($action->getArguments()['destino'] ?? 'enviado') === 'borrador' ? 'borrador' : 'enviado';
+            })
+            ->action(function (array $data, Action $action): void {
+                $this->guardar((string) ($action->getArguments()['destino'] ?? 'enviado'), $data);
+            });
+    }
 
     public function aprobar(): void
     {
@@ -272,11 +313,17 @@ class RegistroProduccionDiaria extends Page
         return number_format($cantidad, 2, '.', '');
     }
 
-    private function guardar(string $destino): void
+    /** @param array<string, mixed>|null $state */
+    private function guardar(string $destino, ?array $state = null): void
     {
         abort_unless($this->puedeRegistrar(), 403);
         if ($this->soloLectura()) throw ValidationException::withMessages(['items' => 'El cierre aprobado no puede modificarse.']);
-        $this->intentoGuardar = $destino; $state = $this->form->getState(); $this->intentoGuardar = 'borrador';
+        try {
+            $this->intentoGuardar = $destino;
+            $state ??= $this->form->getState();
+        } finally {
+            $this->intentoGuardar = 'borrador';
+        }
         $fecha = $this->fechaOperativa(); $items = $this->normalizarItems($fecha, (array) ($state['items'] ?? []), $destino === 'enviado');
         DB::transaction(function () use ($fecha, $state, $items, $destino): void {
             $cierre = ProduccionDiariaCierre::query()->whereDate('fecha', $fecha)->lockForUpdate()->with('detalles')->first();
