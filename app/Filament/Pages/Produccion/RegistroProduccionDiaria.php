@@ -7,9 +7,9 @@ use App\Models\ProduccionDiariaCierre;
 use App\Models\ProduccionDiariaDetalle;
 use App\Models\ProduccionDiariaTanda;
 use App\Models\ProduccionProducto;
+use Filament\Actions\Action;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
-use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
@@ -40,6 +40,8 @@ class RegistroProduccionDiaria extends Page
     public array $resumenProduccion = [];
     /** @var array<int, array<string, mixed>> */
     public array $tandasRecientes = [];
+    /** @var array<int, array<string, mixed>> */
+    public array $productosParaRegistro = [];
     public ?int $cierreId = null;
     public string $estado = 'nuevo';
     public bool $mostrarCierre = false;
@@ -56,18 +58,6 @@ class RegistroProduccionDiaria extends Page
     public function form(Schema $schema): Schema
     {
         return $schema->components([
-            Section::make('Registrar tanda')->compact()->schema([
-                Grid::make(['default' => 1, 'md' => 12])->schema([
-                    TextInput::make('fecha_visible')->label('Fecha de registro')->readOnly()->dehydrated(false)->columnSpan(['md' => 2]),
-                    TextInput::make('estado_actual')->label('Estado')->readOnly()->dehydrated(false)->columnSpan(['md' => 2]),
-                    Select::make('tanda.producto_id')->label('Producto')->options(fn (): array => $this->opcionesProductos())->searchable()->preload()->native(false)
-                        ->disabled(fn (): bool => $this->soloLectura())->columnSpan(['md' => 4]),
-                    TextInput::make('tanda.cantidad')->label('Cantidad producida')->numeric()->minValue(0.0001)->inputMode('decimal')
-                        ->disabled(fn (): bool => $this->soloLectura())->columnSpan(['md' => 2]),
-                    Textarea::make('tanda.nota')->label('Nota')->rows(1)->maxLength(500)
-                        ->disabled(fn (): bool => $this->soloLectura())->columnSpan(['md' => 12]),
-                ]),
-            ]),
             Section::make('Conciliación de cierre')->compact()->visible(fn (): bool => $this->mostrarCierre)->schema([
                 Textarea::make('observacion')->label('Observación general')->rows(2)->maxLength(1000)->columnSpanFull()->disabled(fn (): bool => $this->soloLectura()),
                 Repeater::make('items')->label('')->hiddenLabel()->addable(false)->deletable(false)->reorderable(false)->itemNumbers(false)->compact()->columns(['default' => 1, 'md' => 12])->schema([
@@ -91,16 +81,59 @@ class RegistroProduccionDiaria extends Page
         ])->statePath('data');
     }
 
-    public function registrarTanda(): void
+    public function registrarTandaProductoAction(): Action
     {
-        abort_unless($this->puedeRegistrar(), 403);
-        $tanda = (array) ($this->data['tanda'] ?? []);
-        $producto = ProduccionProducto::query()->where('activo', true)->find($tanda['producto_id'] ?? null);
-        $cantidad = is_numeric($tanda['cantidad'] ?? null) ? (float) $tanda['cantidad'] : 0;
-        $nota = trim((string) ($tanda['nota'] ?? '')) ?: null;
-        if (! $producto) throw ValidationException::withMessages(['data.tanda.producto_id' => 'Selecciona un producto de Producción.']);
-        if ($cantidad <= 0) throw ValidationException::withMessages(['data.tanda.cantidad' => 'Ingresa una cantidad mayor que cero.']);
+        return Action::make('registrarTandaProducto')
+            ->label('Registrar tanda')
+            ->icon('heroicon-o-plus')
+            ->visible(fn (): bool => $this->puedeRegistrar() && ! $this->soloLectura())
+            ->modalHeading(fn (Action $action): string => 'Registrar tanda · '.$this->productoDeAccion($action)->nombre)
+            ->modalWidth('5xl')
+            ->stickyModalHeader()
+            ->stickyModalFooter()
+            ->modalSubmitActionLabel('Registrar tanda')
+            ->modalCancelActionLabel('Cancelar')
+            ->fillForm(function (Action $action): array {
+                $producto = $this->productoDeAccion($action);
+                $resumen = $this->resumenProducto($producto->id);
 
+                return [
+                    'producto_id' => $producto->id,
+                    'producto' => trim(($producto->codigo ? $producto->codigo.' · ' : '').$producto->nombre),
+                    'stock_inicial' => $this->formatearCantidad($resumen['stock_inicial']),
+                    'producido_hoy' => $this->formatearCantidad($resumen['producido_hoy']),
+                    'disponible' => $this->formatearCantidad($resumen['disponible']),
+                    'cantidad' => null,
+                    'nota' => null,
+                ];
+            })
+            ->schema([
+                Grid::make(['default' => 1, 'md' => 4])->columnSpanFull()->schema([
+                    Hidden::make('producto_id')->required(),
+                    TextInput::make('producto')->label('Producto')->readOnly()->dehydrated(false)->columnSpanFull(),
+                    TextInput::make('stock_inicial')->label('Stock inicial')->readOnly()->dehydrated(false),
+                    TextInput::make('producido_hoy')->label('Acumulado producido')->readOnly()->dehydrated(false),
+                    TextInput::make('disponible')->label('Disponible')->readOnly()->dehydrated(false),
+                    TextInput::make('cantidad')->label('Cantidad producida')->numeric()->inputMode('decimal')->minValue(0.0001)->required(),
+                    Textarea::make('nota')->label('Nota')->rows(2)->maxLength(500)->columnSpanFull(),
+                ]),
+            ])
+            ->action(function (array $data): void {
+                abort_unless($this->puedeRegistrar(), 403);
+                $producto = ProduccionProducto::query()->where('activo', true)->find($data['producto_id'] ?? null);
+                $cantidad = is_numeric($data['cantidad'] ?? null) ? (float) $data['cantidad'] : 0;
+                $nota = trim((string) ($data['nota'] ?? '')) ?: null;
+                if (! $producto) throw ValidationException::withMessages(['producto_id' => 'El producto no está disponible para registrar.']);
+                if ($cantidad <= 0) throw ValidationException::withMessages(['cantidad' => 'Ingresa una cantidad mayor que cero.']);
+
+                $this->guardarTanda($producto, $cantidad, $nota);
+                Notification::make()->success()->title('Tanda registrada')->body(number_format($cantidad, 2).' '.$producto->unidad.' de '.$producto->nombre)->send();
+                $this->cargarHoy();
+            });
+    }
+
+    private function guardarTanda(ProduccionProducto $producto, float $cantidad, ?string $nota): void
+    {
         DB::transaction(function () use ($producto, $cantidad, $nota): void {
             $cierre = ProduccionDiariaCierre::query()->whereDate('fecha', $this->fechaOperativa())->lockForUpdate()->first();
             if ($cierre?->estado === 'aprobado') throw ValidationException::withMessages(['data.tanda.producto_id' => 'El cierre de hoy ya está aprobado.']);
@@ -113,8 +146,6 @@ class RegistroProduccionDiaria extends Page
             ]);
             $this->auditar($cierre, 'tanda_registrada', null, ['tanda' => ['id' => $tandaCreada->id, 'producto_id' => $producto->id, 'cantidad' => $cantidad, 'nota' => $nota]]);
         });
-        Notification::make()->success()->title('Tanda registrada')->body(number_format($cantidad, 2).' '.$producto->unidad.' de '.$producto->nombre)->send();
-        $this->cargarHoy();
     }
 
     public function abrirCierreFisico(): void { $this->mostrarCierre = true; $this->cargarHoy(); }
@@ -153,8 +184,7 @@ class RegistroProduccionDiaria extends Page
         $this->estado = $cierre?->estado ?? 'nuevo';
         $items = $this->itemsParaFormulario($fecha, $cierre);
         $this->actualizarResumen($fecha, $items);
-        $this->form->fill(['fecha_visible' => Carbon::parse($fecha)->locale('es')->isoFormat('dddd D [de] MMMM'), 'estado_actual' => $this->etiquetaEstado(),
-            'observacion' => $cierre?->observacion, 'tanda' => ['producto_id' => null, 'cantidad' => null, 'nota' => null], 'items' => $items]);
+        $this->form->fill(['observacion' => $cierre?->observacion, 'items' => $items]);
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -184,14 +214,6 @@ class RegistroProduccionDiaria extends Page
         })->all();
     }
 
-    /** @return array<string, string> */
-    private function opcionesProductos(): array
-    {
-        return ProduccionProducto::query()->where('activo', true)->orderBy('nombre')->get()->mapWithKeys(fn (ProduccionProducto $p): array => [
-            (string) $p->id => trim(($p->codigo ? $p->codigo.' · ' : '').$p->nombre.' · '.$p->unidad),
-        ])->all();
-    }
-
     /** @param array<int, array<string, mixed>> $items */
     private function actualizarResumen(string $fecha, array $items): void
     {
@@ -203,9 +225,45 @@ class RegistroProduccionDiaria extends Page
             return ['nombre' => $item['item_nombre'] ?? $tanda->item_nombre, 'codigo' => $item['item_codigo'] ?? $tanda->item_codigo,
                 'unidad' => $item['unidad'] ?? $tanda->unidad ?: 'UNIDAD', 'cantidad' => (float) $tanda->cantidad, 'tandas' => (int) $tanda->tandas];
         })->sortByDesc('cantidad')->values()->all();
-        $this->tandasRecientes = ProduccionDiariaTanda::query()->whereHas('cierre', fn ($q) => $q->whereDate('fecha', $fecha))->latest('created_at')->limit(8)->get()
+        $tandasPorProducto = $grupos->keyBy('producto_id');
+        $this->productosParaRegistro = $catalogo->map(function (array $item, int $productoId) use ($tandasPorProducto): array {
+            $tanda = $tandasPorProducto->get($productoId);
+
+            return [
+                'id' => $productoId,
+                'codigo' => $item['item_codigo'] ?? '',
+                'nombre' => $item['item_nombre'],
+                'unidad' => $item['unidad'] ?? 'UNIDAD',
+                'stock_inicial' => (float) ($item['stock_inicial'] ?? 0),
+                'producido_hoy' => (float) ($item['producido_hoy'] ?? 0),
+                'disponible' => (float) ($item['stock_esperado'] ?? 0),
+                'tandas' => (int) ($tanda?->tandas ?? 0),
+            ];
+        })->sortBy('nombre')->values()->all();
+        $this->tandasRecientes = ProduccionDiariaTanda::query()->with('registrador')->whereHas('cierre', fn ($q) => $q->whereDate('fecha', $fecha))->latest('created_at')->limit(8)->get()
             ->map(fn (ProduccionDiariaTanda $t): array => ['producto' => $t->item_nombre, 'cantidad' => (float) $t->cantidad, 'unidad' => $t->unidad ?: 'UNIDAD',
-                'nota' => $t->nota, 'hora' => $t->created_at?->timezone('America/Lima')->format('H:i')])->all();
+                'nota' => $t->nota, 'hora' => $t->created_at?->timezone('America/Lima')->format('H:i'), 'usuario' => $t->registrador?->name])->all();
+    }
+
+    /** @return array{stock_inicial: float, producido_hoy: float, disponible: float} */
+    private function resumenProducto(int $productoId): array
+    {
+        $item = collect($this->productosParaRegistro)->firstWhere('id', $productoId);
+        if (! $item) return ['stock_inicial' => 0, 'producido_hoy' => 0, 'disponible' => 0];
+
+        return ['stock_inicial' => (float) $item['stock_inicial'], 'producido_hoy' => (float) $item['producido_hoy'], 'disponible' => (float) $item['disponible']];
+    }
+
+    private function productoDeAccion(Action $action): ProduccionProducto
+    {
+        $productoId = (int) ($action->getArguments()['productoId'] ?? 0);
+
+        return ProduccionProducto::query()->where('activo', true)->findOrFail($productoId);
+    }
+
+    private function formatearCantidad(float $cantidad): string
+    {
+        return number_format($cantidad, 2, '.', '');
     }
 
     private function guardar(string $destino): void
