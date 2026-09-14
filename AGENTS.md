@@ -56,6 +56,36 @@ Evita por completo el problema de "árbol sucio de otro proceso".
 local.** Ver el skill `deploy-produccion` (`.claude/skills/deploy-produccion/`)
 para el flujo completo y por qué existe.
 
+## Estándar de modales (Filament)
+
+Todo Resource/Page nuevo que liste y edite registros sigue este patrón
+(ya aplicado en Permisos, TaperTipo, ProductoTaper, Presentación de
+Despacho, etc. -- ver Bitácora para el detalle de cada bug real que
+llevó a fijar cada regla):
+
+- **Sin rutas separadas de create/edit.** `getPages()` solo registra
+  `index`; `CreateAction`/`EditAction` abren como modal nativo de
+  Filament (no navegan a otra URL).
+- **Sin clic-en-cualquier-celda.** Sobreescribir `makeTable()` en la
+  página de listado con `->recordAction(null)->recordUrl(null)`
+  DESPUÉS de `parent::makeTable()` -- Filament lo pisa si se llama
+  antes o solo desde el Resource.
+- **El contenedor raíz del formulario siempre lleva
+  `->columnSpanFull()`** (en el `Section`/`Grid` que envuelve todos los
+  campos) -- sin esto, el formulario ocupa solo una fracción del ancho
+  del modal, dejando un hueco vacío grande al costado (bug real
+  encontrado más de una vez, ver Bitácora 2026-09-07 y 2026-09-13).
+- **Ningún campo va solo dentro de un `Grid::make(N)` con N>1** -- se
+  comprime a una fracción de columna, sin espacio ni para un dígito
+  (mismo bug, a nivel de un campo individual en vez del formulario
+  completo).
+- **Sin texto explicativo (`helperText`, `modalDescription`, etc.) en
+  los campos del modal**, pedido explícito del usuario (2026-09-13):
+  el manual de usuario del sistema se hará aparte al terminar todo el
+  proyecto, así que un campo no necesita explicarse a sí mismo en la
+  pantalla -- el label del campo alcanza. Motivo obligatorio en
+  Textarea, sí; ejemplo/explicación de cómo llenarlo, no.
+
 ## Bitácora
 
 Formato: `AAAA-MM-DD · herramienta · qué se hizo · qué queda pendiente/advertencias`.
@@ -188,3 +218,4 @@ corregir un error real.
 - 2026-09-13 · Claude Code · **Corrige fila "muy alargada" reportada por el usuario en `/admin/producto-presentacion-despachos`**, columna Estado. Causa real (confirmada renderizando la página completa server-side con una sesión de diagnóstico temporal -- no se pudo usar el navegador normal porque entrar una contraseña en un formulario de login está fuera de lo permitido para esta sesión, ni tampoco la vista previa de archivos locales de este entorno, que solo funciona dentro de un repo git real): `description()` de la columna `activo` mostraba el `motivo_pausa` completo debajo del badge, sin `Str::limit()` ni `->wrap()` -- verificado que los 15 productos pausados el mismo día (bebidas, salsas, harina, Wo Ti Kao) comparten un motivo real de **353 caracteres**, estirando esa fila mucho más que el resto. Fix: el texto visible se trunca a 40 caracteres con `Str::limit()`; el `tooltip()` (que ya existía) conserva el motivo completo al pasar el mouse. **Metodología usada para diagnosticar sin navegador**: se autenticó un usuario de diagnóstico temporal por `auth()->login()` dentro de un script de tinker (no por formulario web) y se despachó una `Request` real a través del `Illuminate\Contracts\Http\Kernel` para obtener el HTML exacto que ve un usuario real, luego se inspeccionó por texto/regex en vez de visualmente -- útil como patrón general para diagnosticar "cómo se ve una pantalla" cuando no se puede entrar por navegador. Verificado tras el fix con el mismo método: el texto en pantalla quedó truncado ("Ajuste de alcance del catálogo de despac...") con el motivo completo intacto en el tooltip. · Ninguno.
 - 2026-09-13 · Claude Code · **Segunda vuelta sobre la fila alargada de Presentación de Despacho, a pedido del usuario**: "que el motivo salga más corto resumido directo" -- `Str::limit(40)` cortaba a mitad de palabra ("...despac..."), que no se lee como un resumen. Cambiado a `Str::words($motivo, 8)`, que corta siempre en un límite de palabra completa ("Ajuste de alcance del catálogo de despacho pedido...", confirmado en el render real). **De paso, el usuario pidió revalidar que Editar/Nueva presentación/Pausar/Reactivar/Eliminar usen el estándar de modales del proyecto** (mismo patrón ya establecido en Permisos: sin rutas separadas de create/edit, sin navegación, un solo clic en un botón explícito abre el modal). Verificado inspeccionando el HTML real renderizado server-side (misma técnica de la entrada anterior -- sesión de diagnóstico vía `auth()->login()` + `Kernel::handle()`, sin navegador): los 5 botones (`Editar`, `Nueva presentación`, `Pausar`, `Reactivar`, `Eliminar`) tienen `wire:click="mountAction(...)"` -- ninguno es un `<a href>` ni navega a otra página -- y no existe `mountTableAction` en ningún lado de la tabla (confirmando que `recordAction(null)->recordUrl(null)` sigue evitando el bug de "clic en cualquier celda abre Editar" ya visto antes en Permisos). Sin cambios de código en esta parte -- ya cumplía el estándar, solo se confirmó con evidencia real. · Ninguno.
 - 2026-09-13 · Claude Code · **Bug real encontrado con captura de pantalla del usuario** (el motivo corto ya se veía bien, pero el modal "Crear Presentación de Despacho" seguía viéndose "alargado" -- captura mostró un hueco vacío enorme a la derecha del formulario, con los `helperText` envueltos en muchas líneas dentro de una franja angosta). Causa: la `Section::make()` raíz de `ProductoPresentacionDespachoResource::form()` no tenía `->columnSpanFull()`, así que solo ocupaba una fracción del grid del modal en vez de todo su ancho -- confirmado comparando contra `TaperTipoResource::form()` (mismo estándar de modales), que sí envuelve su `Grid` raíz con `->columnSpanFull()`. Mismo patrón de bug ya documentado varias veces en esta bitácora (Permisos 2026-09-07, Presentación de Despacho 2026-09-07: "nunca envolver un solo campo en un `Grid::make(N)` sin que ocupe todo su contenedor"), esta vez a nivel del contenedor raíz del formulario completo, no de un campo individual. Fix: agregado `->columnSpanFull()` a la `Section`. **Nota de verificación**: no se pudo confirmar visualmente con captura propia -- el contenido del modal de crear/editar se carga vía Livewire (`mountAction`) de forma perezosa, no viene en el HTML inicial de la página (confirmado: "Múltiplo de despacho" no aparece en el render inicial), y `Livewire::test()->html()` ya se documentó como no confiable para esto (ver entrada 2026-09-06, Stock Consolidado). El fix se aplicó por comparación directa de código contra un caso ya corregido y verificado en el proyecto, pendiente de que el usuario confirme visualmente tras el deploy. · Pendiente: confirmación visual del usuario.
+- 2026-09-14 · Claude Code · **Nueva regla permanente en el estándar de modales, pedido explícito del usuario**: "no colocar texto explicativo en cada campo del modal, eso no es necesario ya que realizaré un manual de usuario al final de todo el sistema". Agregada como sección propia (no solo bitácora) en `CLAUDE.md`/`AGENTS.md` para que se respete en todo Resource/Page nuevo, no solo en el que motivó el pedido. Quitados los 2 `helperText` de ejemplo que quedaban en `ProductoPresentacionDespachoResource::form()` (múltiplo, nota). **Excepción consultada y confirmada con el usuario**: el `helperText` de "Cargar mi sugerido" que muestra el múltiplo real de CADA producto (`"Múltiplo: {$record->multiplo} un."`) se mantiene -- no es un texto instructivo genérico, es un dato operativo que cambia por fila y que el local necesita para saber a qué número se redondeará su pedido; sin él no hay manual que lo reemplace, porque el manual no puede documentar un valor dinámico por producto. · Ninguno.

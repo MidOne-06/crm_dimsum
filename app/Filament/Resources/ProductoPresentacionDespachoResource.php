@@ -104,10 +104,8 @@ class ProductoPresentacionDespachoResource extends Resource
                 // fracción de columna (medido en el DOM real: 31px de
                 // ancho, sin espacio ni para un dígito). El campo va suelto
                 // en la Section (que ya tiene sus propias 2 columnas).
-                TextInput::make('multiplo')->label('Múltiplo de despacho')->numeric()->required()->minValue(1)->default(1)
-                    ->helperText('Ej. 25 -- solo se despacha en cantidades 25, 50, 75...'),
-                Textarea::make('nota')->label('Nota (opcional)')->rows(2)->columnSpanFull()
-                    ->helperText('Ej. "Cantidades de despacho: 15 - 30 - 45 y así" para casos con un patrón distinto al múltiplo simple.'),
+                TextInput::make('multiplo')->label('Múltiplo de despacho')->numeric()->required()->minValue(1)->default(1),
+                Textarea::make('nota')->label('Nota (opcional)')->rows(2)->columnSpanFull(),
             ])->columns(2),
         ]);
     }
