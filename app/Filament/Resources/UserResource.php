@@ -12,6 +12,7 @@ use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
@@ -214,6 +215,8 @@ class UserResource extends Resource
                             ]),
                     ])
                     ->action(function (User $record): void {
+                        abort_unless(static::canManageUsers() && static::canManageUserRecord($record), 403);
+
                         $record->forceFill([
                             'password' => static::terminalPasswordFor($record),
                         ])->save();
