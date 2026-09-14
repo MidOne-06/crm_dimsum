@@ -207,10 +207,11 @@ class RegistroProduccionDiaria extends Page
     /** @return array<int, array<string, mixed>> */
     private function itemsDesdeCatalogo(string $fecha): array
     {
-        return ProduccionProducto::query()->where('activo', true)->orderBy('nombre')->get()->map(function (ProduccionProducto $producto) use ($fecha): array {
+        return ProduccionProducto::query()->with('categoria')->where('activo', true)->orderBy('nombre')->get()->map(function (ProduccionProducto $producto) use ($fecha): array {
             $inicial = $this->stockInicialAnterior($fecha, $producto->id);
             $producido = $this->totalProducido($fecha, $producto->id);
             return ['producto_id' => $producto->id, 'item_codigo' => $producto->codigo, 'item_nombre' => $producto->nombre, 'unidad' => $producto->unidad,
+                'categoria' => $producto->categoria?->nombre ?? 'Sin categoría', 'orden_categoria' => $producto->categoria?->orden ?? PHP_INT_MAX,
                 'stock_inicial' => $inicial ?? 0, 'producido_hoy' => $producido, 'stock_esperado' => round(($inicial ?? 0) + $producido, 4),
                 'stock_final' => null, 'diferencia' => null, 'observacion' => null, 'origen_inicial' => $inicial === null ? 'apertura' : 'cierre_anterior'];
         })->all();
@@ -230,14 +231,12 @@ class RegistroProduccionDiaria extends Page
         $tandasPorProducto = $grupos->keyBy('producto_id');
         $productos = $catalogo->map(function (array $item, int $productoId) use ($tandasPorProducto): array {
             $tanda = $tandasPorProducto->get($productoId);
-            [$categoria, $ordenCategoria] = $this->categoriaProducto((string) ($item['item_codigo'] ?? ''));
-
             return [
                 'id' => $productoId,
                 'codigo' => $item['item_codigo'] ?? '',
                 'nombre' => $item['item_nombre'],
-                'categoria' => $categoria,
-                'orden_categoria' => $ordenCategoria,
+                'categoria' => $item['categoria'] ?? 'Sin categoría',
+                'orden_categoria' => $item['orden_categoria'] ?? PHP_INT_MAX,
                 'unidad' => $item['unidad'] ?? 'UNIDAD',
                 'stock_inicial' => (float) ($item['stock_inicial'] ?? 0),
                 'producido_hoy' => (float) ($item['producido_hoy'] ?? 0),
@@ -259,18 +258,6 @@ class RegistroProduccionDiaria extends Page
         if (! $item) return ['stock_inicial' => 0, 'producido_hoy' => 0, 'disponible' => 0];
 
         return ['stock_inicial' => (float) $item['stock_inicial'], 'producido_hoy' => (float) $item['producido_hoy'], 'disponible' => (float) $item['disponible']];
-    }
-
-    /** @return array{0: string, 1: int} */
-    private function categoriaProducto(string $codigo): array
-    {
-        return match (true) {
-            str_starts_with($codigo, 'SM') => ['Siu Mai', 1],
-            str_starts_with($codigo, 'MP') => ['Min Pao', 2],
-            str_starts_with($codigo, 'ER'), str_starts_with($codigo, 'WK'), str_starts_with($codigo, 'TP') => ['Enrollados y masas', 3],
-            str_starts_with($codigo, 'SA') => ['Salsas', 5],
-            default => ['Frituras y complementos', 4],
-        };
     }
 
     private function productoDeAccion(Action $action): ProduccionProducto

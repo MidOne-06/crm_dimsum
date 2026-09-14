@@ -43,6 +43,7 @@ class ProduccionProductoResource extends Resource
                     TextInput::make('codigo')->label('Código')->readOnly()->columnSpan(['md' => 1]),
                     TextInput::make('nombre')->label('Producto')->readOnly()->required()->columnSpan(['md' => 2]),
                     TextInput::make('unidad')->label('Unidad')->readOnly()->required()->default('UNIDAD')->columnSpan(['md' => 1]),
+                    Select::make('produccion_categoria_id')->label('Categoría')->relationship('categoria', 'nombre')->searchable()->preload()->columnSpanFull(),
                     Toggle::make('activo')->label('Activo')->default(true)->columnSpanFull(),
                 ]),
             ]),
@@ -55,10 +56,16 @@ class ProduccionProductoResource extends Resource
             Tables\Columns\TextColumn::make('codigo')->label('Código')->searchable(),
             Tables\Columns\TextColumn::make('nombre')->label('Producto')->searchable()->sortable()->weight('medium')->wrap(),
             Tables\Columns\TextColumn::make('unidad')->label('Unidad')->sortable(),
+            Tables\Columns\TextColumn::make('categoria.nombre')->label('Categoría')->placeholder('Sin categoría')->sortable(),
             Tables\Columns\IconColumn::make('activo')->label('Activo')->boolean(),
+        ])->filters([
+            Tables\Filters\SelectFilter::make('produccion_categoria_id')->label('Categoría')->relationship('categoria', 'nombre')->searchable()->preload(),
+            Tables\Filters\Filter::make('sin_categoria')->label('Sin categoría')->query(fn ($query) => $query->whereNull('produccion_categoria_id')),
         ])->defaultSort('nombre')->recordTitleAttribute('nombre')->actions([
-            Action::make('actualizar_restaurant')->label('Actualizar')->icon('heroicon-o-arrow-path')->modalWidth('5xl')->stickyModalHeader()->stickyModalFooter()
-                ->modalSubmitActionLabel('Actualizar')->modalCancelActionLabel('Cancelar')->schema([static::selectorRestaurant()])
+            Action::make('actualizar_restaurant')->label('Actualizar')->icon('heroicon-o-arrow-path')->modalWidth('5xl')
+                ->modalSubmitActionLabel('Actualizar')->modalCancelActionLabel('Cancelar')->schema([
+                    Grid::make(['default' => 1])->columnSpanFull()->schema([static::selectorRestaurant()->columnSpanFull()]),
+                ])
                 ->action(function (ProduccionProducto $record, array $data): void {
                     static::actualizarDesdeRestaurant($record, $data);
                     Notification::make()->success()->title('Producto actualizado')->send();
@@ -72,6 +79,7 @@ class ProduccionProductoResource extends Resource
         $selector = Select::make('restaurant_origen')
             ->label('Producto')
             ->searchable()
+            ->optionsLimit(8)
             ->getSearchResultsUsing(fn (string $search): array => app(ProduccionCatalogoRestaurantService::class)->opciones($search))
             ->live()
             ->required()
@@ -95,7 +103,11 @@ class ProduccionProductoResource extends Resource
     {
         $producto = static::datosRestaurant($data);
 
-        return ProduccionProducto::query()->create([...$producto, 'activo' => (bool) ($data['activo'] ?? true)]);
+        return ProduccionProducto::query()->create([
+            ...$producto,
+            'produccion_categoria_id' => $data['produccion_categoria_id'] ?? null,
+            'activo' => (bool) ($data['activo'] ?? true),
+        ]);
     }
 
     /** @param array<string, mixed> $data */
