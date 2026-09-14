@@ -36,7 +36,7 @@
                 @endforeach
             </div>
         @else
-            <p class="text-sm text-gray-500 dark:text-gray-400">Aún no se registraron tandas hoy.</p>
+            <p class="text-sm text-gray-500 dark:text-gray-400">Sin registros.</p>
         @endif
     </x-filament::section>
 
@@ -64,7 +64,7 @@
     @if (empty($data['items'] ?? []))
         <x-filament::section>
             <div class="flex flex-wrap items-center justify-between gap-3">
-                <p class="text-sm text-gray-600 dark:text-gray-300">No hay productos activos en el catálogo de Producción.</p>
+                <p class="text-sm text-gray-600 dark:text-gray-300">Sin productos activos.</p>
                 @if (auth()->user()?->hasPermission('produccion-productos.manage'))
                     <x-filament::button tag="a" :href="\App\Filament\Resources\ProduccionProductoResource::getUrl()" color="gray">Gestionar productos</x-filament::button>
                 @endif

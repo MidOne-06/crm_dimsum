@@ -61,10 +61,10 @@ class RegistroProduccionDiaria extends Page
                     TextInput::make('fecha_visible')->label('Fecha de registro')->readOnly()->dehydrated(false)->columnSpan(['md' => 2]),
                     TextInput::make('estado_actual')->label('Estado')->readOnly()->dehydrated(false)->columnSpan(['md' => 2]),
                     Select::make('tanda.producto_id')->label('Producto')->options(fn (): array => $this->opcionesProductos())->searchable()->preload()->native(false)
-                        ->placeholder('Selecciona un producto')->disabled(fn (): bool => $this->soloLectura())->columnSpan(['md' => 4]),
-                    TextInput::make('tanda.cantidad')->label('Cantidad producida')->numeric()->minValue(0.0001)->inputMode('decimal')->placeholder('0')
+                        ->disabled(fn (): bool => $this->soloLectura())->columnSpan(['md' => 4]),
+                    TextInput::make('tanda.cantidad')->label('Cantidad producida')->numeric()->minValue(0.0001)->inputMode('decimal')
                         ->disabled(fn (): bool => $this->soloLectura())->columnSpan(['md' => 2]),
-                    Textarea::make('tanda.nota')->label('Nota')->rows(1)->maxLength(500)->placeholder('Responsable, turno o incidencia')
+                    Textarea::make('tanda.nota')->label('Nota')->rows(1)->maxLength(500)
                         ->disabled(fn (): bool => $this->soloLectura())->columnSpan(['md' => 12]),
                 ]),
             ]),

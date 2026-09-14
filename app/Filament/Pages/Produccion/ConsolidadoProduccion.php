@@ -76,7 +76,7 @@ class ConsolidadoProduccion extends Page implements HasTable
             ->defaultPaginationPageOption(25)
             ->recordAction(null)
             ->recordUrl(null)
-            ->emptyStateHeading('No hay producción registrada para este mes.');
+            ->emptyStateHeading('Sin registros.');
     }
 
     /** @return array<int, Tables\Columns\TextColumn> */
