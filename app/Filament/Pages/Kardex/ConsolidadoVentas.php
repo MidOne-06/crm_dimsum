@@ -163,6 +163,7 @@ class ConsolidadoVentas extends Page implements HasTable
                     ->hintIcon('heroicon-m-information-circle', 'Cada columna combina local y fecha -- para ver, por ejemplo, cuánto vendió el Local 2 el día 29 contra el día 30.')
                     ->live(),
                 Grid::make(['default' => 1, 'md' => 3])
+                    ->columnSpanFull()
                     ->visible(fn (Get $get): bool => ! $get('compararFechas'))
                     ->schema([
                         DatePicker::make('fecha')
@@ -182,6 +183,7 @@ class ConsolidadoVentas extends Page implements HasTable
                             ->columnSpan(2),
                     ]),
                 Grid::make(['default' => 1, 'md' => 2])
+                    ->columnSpanFull()
                     ->visible(fn (Get $get): bool => (bool) $get('compararFechas'))
                     ->schema([
                         Repeater::make('fechasComparar')

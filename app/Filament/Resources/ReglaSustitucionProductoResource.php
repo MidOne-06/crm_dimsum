@@ -35,7 +35,7 @@ class ReglaSustitucionProductoResource extends Resource
     public static function form(Schema $schema): Schema
     {
         return $schema->schema([
-            Section::make()->schema([
+            Section::make()->columnSpanFull()->schema([
                 Select::make('item_original_id')->label('Producto original (el que puede faltar)')
                     ->searchable()->native(false)->required()
                     ->getSearchResultsUsing(fn (string $search) => static::productSearchResults($search))

@@ -68,7 +68,7 @@ class StockInicialAjuste extends Page implements HasTable
                     ->native(false)->searchable()->required()
                     ->disabled(fn ($get): bool => blank($get('local_id'))),
                 TextInput::make('cantidad_ajuste')->label('Cantidad de ajuste (+/-)')
-                    ->numeric()->required()->helperText('Positivo para sumar, negativo para restar.'),
+                    ->numeric()->required(),
                 Textarea::make('motivo')->label('Motivo del ajuste')->required()->rows(2)->columnSpanFull(),
             ]),
         ])->statePath('data');

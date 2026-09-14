@@ -57,8 +57,7 @@ class ConfigurarIdentidadVisual extends Page
                             ->acceptedFileTypes(['image/png', 'image/jpeg', 'image/webp'])
                             ->imageEditor()
                             ->imagePreviewHeight('72')
-                            ->maxSize(2048)
-                            ->helperText('PNG, JPG o WEBP · máximo 2 MB'),
+                            ->maxSize(2048),
                         FileUpload::make('favicon_path')
                             ->label('Icono de pestaña')
                             ->disk('public')
@@ -67,8 +66,7 @@ class ConfigurarIdentidadVisual extends Page
                             ->image()
                             ->acceptedFileTypes(['image/png', 'image/jpeg', 'image/webp', 'image/x-icon'])
                             ->imagePreviewHeight('72')
-                            ->maxSize(1024)
-                            ->helperText('Se muestra en la pestaña del navegador.'),
+                            ->maxSize(1024),
                         TextInput::make('brand_name')
                             ->label('Nombre')
                             ->required()

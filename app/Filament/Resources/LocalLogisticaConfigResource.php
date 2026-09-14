@@ -42,7 +42,7 @@ class LocalLogisticaConfigResource extends Resource
     public static function form(Schema $schema): Schema
     {
         return $schema->schema([
-            Section::make('Local')->schema([
+            Section::make('Local')->columnSpanFull()->schema([
                 Select::make('local_id')
                     ->label('Local')
                     ->options(fn (): array => static::localOptions())
@@ -51,19 +51,18 @@ class LocalLogisticaConfigResource extends Resource
                     ->afterStateUpdated(fn (callable $set, ?string $state) => $set('local_nombre', $state ? (static::localOptions()[$state] ?? null) : null)),
                 TextInput::make('local_nombre')->label('Nombre (referencia)')->readOnly()->required(),
             ])->columns(2),
-            Section::make('Cadencia y llegada')->schema([
-                TextInput::make('frecuencia_dias')->label('Cada cuántos días le toca reparto (referencia)')->numeric()->minValue(1)->default(1)->required()
-                    ->helperText('Solo informativo -- la Directiva de Transferencia YA NO usa este campo para calcular (desde el 2026-09-09). Para que un local salte un día real (ej. sin reparto los sábados), cargalo en "Días sin DT".'),
+            Section::make('Cadencia y llegada')->columnSpanFull()->schema([
+                TextInput::make('frecuencia_dias')->label('Cada cuántos días le toca reparto (referencia)')->numeric()->minValue(1)->default(1)->required(),
                 TimePicker::make('hora_llegada_estimada')->label('Hora de llegada estimada')->seconds(false),
                 TimePicker::make('ventana_recepcion_inicio')->label('Puede recibir desde')->seconds(false),
                 TimePicker::make('ventana_recepcion_fin')->label('Puede recibir hasta')->seconds(false),
             ])->columns(2),
-            Section::make('Inactividad temporal')->description('Si se llena, no se genera sugerencia ni despacho para este local en ese rango -- lo que le tocaba se redistribuye entre el resto según la estrategia de prorrateo vigente.')->schema([
+            Section::make('Inactividad temporal')->columnSpanFull()->description('Si se llena, no se genera sugerencia ni despacho para este local en ese rango -- lo que le tocaba se redistribuye entre el resto según la estrategia de prorrateo vigente.')->schema([
                 DatePicker::make('inactivo_desde')->label('Inactivo desde')->native(false),
                 DatePicker::make('inactivo_hasta')->label('Inactivo hasta')->native(false),
                 TextInput::make('inactivo_motivo')->label('Motivo')->maxLength(120)->columnSpanFull(),
             ])->columns(2)->collapsible()->collapsed(),
-            Section::make('Arranque si es local nuevo')->schema([
+            Section::make('Arranque si es local nuevo')->columnSpanFull()->schema([
                 Select::make('modo_arranque')
                     ->label('Cómo calcular la cantidad inicial')
                     ->options(['gemelo' => 'Copiar de un local gemelo', 'estandar' => 'Cantidad estándar de arranque', 'manual' => 'Entrada manual, sin fórmula'])

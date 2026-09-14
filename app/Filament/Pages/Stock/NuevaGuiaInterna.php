@@ -267,7 +267,6 @@ class NuevaGuiaInterna extends Page
                 }),
             Action::make('guardar')->label('Registrar guía interna')->icon('heroicon-o-document-check')
                 ->requiresConfirmation()->modalHeading('Registrar guía interna')
-                ->modalDescription('Se descontará el stock del almacén de origen.')
                 ->modalWidth('lg')->stickyModalHeader()->stickyModalFooter()
                 ->modalSubmitActionLabel('Sí, registrar guía')->modalCancelActionLabel('Revisar datos')
                 ->action(fn () => $this->guardar()),

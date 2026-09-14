@@ -82,6 +82,7 @@ class UserResource extends Resource
     {
         return $schema->schema([
             Section::make()
+                ->columnSpanFull()
                 ->schema([
                     TextInput::make('name')->label('Nombre')->required()->maxLength(255),
                     TextInput::make('email')->label('Correo')->email()->required()->unique(ignoreRecord: true)->maxLength(255),
@@ -99,6 +100,7 @@ class UserResource extends Resource
                 ])
                 ->columns(['default' => 1, 'md' => 2]),
             Section::make('Roles')
+                ->columnSpanFull()
                 ->schema([
                     Select::make('roles')
                         ->label('Roles asignados')
@@ -120,6 +122,7 @@ class UserResource extends Resource
                         ->required(),
                 ]),
             Section::make('Locales')
+                ->columnSpanFull()
                 ->schema([
                     Select::make('local_scope')
                         ->label('Acceso a locales')
@@ -138,7 +141,6 @@ class UserResource extends Resource
                         ->options(fn (): array => self::localOptions())
                         ->visible(fn (Get $get): bool => $get('local_scope') === 'selected')
                         ->required(fn (Get $get): bool => $get('local_scope') === 'selected')
-                        ->helperText('Selecciona uno o varios locales de Restaurant.')
                         ->dehydrated(false),
                 ]),
         ]);
@@ -186,7 +188,6 @@ class UserResource extends Resource
                     ->tooltip('Ver y restablecer credenciales del terminal')
                     ->visible(fn (User $record): bool => $record->roles()->where('slug', 'terminal')->exists())
                     ->modalHeading('Credenciales de terminal')
-                    ->modalDescription('Por seguridad, las contraseñas existentes no se pueden recuperar. La contraseña mostrada se aplicará al confirmar.')
                     ->modalWidth('5xl')
                     ->stickyModalHeader()
                     ->stickyModalFooter()
@@ -194,6 +195,7 @@ class UserResource extends Resource
                     ->modalCancelActionLabel('Cancelar')
                     ->schema([
                         Grid::make(['default' => 1, 'md' => 2])
+                            ->columnSpanFull()
                             ->schema([
                                 TextInput::make('email')
                                     ->label('Correo')
@@ -208,8 +210,7 @@ class UserResource extends Resource
                                     ->revealable()
                                     ->disabled()
                                     ->dehydrated(false)
-                                    ->copyable()
-                                    ->helperText('Usa el icono del ojo para verla y el de copiar para entregarla al terminal.'),
+                                    ->copyable(),
                             ]),
                     ])
                     ->action(function (User $record): void {
@@ -223,7 +224,7 @@ class UserResource extends Resource
                             ->success()
                             ->send();
                     }),
-                EditAction::make()->iconButton()->tooltip('Editar usuario'),
+                EditAction::make()->iconButton()->tooltip('Editar usuario')->modalWidth('xl')->stickyModalHeader()->stickyModalFooter()->modalSubmitActionLabel('Guardar')->modalCancelActionLabel('Cancelar'),
                 DeleteAction::make()->iconButton()->tooltip('Eliminar usuario'),
             ])
             ->paginated([10, 25, 50]);
@@ -233,8 +234,6 @@ class UserResource extends Resource
     {
         return [
             'index' => Pages\ListUsers::route('/'),
-            'create' => Pages\CreateUser::route('/create'),
-            'edit' => Pages\EditUser::route('/{record}/edit'),
         ];
     }
 

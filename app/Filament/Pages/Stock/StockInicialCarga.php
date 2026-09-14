@@ -167,7 +167,6 @@ class StockInicialCarga extends Page implements HasTable
                     ->visible(fn (): bool => (bool) $this->cabecera && $this->cabecera->estado === 'borrador')
                     ->requiresConfirmation()
                     ->modalHeading('¿Confirmar el stock inicial de este local?')
-                    ->modalDescription('Después de confirmar, esta carga queda bloqueada. Cualquier corrección posterior debe hacerse desde "Ajustar Stock", con motivo, para no perder trazabilidad.')
                     ->modalSubmitActionLabel('Confirmar')
                     ->action(fn () => $this->confirmarCarga()),
             ])

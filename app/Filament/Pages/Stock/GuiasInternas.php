@@ -196,7 +196,7 @@ class GuiasInternas extends Page implements HasTable
                     'estado' => $this->estado ?? '1',
                 ])
                 ->schema([
-                    Grid::make(['default' => 1, 'md' => 4])->schema([
+                    Grid::make(['default' => 1, 'md' => 4])->columnSpanFull()->schema([
                         Select::make('locales_origen')->label('Locales de origen')->options(fn (): array => $this->restaurantLocalesOptions())->multiple()->searchable()->native(false)->required()->live()
                             ->afterStateUpdated(function (mixed $state, Set $set): void {
                                 $set('almacen', null);
@@ -269,7 +269,6 @@ class GuiasInternas extends Page implements HasTable
                     ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('guias-internas.descargar'))
                     ->requiresConfirmation()
                     ->modalHeading('Generar Excel BATCH')
-                    ->modalDescription('Restaurant preparará el archivo con los filtros activos. Podrás descargarlo cuando finalice el proceso BATCH.')
                     ->modalWidth('lg')
                     ->stickyModalHeader()
                     ->stickyModalFooter()

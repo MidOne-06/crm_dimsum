@@ -359,6 +359,7 @@ class NuevoRequerimiento extends Page
                 ->visible(fn (): bool => ! $this->esUsuarioTerminal())
                 ->schema([
                     Grid::make(['default' => 1, 'md' => 2, 'xl' => 4])
+                        ->columnSpanFull()
                         ->schema([
                             Select::make('operacion')
                                 ->label('Operación')

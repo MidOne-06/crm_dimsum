@@ -39,7 +39,7 @@ class FabricaCapacidadProductoResource extends Resource
     public static function form(Schema $schema): Schema
     {
         return $schema->schema([
-            Section::make()->schema([
+            Section::make()->columnSpanFull()->schema([
                 Select::make('item_id')
                     ->label('Producto')
                     ->searchable()->native(false)->required()

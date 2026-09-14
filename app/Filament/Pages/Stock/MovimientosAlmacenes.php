@@ -117,7 +117,7 @@ class MovimientosAlmacenes extends Page implements HasTable
                     'buscar_segun' => $this->buscarSegun,
                 ])
                 ->schema([
-                    Grid::make(['default' => 1, 'md' => 4])->schema([
+                    Grid::make(['default' => 1, 'md' => 4])->columnSpanFull()->schema([
                         DatePicker::make('desde')->label('Desde')->native(false)->required(),
                         DatePicker::make('hasta')->label('Hasta')->native(false)->required(),
                         Select::make('estado')->label('Estado')->options($this->estadoOptions())->native(),
@@ -208,7 +208,7 @@ class MovimientosAlmacenes extends Page implements HasTable
                         ->modalSubmitActionLabel('Guardar cambios')
                         ->fillForm(fn (array $record): array => $this->edicionRestaurant($record))
                         ->schema([
-                            Grid::make(['default' => 1, 'md' => 4])->schema([
+                            Grid::make(['default' => 1, 'md' => 4])->columnSpanFull()->schema([
                                 Hidden::make('local_id')->dehydrated(),
                                 TextInput::make('local')->label('Local')->disabled()->dehydrated(false),
                                 DateTimePicker::make('fecha')->label('Fecha de movimiento')->native(false)->seconds(false)->required(),

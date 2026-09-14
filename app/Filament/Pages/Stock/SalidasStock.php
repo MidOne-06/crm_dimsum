@@ -82,7 +82,7 @@ class SalidasStock extends Page implements HasTable
                     'categoria' => $this->categoria,
                 ])
                 ->schema([
-                    Grid::make(['default' => 1, 'md' => 2])->schema([
+                    Grid::make(['default' => 1, 'md' => 2])->columnSpanFull()->schema([
                         DatePicker::make('desde')->label('Desde')->native(false)->required(),
                         DatePicker::make('hasta')->label('Hasta')->native(false)->required(),
                         Select::make('local')->label('Local')->native(false)->searchable()

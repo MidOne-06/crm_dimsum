@@ -77,7 +77,7 @@ class VentasExternas extends Page implements HasTable
                 ->modalCancelActionLabel('Cancelar')
                 ->fillForm(fn (): array => ['desde' => $this->desde, 'hasta' => $this->hasta, 'canal_id' => $this->canalId, 'estado' => $this->estado])
                 ->schema([
-                    Grid::make(['default' => 1, 'md' => 4])->schema([
+                    Grid::make(['default' => 1, 'md' => 4])->columnSpanFull()->schema([
                         DatePicker::make('desde')->label('Desde')->native(false)->required(),
                         DatePicker::make('hasta')->label('Hasta')->native(false)->required(),
                         Select::make('canal_id')->label('Canal')->options(fn (): array => $this->canalOptions())->native(false)->searchable()->placeholder('Todos'),
@@ -135,7 +135,7 @@ class VentasExternas extends Page implements HasTable
                 ->modalCancelActionLabel('Cancelar')
                 ->fillForm(fn (): array => ['periodo' => Carbon::parse($this->desde)->startOfMonth()->toDateString(), 'canal_id' => $this->canalId])
                 ->schema([
-                    Grid::make(['default' => 1, 'md' => 4])->schema([
+                    Grid::make(['default' => 1, 'md' => 4])->columnSpanFull()->schema([
                         DatePicker::make('periodo')->label('Mes')->native(false)->required(),
                         Select::make('canal_id')->label('Canal')->options(fn (): array => $this->canalOptions())->native(false)->searchable()->required(),
                         TextInput::make('cuota_sin_igv')->label('Cuota sin IGV')->numeric()->prefix('S/')->minValue(0)->required(),
@@ -154,7 +154,7 @@ class VentasExternas extends Page implements HasTable
     private function ventaSchema(): array
     {
         return [
-            Grid::make(['default' => 1, 'md' => 4])->schema([
+            Grid::make(['default' => 1, 'md' => 4])->columnSpanFull()->schema([
                 DatePicker::make('fecha')->label('Fecha')->native(false)->required()->maxDate(now()),
                 Select::make('canal_id')->label('Canal')->options(fn (): array => $this->canalOptions())->native(false)->searchable()->required(),
                 TextInput::make('tickets')->label('Tickets')->numeric()->minValue(1)->required(),
@@ -212,7 +212,6 @@ class VentasExternas extends Page implements HasTable
                     ->visible(fn (VentaExternaDiaria $record): bool => $record->estado === 'activa' && (bool) auth()->user()?->hasPermission('ventas-externas.anular'))
                     ->requiresConfirmation()
                     ->modalHeading('Anular venta externa')
-                    ->modalDescription('La venta queda conservada en el historial y deja de sumar los indicadores.')
                     ->modalSubmitActionLabel('Anular venta')
                     ->schema([Textarea::make('motivo')->label('Motivo')->required()->rows(2)->maxLength(1000)])
                     ->action(function (VentaExternaDiaria $record, array $data): void {

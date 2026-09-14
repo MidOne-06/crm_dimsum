@@ -70,6 +70,7 @@ class RoleResource extends Resource
     {
         return $schema->schema([
             Section::make()
+                ->columnSpanFull()
                 ->schema([
                     TextInput::make('name')
                         ->label('Nombre')
@@ -81,6 +82,7 @@ class RoleResource extends Resource
                 ])
                 ->columns(['default' => 1, 'md' => 2]),
             Section::make('Permisos')
+                ->columnSpanFull()
                 ->schema([
                     Select::make('permissions')
                         ->label('Permisos asignados')
@@ -107,7 +109,7 @@ class RoleResource extends Resource
             ->defaultSort('name')
             ->recordTitleAttribute('name')
             ->actions([
-                EditAction::make()->iconButton()->tooltip('Editar rol'),
+                EditAction::make()->iconButton()->tooltip('Editar rol')->modalWidth('xl')->stickyModalHeader()->stickyModalFooter()->modalSubmitActionLabel('Guardar')->modalCancelActionLabel('Cancelar'),
                 DeleteAction::make()->iconButton()->tooltip('Eliminar rol'),
             ]);
     }
@@ -116,8 +118,6 @@ class RoleResource extends Resource
     {
         return [
             'index' => Pages\ListRoles::route('/'),
-            'create' => Pages\CreateRole::route('/create'),
-            'edit' => Pages\EditRole::route('/{record}/edit'),
         ];
     }
 }

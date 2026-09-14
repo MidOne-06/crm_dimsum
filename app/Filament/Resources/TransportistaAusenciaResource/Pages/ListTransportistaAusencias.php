@@ -6,6 +6,7 @@ use App\Filament\Resources\TransportistaAusenciaResource;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Tables\Table;
 
 class ListTransportistaAusencias extends ListRecords
 {
@@ -21,5 +22,11 @@ class ListTransportistaAusencias extends ListRecords
                 ->url(fn (): string => \App\Filament\Pages\Entregas\CalendarioAusencias::getUrl()),
             CreateAction::make()->label('Nueva ausencia')->modalWidth('lg')->modalSubmitActionLabel('Guardar')->modalCancelActionLabel('Cancelar'),
         ];
+    }
+
+    /** Mismo fix que Permisos: sin esto, clicar cualquier celda abre Editar. */
+    protected function makeTable(): Table
+    {
+        return parent::makeTable()->recordAction(null)->recordUrl(null);
     }
 }

@@ -94,7 +94,7 @@ class ReporteRequerimientos extends Page implements HasTable
     public function form(Schema $schema): Schema
     {
         return $schema->components([
-            Grid::make(['default' => 1, 'md' => 2, 'xl' => 4])->schema([
+            Grid::make(['default' => 1, 'md' => 2, 'xl' => 4])->columnSpanFull()->schema([
                 Select::make('fechaTipo')
                     ->label('Filtrar fecha por')
                     ->options(['registro' => 'Fecha de registro', 'abastecimiento' => 'Fecha de abastecimiento'])

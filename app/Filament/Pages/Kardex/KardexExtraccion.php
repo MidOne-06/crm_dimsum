@@ -90,6 +90,7 @@ class KardexExtraccion extends Page
         return $schema
             ->components([
                 Section::make('Locales')
+                    ->columnSpanFull()
                     ->compact()
                     ->collapsible()
                     ->collapsed()

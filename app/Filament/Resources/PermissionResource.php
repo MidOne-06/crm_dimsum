@@ -69,6 +69,7 @@ class PermissionResource extends Resource
     {
         return $schema->schema([
             Section::make()
+                ->columnSpanFull()
                 ->schema([
                     TextInput::make('name')
                         ->label('Nombre')

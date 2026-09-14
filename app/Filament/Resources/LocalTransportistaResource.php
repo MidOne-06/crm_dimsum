@@ -47,7 +47,6 @@ class LocalTransportistaResource extends Resource
                 ->afterStateUpdated(fn (callable $set, ?string $state) => $set('local_nombre', $state ? (static::localOptions()[$state] ?? null) : null)),
             Toggle::make('es_suplente')
                 ->label('Es suplente')
-                ->helperText('Apagado = titular. El local necesita 1 titular; el suplente es opcional pero recomendado.')
                 ->live()
                 ->unique(ignoreRecord: true, modifyRuleUsing: fn (Unique $rule, callable $get) => $rule->where('local_id', $get('local_id')))
                 ->validationMessages(['unique' => 'Este local ya tiene asignado ese rol -- editá la asignación existente.']),

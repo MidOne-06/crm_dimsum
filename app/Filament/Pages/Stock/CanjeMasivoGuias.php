@@ -73,7 +73,7 @@ class CanjeMasivoGuias extends Page implements HasTable
                 ->modalWidth('5xl')
                 ->modalSubmitActionLabel('Generar vista previa')
                 ->schema([
-                    Grid::make(['default' => 1, 'sm' => 2, 'xl' => 4])->schema([
+                    Grid::make(['default' => 1, 'sm' => 2, 'xl' => 4])->columnSpanFull()->schema([
                         Select::make('filtro_por_fecha')->label('Fecha de')->options(['1' => 'Emisión', '0' => 'Traslado'])->native()->default('1'),
                         DatePicker::make('fecha_inicio')->label('Desde')->native()->required()->default(now()->subDays(30)->toDateString()),
                         DatePicker::make('fecha_fin')->label('Hasta')->native()->required()->default(now()->toDateString()),
@@ -301,7 +301,6 @@ class CanjeMasivoGuias extends Page implements HasTable
                     ->visible(fn (CanjeMasivo $r): bool => $r->estado === 'confirmando')
                     ->requiresConfirmation()
                     ->modalHeading('¿Detener esta confirmación en curso?')
-                    ->modalDescription('No se iniciarán nuevas tandas.')
                     ->modalSubmitActionLabel('Sí, detener')
                     ->action(fn (CanjeMasivo $r) => $this->detenerConfirmacion($r->id)),
                 Action::make('ver_detalle')

@@ -153,7 +153,7 @@ class CostosRecetasComerciales extends Page implements HasTable
     private function costoSchema(ProductoComercialRestaurant $producto): array
     {
         return [
-            Grid::make(['default' => 1, 'md' => 4])->schema([
+            Grid::make(['default' => 1, 'md' => 4])->columnSpanFull()->schema([
                 TextInput::make('producto')->label('Producto Restaurant')->default($this->etiquetaProducto($producto))->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
                 DatePicker::make('vigente_desde')->label('Vigente desde')->native(false)->required(),
                 TextInput::make('costo_unitario')->label('Costo unitario')->numeric()->prefix('S/')->minValue(0)->required(),
@@ -166,7 +166,7 @@ class CostosRecetasComerciales extends Page implements HasTable
     private function recetaSchema(ProductoComercialRestaurant $producto): array
     {
         return [
-            Grid::make(['default' => 1, 'md' => 4])->schema([
+            Grid::make(['default' => 1, 'md' => 4])->columnSpanFull()->schema([
                 TextInput::make('producto')->label('Producto Restaurant')->default($this->etiquetaProducto($producto))->disabled()->dehydrated(false)->columnSpan(['md' => 2]),
                 DatePicker::make('vigente_desde')->label('Vigente desde')->native(false)->required(),
                 Textarea::make('observacion')->label('Observación')->rows(2)->maxLength(1000)->columnSpanFull(),

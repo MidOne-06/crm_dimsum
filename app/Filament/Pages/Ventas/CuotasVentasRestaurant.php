@@ -69,9 +69,7 @@ class CuotasVentasRestaurant extends Page implements HasTable
                 ->modalCancelActionLabel('Cancelar')
                 ->fillForm(fn (): array => ['periodo' => $this->periodo])
                 ->schema([
-                    Grid::make(['default' => 1, 'md' => 4])->schema([
-                        DatePicker::make('periodo')->label('Mes')->native()->required()->columnSpan(['md' => 2]),
-                    ]),
+                    DatePicker::make('periodo')->label('Mes')->native()->required()->columnSpanFull(),
                 ])
                 ->action(function (array $data): void {
                     $this->periodo = Carbon::parse((string) $data['periodo'])->startOfMonth()->toDateString();
@@ -114,7 +112,7 @@ class CuotasVentasRestaurant extends Page implements HasTable
                     'sobrescribir' => false,
                 ])
                 ->schema([
-                    Grid::make(['default' => 1, 'md' => 4])->schema([
+                    Grid::make(['default' => 1, 'md' => 4])->columnSpanFull()->schema([
                         Select::make('origen')->label('Mes origen')->options(fn (): array => $this->opcionesPeriodos())->native()->required()->columnSpan(['md' => 2]),
                         DatePicker::make('destino')->label('Mes destino')->native()->required()->columnSpan(['md' => 2]),
                         Toggle::make('sobrescribir')->label('Reemplazar cuotas existentes')->default(false)->columnSpanFull(),
@@ -140,7 +138,7 @@ class CuotasVentasRestaurant extends Page implements HasTable
                 ->modalCancelActionLabel('Cancelar')
                 ->fillForm(fn (): array => ['periodo' => $this->periodo])
                 ->schema([
-                    Grid::make(['default' => 1, 'md' => 4])->schema([
+                    Grid::make(['default' => 1, 'md' => 4])->columnSpanFull()->schema([
                         DatePicker::make('periodo')->label('Mes destino')->native()->live()->required()->columnSpan(['md' => 2]),
                         FileUpload::make('archivo')->label('Archivo Excel')->disk('local')->directory('imports/cuotas-restaurant')->acceptedFileTypes(['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])->maxSize(5120)->live()->required()->columnSpan(['md' => 2]),
                         Toggle::make('sobrescribir')->label('Reemplazar cuotas existentes')->live()->default(false)->columnSpanFull(),
@@ -179,7 +177,7 @@ class CuotasVentasRestaurant extends Page implements HasTable
                 ->modalSubmitActionLabel('Guardar cuota')
                 ->modalCancelActionLabel('Cancelar')
                 ->schema([
-                    Grid::make(['default' => 1, 'md' => 4])->schema([
+                    Grid::make(['default' => 1, 'md' => 4])->columnSpanFull()->schema([
                         Select::make('codigo')->label('Local Restaurant')->options(fn (): array => $this->opcionesLocales())->native(false)->searchable()->required()->columnSpan(['md' => 2]),
                         TextInput::make('cuota_sin_igv')->label('Cuota sin IGV')->numeric()->prefix('S/')->minValue(0)->required(),
                         TextInput::make('cuota_con_igv')->label('Cuota con IGV')->numeric()->prefix('S/')->minValue(0)->required(),
@@ -227,7 +225,7 @@ class CuotasVentasRestaurant extends Page implements HasTable
                     ->modalCancelActionLabel('Cancelar')
                     ->fillForm(fn (CuotaVentaRestaurant $record): array => ['cuota_sin_igv' => $record->cuota_sin_igv, 'cuota_con_igv' => $record->cuota_con_igv])
                     ->schema([
-                        Grid::make(['default' => 1, 'md' => 4])->schema([
+                        Grid::make(['default' => 1, 'md' => 4])->columnSpanFull()->schema([
                             TextInput::make('cuota_sin_igv')->label('Cuota sin IGV')->numeric()->prefix('S/')->minValue(0)->required()->columnSpan(['md' => 2]),
                             TextInput::make('cuota_con_igv')->label('Cuota con IGV')->numeric()->prefix('S/')->minValue(0)->required()->columnSpan(['md' => 2]),
                         ]),

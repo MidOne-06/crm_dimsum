@@ -94,6 +94,7 @@ class KardexHistorico extends Page implements HasTable
         return $schema
             ->components([
                 Grid::make(['default' => 1, 'md' => 2, 'xl' => 3])
+                    ->columnSpanFull()
                     ->schema([
                         Select::make('selectedLocals')
                             ->label('Locales')

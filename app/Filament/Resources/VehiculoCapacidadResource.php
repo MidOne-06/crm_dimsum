@@ -32,7 +32,7 @@ class VehiculoCapacidadResource extends Resource
     public static function form(Schema $schema): Schema
     {
         return $schema->schema([
-            Section::make()->schema([
+            Section::make()->columnSpanFull()->schema([
                 TextInput::make('nombre')->label('Nombre')->required()->maxLength(80)->placeholder('Ej. Camioneta refrigerada 1'),
                 TextInput::make('capacidad_maxima_tapers')->label('Tapers máximos por viaje')->numeric()->minValue(1)->required(),
             ])->columns(2),

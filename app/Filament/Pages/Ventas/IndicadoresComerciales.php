@@ -81,7 +81,7 @@ class IndicadoresComerciales extends Page
                     'unidades' => $this->unidades,
                 ])
                 ->schema([
-                    Grid::make(['default' => 1, 'md' => 4])->schema([
+                    Grid::make(['default' => 1, 'md' => 4])->columnSpanFull()->schema([
                         Select::make('alcance')
                             ->label('Locales')
                             ->options(['todas' => 'Todas', 'seleccion' => 'Seleccionar'])

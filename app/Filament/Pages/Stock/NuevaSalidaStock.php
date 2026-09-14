@@ -155,7 +155,6 @@ class NuevaSalidaStock extends Page
             ->icon('heroicon-o-arrow-up-tray')
             ->requiresConfirmation()
             ->modalHeading('Registrar salida de stock')
-            ->modalDescription('Revise los productos y la razón antes de confirmar.')
             ->modalWidth('lg')
             ->stickyModalHeader()
             ->stickyModalFooter()

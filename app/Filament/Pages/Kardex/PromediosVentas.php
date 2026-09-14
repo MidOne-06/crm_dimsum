@@ -151,6 +151,7 @@ class PromediosVentas extends Page implements HasTable
         return $schema
             ->components([
                 Grid::make(['default' => 1, 'md' => 2, 'xl' => 4])
+                    ->columnSpanFull()
                     ->schema([
                         Select::make('unidadMedida')
                             ->label('Unidad de medida')

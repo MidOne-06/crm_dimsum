@@ -104,7 +104,6 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
                 ->color('gray')
                 ->requiresConfirmation()
                 ->modalHeading('¿Recalcular la Directiva de mañana?')
-                ->modalDescription('Vuelve a calcular la cantidad sugerida para los locales activos (ver "Locales activos") con la fecha de mañana, usando el saldo y el histórico de ventas TAL CUAL están guardados ahora mismo -- no sincroniza nada nuevo. Usa el módulo "Iniciar Directiva de Transferencia" si además querés refrescar Kardex y Guías internas antes.')
                 ->action(function (): void {
                     $total = app(DirectivaTransferenciaService::class)->calcularParaFecha($this->fechaReferencia(), soloVentaActiva: true);
 

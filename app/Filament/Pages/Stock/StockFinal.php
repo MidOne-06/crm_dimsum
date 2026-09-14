@@ -242,6 +242,7 @@ class StockFinal extends Page
                 ->fillForm(fn (): array => $this->data ?? [])
                 ->schema([
                     Grid::make(['default' => 1, 'md' => 2, 'xl' => 5])
+                        ->columnSpanFull()
                         ->schema([
                             Select::make('local_id')
                                 ->label('Local')

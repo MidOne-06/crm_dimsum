@@ -38,7 +38,7 @@ class PrioridadLocalProrrateoResource extends Resource
     public static function form(Schema $schema): Schema
     {
         return $schema->schema([
-            Section::make()->schema([
+            Section::make()->columnSpanFull()->schema([
                 Select::make('local_id')
                     ->label('Local')
                     ->options(fn (): array => static::localOptions())
@@ -46,7 +46,7 @@ class PrioridadLocalProrrateoResource extends Resource
                     ->unique(ignoreRecord: true)
                     ->afterStateUpdated(fn (callable $set, ?string $state) => $set('local_nombre', $state ? (static::localOptions()[$state] ?? null) : null)),
                 TextInput::make('local_nombre')->label('Nombre (referencia)')->readOnly()->required(),
-                TextInput::make('orden')->label('Orden de prioridad')->numeric()->minValue(1)->required()->helperText('Menor número = más prioridad al repartir si FABRICA no alcanza.'),
+                TextInput::make('orden')->label('Orden de prioridad')->numeric()->minValue(1)->required(),
             ])->columns(2),
         ]);
     }
