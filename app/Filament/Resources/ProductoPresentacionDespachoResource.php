@@ -65,7 +65,7 @@ class ProductoPresentacionDespachoResource extends Resource
     public static function form(Schema $schema): Schema
     {
         return $schema->schema([
-            Section::make()->schema([
+            Section::make()->columnSpanFull()->schema([
                 Select::make('item_key')
                     ->label('Producto')
                     ->options(fn (): array => DB::table('kardex_movimientos')
