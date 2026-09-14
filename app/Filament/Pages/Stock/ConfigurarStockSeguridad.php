@@ -46,20 +46,14 @@ class ConfigurarStockSeguridad extends Page
         return $schema
             ->schema([
                 Section::make('Nivel de servicio')
-                    ->description('Qué tan grande es el colchón que la Directiva de Transferencia suma sobre la demanda promedio para absorber semanas de venta más alta de lo normal, antes de restar el stock proyectado.')
                     ->compact()
                     ->schema([
                         Radio::make('nivel_servicio_pct')
                             ->hiddenLabel()
                             ->options([
-                                90 => '90% -- colchón más chico, algo más de riesgo de quiebre en semanas altas',
-                                95 => '95% -- recomendado',
-                                98 => '98% -- colchón más grande, casi nunca quiebra por variabilidad',
-                            ])
-                            ->descriptions([
-                                90 => 'factor 1.28',
-                                95 => 'factor 1.65',
-                                98 => 'factor 2.05',
+                                90 => '90% (factor 1.28)',
+                                95 => '95% (factor 1.65) -- recomendado',
+                                98 => '98% (factor 2.05)',
                             ])
                             ->required(),
                     ]),
@@ -81,8 +75,7 @@ class ConfigurarStockSeguridad extends Page
         $setting->save();
 
         Notification::make()
-            ->title('Nivel de servicio actualizado')
-            ->body("Los próximos cálculos de la Directiva usarán {$nivel}% (factor {$factor}). Los ya calculados no cambian hasta el próximo cálculo.")
+            ->title("Nivel de servicio actualizado a {$nivel}%")
             ->success()
             ->send();
     }
