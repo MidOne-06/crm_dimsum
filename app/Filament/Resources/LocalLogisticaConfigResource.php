@@ -57,7 +57,7 @@ class LocalLogisticaConfigResource extends Resource
                 TimePicker::make('ventana_recepcion_inicio')->label('Puede recibir desde')->seconds(false),
                 TimePicker::make('ventana_recepcion_fin')->label('Puede recibir hasta')->seconds(false),
             ])->columns(2),
-            Section::make('Inactividad temporal')->columnSpanFull()->description('Si se llena, no se genera sugerencia ni despacho para este local en ese rango -- lo que le tocaba se redistribuye entre el resto según la estrategia de prorrateo vigente.')->schema([
+            Section::make('Inactividad temporal')->columnSpanFull()->schema([
                 DatePicker::make('inactivo_desde')->label('Inactivo desde')->native(false),
                 DatePicker::make('inactivo_hasta')->label('Inactivo hasta')->native(false),
                 TextInput::make('inactivo_motivo')->label('Motivo')->maxLength(120)->columnSpanFull(),

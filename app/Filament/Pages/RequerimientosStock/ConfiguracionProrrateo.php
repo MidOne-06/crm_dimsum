@@ -41,7 +41,6 @@ class ConfiguracionProrrateo extends Page
     {
         return $schema->components([
             Section::make('Cuando FABRICA no alcanza para cubrir todo lo pedido')
-                ->description('Se aplica antes de mostrar la sugerencia final de la Fase 1, cuando la suma de lo sugerido supera la capacidad de producción declarada de algún producto.')
                 ->schema([
                     Select::make('estrategia')
                         ->label('Estrategia de prorrateo')

@@ -45,7 +45,6 @@ class ConfigurarIdentidadVisual extends Page
         return $schema
             ->schema([
                 Section::make('Identidad del panel')
-                    ->description('Logo, nombre y color usados en el panel administrativo.')
                     ->compact()
                     ->schema([
                         FileUpload::make('logo_path')
