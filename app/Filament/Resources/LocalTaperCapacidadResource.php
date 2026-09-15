@@ -24,6 +24,7 @@ use Illuminate\Validation\Rules\Unique;
 class LocalTaperCapacidadResource extends Resource
 {
     protected static ?string $model = LocalTaperCapacidad::class;
+    protected static ?string $recordTitleAttribute = 'local_nombre';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-building-storefront';
     protected static ?string $navigationLabel = 'Capacidad por local';
     protected static ?string $modelLabel = 'Capacidad de local';

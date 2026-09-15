@@ -27,6 +27,7 @@ use Filament\Tables\Table;
 class LocalLogisticaConfigResource extends Resource
 {
     protected static ?string $model = LocalLogisticaConfig::class;
+    protected static ?string $recordTitleAttribute = 'local_nombre';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-truck';
     protected static ?string $navigationLabel = 'Logística por local';
     protected static ?string $modelLabel = 'Configuración de local';

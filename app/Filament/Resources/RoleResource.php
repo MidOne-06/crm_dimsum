@@ -21,6 +21,7 @@ use Illuminate\Support\Str;
 class RoleResource extends Resource
 {
     protected static ?string $model = Role::class;
+    protected static ?string $recordTitleAttribute = 'name';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-shield-check';
     protected static ?string $navigationLabel = 'Roles';
     protected static ?string $modelLabel = 'Rol';

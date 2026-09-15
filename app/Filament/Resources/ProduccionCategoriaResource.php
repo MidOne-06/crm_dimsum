@@ -18,6 +18,7 @@ use Filament\Tables\Table;
 class ProduccionCategoriaResource extends Resource
 {
     protected static ?string $model = ProduccionCategoria::class;
+    protected static ?string $recordTitleAttribute = 'nombre';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-tag';
     protected static ?string $navigationLabel = 'Categorías de producción';
     protected static ?string $modelLabel = 'Categoría de producción';

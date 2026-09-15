@@ -30,6 +30,7 @@ use Illuminate\Support\Facades\DB;
 class ProductoPresentacionDespachoResource extends Resource
 {
     protected static ?string $model = ProductoPresentacionDespacho::class;
+    protected static ?string $recordTitleAttribute = 'item_nombre';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-cube';
     protected static ?string $navigationLabel = 'Presentación de despacho';
     protected static ?string $modelLabel = 'Presentación de despacho';

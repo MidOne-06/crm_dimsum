@@ -24,6 +24,7 @@ use Filament\Tables\Table;
 class FabricaCapacidadProductoResource extends Resource
 {
     protected static ?string $model = FabricaCapacidadProducto::class;
+    protected static ?string $recordTitleAttribute = 'item_nombre';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-building-office-2';
     protected static ?string $navigationLabel = 'Capacidad de FABRICA';
     protected static ?string $modelLabel = 'Capacidad de FABRICA';

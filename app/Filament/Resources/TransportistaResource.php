@@ -20,6 +20,7 @@ use Illuminate\Validation\Rules\Password;
 class TransportistaResource extends Resource
 {
     protected static ?string $model = User::class;
+    protected static ?string $recordTitleAttribute = 'name';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-identification';
     protected static ?string $navigationLabel = 'Transportistas';
     protected static ?string $modelLabel = 'Transportista';

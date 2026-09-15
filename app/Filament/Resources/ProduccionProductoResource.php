@@ -23,6 +23,7 @@ use Illuminate\Validation\ValidationException;
 class ProduccionProductoResource extends Resource
 {
     protected static ?string $model = ProduccionProducto::class;
+    protected static ?string $recordTitleAttribute = 'nombre';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-squares-plus';
     protected static ?string $navigationLabel = 'Productos de producción';
     protected static ?string $modelLabel = 'Producto de producción';

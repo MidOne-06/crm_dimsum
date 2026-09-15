@@ -23,6 +23,7 @@ use Filament\Tables\Table;
 class PrioridadLocalProrrateoResource extends Resource
 {
     protected static ?string $model = PrioridadLocalProrrateo::class;
+    protected static ?string $recordTitleAttribute = 'local_nombre';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-numbered-list';
     protected static ?string $navigationLabel = 'Prioridad manual de reparto';
     protected static ?string $modelLabel = 'Prioridad de local';

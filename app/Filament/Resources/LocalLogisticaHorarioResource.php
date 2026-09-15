@@ -27,6 +27,7 @@ use Illuminate\Validation\Rules\Unique;
 class LocalLogisticaHorarioResource extends Resource
 {
     protected static ?string $model = LocalLogisticaHorario::class;
+    protected static ?string $recordTitleAttribute = 'local_nombre';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-clock';
     protected static ?string $navigationLabel = 'Horarios por día (Logística)';
     protected static ?string $modelLabel = 'Horario de llegada';

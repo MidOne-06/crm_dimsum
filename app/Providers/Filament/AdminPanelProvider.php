@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\GlobalSearch\CrmGlobalSearchProvider;
 use App\Filament\Pages\EditProfile;
 use App\Filament\Pages\Login;
 use App\Filament\Pages\Stock\NuevaSalidaStock;
@@ -48,6 +49,16 @@ class AdminPanelProvider extends PanelProvider
             ->brandLogo(fn (): string => BrandingSetting::current()->logoUrl())
             ->brandLogoHeight(fn (): string => BrandingSetting::current()->logoHeight())
             ->favicon(fn (): string => BrandingSetting::current()->faviconUrl())
+            // Pedido explícito del usuario (2026-09-15): "quiero que cubra
+            // todo". El buscador global de Filament de fábrica SOLO revisa
+            // Resources (20 en este proyecto -- catálogos de configuración),
+            // nunca las Pages personalizadas donde vive casi toda la
+            // operación real (guías, requerimientos, movimientos entre
+            // almacenes). CrmGlobalSearchProvider delega en el proveedor de
+            // Filament para los Resources y agrega esas 3 categorías más --
+            // ver su docblock para por qué Kardex y Ventas quedaron fuera a
+            // propósito.
+            ->globalSearch(CrmGlobalSearchProvider::class)
             ->sidebarCollapsibleOnDesktop()
             // Orden real de operación, pedido explícito del usuario tras
             // auditar los 72 módulos del sistema (2026-09-15): "Stock

@@ -26,6 +26,7 @@ use Illuminate\Validation\Rules\Unique;
 class ProductoTaperResource extends Resource
 {
     protected static ?string $model = ProductoTaper::class;
+    protected static ?string $recordTitleAttribute = 'item_nombre';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-cube';
     protected static ?string $navigationLabel = 'Capacidad por producto';
     protected static ?string $modelLabel = 'Capacidad de taper';

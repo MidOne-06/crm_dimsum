@@ -24,6 +24,7 @@ use Filament\Tables\Table;
 class TaperTipoResource extends Resource
 {
     protected static ?string $model = TaperTipo::class;
+    protected static ?string $recordTitleAttribute = 'nombre';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-archive-box';
     protected static ?string $navigationLabel = 'Tipos de taper';
     protected static ?string $modelLabel = 'Tipo de taper';

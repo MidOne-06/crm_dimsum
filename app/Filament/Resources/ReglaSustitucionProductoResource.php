@@ -20,6 +20,7 @@ use Illuminate\Validation\Rules\Unique;
 class ReglaSustitucionProductoResource extends Resource
 {
     protected static ?string $model = ReglaSustitucionProducto::class;
+    protected static ?string $recordTitleAttribute = 'item_original_nombre';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-arrows-right-left';
     protected static ?string $navigationLabel = 'Sustitución de productos';
     protected static ?string $modelLabel = 'Regla de sustitución';
@@ -28,6 +29,12 @@ class ReglaSustitucionProductoResource extends Resource
     protected static ?int $navigationSort = 28;
 
     public static function canViewAny(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }
+
+    /** Busca por ambos productos de la regla, no solo el original. */
+    public static function getGloballySearchableAttributes(): array
+    {
+        return ['item_original_nombre', 'item_sustituto_nombre'];
+    }
     public static function canCreate(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }
     public static function canEdit($record): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }
     public static function canDelete($record): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }

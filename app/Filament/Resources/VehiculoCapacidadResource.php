@@ -17,6 +17,7 @@ use Filament\Tables\Table;
 class VehiculoCapacidadResource extends Resource
 {
     protected static ?string $model = VehiculoCapacidad::class;
+    protected static ?string $recordTitleAttribute = 'nombre';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-truck';
     protected static ?string $navigationLabel = 'Capacidad de vehículos';
     protected static ?string $modelLabel = 'Vehículo';
