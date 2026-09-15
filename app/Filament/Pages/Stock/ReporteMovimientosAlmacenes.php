@@ -326,10 +326,40 @@ class ReporteMovimientosAlmacenes extends Page implements HasTable
     {
         $selected = array_values(array_filter((array) ($this->data[$field] ?? []), fn ($value): bool => filled($value)));
         if (in_array(self::ALL_LOCALES_OPTION, $selected, true)) {
-            return auth()->user()?->isRestrictedToLocals() ? auth()->user()->assignedLocalIds() : array_keys($this->localOptions);
+            // Mismo bug real ya corregido en Reporte de guías y de
+            // requerimientos (2026-09-15): "Todos los locales" traía
+            // literalmente todos, incluidos los ya confirmados como
+            // cerrados. Se filtra con el mismo criterio de "Locales
+            // Activos" -- array_map('strval', ...) es necesario porque las
+            // claves de un array PHP se autoconvierten a int cuando
+            // parecen un entero, y localesActivos() compara contra una
+            // columna de texto.
+            return auth()->user()?->isRestrictedToLocals()
+                ? auth()->user()->assignedLocalIds()
+                : $this->localesActivosNombres();
         }
 
         return $this->restrictLocalIdsToUser($selected);
+    }
+
+    /**
+     * IDs (claves de $this->localOptions) de los locales que "Locales
+     * Activos" considera activos ahora mismo -- mismo cálculo exacto que
+     * consume esa pantalla, nunca un criterio propio de este reporte.
+     *
+     * @return array<int, string>
+     */
+    protected function localesActivosNombres(): array
+    {
+        $ids = array_map('strval', array_keys($this->localOptions));
+        $confirmados = \App\Models\StockInicialLocal::where('estado', 'confirmado')->pluck('local_id')->all();
+        $candidatos = array_values(array_intersect($ids, $confirmados));
+
+        if ($candidatos === []) {
+            return $ids;
+        }
+
+        return app(\App\Services\DirectivaTransferenciaService::class)->localesActivos($candidatos);
     }
 
     /** @return array<int, string> */
