@@ -31,7 +31,6 @@ use Filament\Tables\Table;
 class LocalDiaSinDtResource extends Resource
 {
     protected static ?string $model = LocalDiaSinDt::class;
-    protected static ?string $recordTitleAttribute = 'local_nombre';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-calendar-date-range';
     protected static ?string $navigationLabel = 'Días sin DT';
     protected static ?string $modelLabel = 'Día sin DT';
