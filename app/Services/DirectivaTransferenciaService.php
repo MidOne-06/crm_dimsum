@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\DirectivaSaldoDiarioHistorico;
 use App\Models\DirectivaTransferenciaSetting;
 use App\Models\DirectivaTransferenciaSugerencia;
 use App\Models\LocalActivoOverride;
@@ -107,6 +108,23 @@ use Illuminate\Support\Facades\DB;
  *   limita a como máximo el 100% de `demanda_promedio` -- ya es un
  *   colchón grande (duplica la cantidad sugerida) sin dejar que un
  *   outlier lo dispare sin control.
+ * - **Corrección del sesgo de quiebres en el promedio histórico**
+ *   (2026-09-15, pedido explícito del usuario): limitación ya documentada
+ *   desde el diseño original -- un día en que el local se quedó sin stock
+ *   se ve en Kardex como "poca venta" cuando en realidad hubo demanda
+ *   insatisfecha que nunca se vendió, sesgando el promedio hacia abajo.
+ *   `directiva_saldo_diario_historicos` (alimentada por
+ *   `directiva-transferencia:capturar-saldo-diario`, programada a las
+ *   02:50, 10 min antes de este cálculo) guarda el saldo de cierre de cada
+ *   día por local x producto desde el día en que se agregó este comando --
+ *   deliberadamente NO se puede reconstruir hacia atrás, `stock_saldos_actuales`
+ *   solo guarda el saldo EN VIVO, nunca un historial día a día. Una semana
+ *   se descarta del promedio si tuvo al menos un día de quiebre
+ *   (`saldo_cierre <= 0`) dentro de su ventana, con el mismo criterio ya
+ *   usado para las semanas con venta cero. Sin historial real todavía
+ *   (tabla recién creada), esta corrección no cambia ningún cálculo hoy --
+ *   empieza a tener efecto real recién cuando existan semanas completas de
+ *   datos acumulados.
  */
 class DirectivaTransferenciaService
 {
@@ -306,8 +324,25 @@ class DirectivaTransferenciaService
                 ->get()
                 ->keyBy('item_id');
 
+            // Días de quiebre real (saldo de cierre <= 0) dentro de la
+            // ventana de comparación histórica -- pedido explícito del
+            // usuario (2026-09-15) para corregir el sesgo ya documentado:
+            // un día sin stock se ve en Kardex como "poca venta" cuando en
+            // realidad hubo demanda insatisfecha que nunca se vendió. Vacío
+            // hasta que `directiva-transferencia:capturar-saldo-diario`
+            // acumule suficiente historial real -- no se puede reconstruir
+            // hacia atrás, ver docblock de esa tabla/comando.
+            $quiebresPorItem = DirectivaSaldoDiarioHistorico::where('local_id', $local->local_id)
+                ->whereIn('item_id', $itemIds)
+                ->where('quiebre', true)
+                ->whereDate('fecha', '>=', $limiteInferior->toDateString())
+                ->whereDate('fecha', '<', $desde->toDateString())
+                ->get(['item_id', 'item_tipo', 'fecha'])
+                ->groupBy(fn ($row) => "{$row->item_id}|{$row->item_tipo}");
+
             foreach ($productos as $clave => $producto) {
                 $ventasItem = $ventasCrudas->get($clave, collect());
+                $quiebresItem = $quiebresPorItem->get($clave, collect());
 
                 // OJO, bug real encontrado revalidando en producción
                 // (2026-09-09): promediar la ventana completa y el tramo 1
@@ -332,6 +367,19 @@ class DirectivaTransferenciaService
                 $semanasValidas = [];
                 foreach ($totalesCompletos as $i => $totalCompleto) {
                     if ($totalCompleto <= 0) {
+                        continue;
+                    }
+                    // Semana descartada si hubo un día de quiebre real
+                    // dentro de su ventana -- la venta registrada esa
+                    // semana está contaminada por demanda insatisfecha, no
+                    // representa lo que el local hubiera vendido con stock
+                    // completo. Sin historial de quiebres todavía (tabla
+                    // recién creada), $quiebresItem siempre está vacío y
+                    // esta condición nunca descarta nada -- efecto nulo
+                    // hasta que haya datos reales acumulados.
+                    $ventana = $ventanasHistoricas[$i];
+                    $huboQuiebre = $quiebresItem->contains(fn ($q) => $q->fecha->gte($ventana[0]->copy()->startOfDay()) && $q->fecha->lt($ventana[1]));
+                    if ($huboQuiebre) {
                         continue;
                     }
                     $semanasConsideradas++;

@@ -141,6 +141,17 @@ Schedule::command('ventas:sincronizar-diario --dias=3')
 // existe ninguna venta del día en curso -- por diseño (ver
 // DirectivaTransferenciaService) usa el promedio histórico del MISMO día
 // de la semana, no una extrapolación del día de hoy.
+// Foto del saldo de cierre de ayer, 10 min antes del cálculo de la
+// Directiva -- pedido explícito del usuario (2026-09-15) para poder
+// corregir a futuro el sesgo ya documentado del promedio histórico (un día
+// de quiebre real se ve como "poca venta" en Kardex). Arranca a acumular
+// datos reales desde hoy -- no se puede reconstruir hacia atrás, ver
+// docblock de CapturarSaldoDiarioDirectiva.
+Schedule::command('directiva-transferencia:capturar-saldo-diario')
+  ->dailyAt('02:50')
+  ->withoutOverlapping(30)
+  ->runInBackground();
+
 Schedule::command('directiva-transferencia:calcular')
   ->dailyAt('03:00')
   ->withoutOverlapping(60)
