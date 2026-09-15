@@ -5,6 +5,8 @@ namespace App\Filament\Pages\RequerimientosStock;
 use App\Filament\Concerns\ScopesLocalsToUser;
 use App\Models\RequerimientoStockHistorico;
 use App\Models\RequerimientoStockHistoricoDetalle;
+use App\Models\StockInicialLocal;
+use App\Services\DirectivaTransferenciaService;
 use App\Services\RequerimientoStockGatewayClient;
 use Carbon\Carbon;
 use Dompdf\Dompdf;
@@ -416,12 +418,44 @@ class ReporteRequerimientos extends Page implements HasTable
         $selected = array_values(array_filter((array) ($this->data[$field] ?? []), fn ($value): bool => filled($value)));
 
         if (in_array(self::ALL_LOCALES_OPTION, $selected, true)) {
-            return array_values($this->localOptions);
+            // Bug real reportado por el usuario (2026-09-15): "Todos los
+            // locales" traía literalmente todos los que conoce el ERP,
+            // incluidos los cerrados (Pershing, KM 40, Metro Chorrillos,
+            // Puntamar, Villa María) -- Restaurant no refleja el cierre real
+            // (ver docblock de DirectivaTransferenciaService::localesActivos()).
+            // Se filtra acá con el mismo criterio que "Locales Activos", la
+            // fuente de verdad ya establecida para esto en el sistema.
+            return array_values(array_intersect_key($this->localOptions, array_flip($this->localesActivosNombres())));
         }
 
         $ids = $this->restrictLocalIdsToUser($selected);
 
         return array_values(array_intersect_key($this->localOptions, array_flip(array_map('strval', $ids))));
+    }
+
+    /**
+     * IDs (claves de $this->localOptions) de los locales que "Locales
+     * Activos" considera activos ahora mismo -- mismo cálculo exacto que
+     * consume esa pantalla, nunca un criterio propio de este reporte.
+     *
+     * @return array<int, string>
+     */
+    protected function localesActivosNombres(): array
+    {
+        $ids = array_keys($this->localOptions);
+        $confirmados = StockInicialLocal::where('estado', 'confirmado')->pluck('local_id')->all();
+        $candidatos = array_values(array_intersect($ids, $confirmados));
+
+        // Si ninguna clave de $localOptions coincide con un local_id real,
+        // estamos en el fallback de localOptionsFromHistory() (el gateway
+        // del ERP no respondió y ahí la clave es el NOMBRE, no el ID) --
+        // sin un ID confiable no se puede distinguir activo de cerrado, así
+        // que se listan todos en vez de vaciar el reporte por completo.
+        if ($candidatos === []) {
+            return $ids;
+        }
+
+        return app(DirectivaTransferenciaService::class)->localesActivos($candidatos);
     }
 
     protected function metricColumn(): string
