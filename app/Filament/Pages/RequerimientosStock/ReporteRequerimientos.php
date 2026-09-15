@@ -442,7 +442,17 @@ class ReporteRequerimientos extends Page implements HasTable
      */
     protected function localesActivosNombres(): array
     {
-        $ids = array_keys($this->localOptions);
+        // array_map('strval', ...) es necesario: las claves de un array PHP
+        // se autoconvierten a int cuando parecen un entero (ver
+        // array_keys($this->localOptions) más arriba), así que
+        // array_intersect() acá devolvía valores int aunque local_id es
+        // texto -- localesActivos() comparaba luego contra la columna real
+        // (varchar) de kardex_movimientos y nunca matcheaba nada, dejando
+        // TODOS los locales (incluidos los realmente activos) fuera del
+        // resultado. Bug real encontrado revalidando este mismo fix con
+        // datos de producción (Wong Ate, con venta hoy mismo, aparecía
+        // como "inactivo").
+        $ids = array_map('strval', array_keys($this->localOptions));
         $confirmados = StockInicialLocal::where('estado', 'confirmado')->pluck('local_id')->all();
         $candidatos = array_values(array_intersect($ids, $confirmados));
 
