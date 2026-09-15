@@ -14,6 +14,7 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Carbon;
+use Illuminate\Database\QueryException;
 
 /**
  * Pantalla móvil del transportista: marca "despacho entregado" a un local.
@@ -179,21 +180,48 @@ class RegistrarEntrega extends Page
             return;
         }
 
+        // El botón deja de mostrarse tras registrar la entrega, pero esta
+        // validación también cubre peticiones Livewire repetidas o abiertas
+        // en otra pestaña.
+        if ($fila['ya_entregado']) {
+            Notification::make()->warning()
+                ->title('Entrega ya registrada')
+                ->body("{$fila['local_nombre']} ya tiene una entrega marcada hoy.")
+                ->send();
+
+            return;
+        }
+
         $ahora = now();
-        EntregaDespacho::create([
-            'user_id' => auth()->id(),
-            'local_id' => $localId,
-            'local_nombre' => $fila['local_nombre'],
-            'fecha_hora' => $ahora,
-            'dia_semana' => $ahora->dayOfWeekIso,
-            'rol_entrega' => $fila['rol'],
-            'es_reemplazo' => $fila['es_reemplazo'],
-            'motivo_reemplazo' => $fila['es_reemplazo']
-                ? ($fila['motivo_auto'] ?: ($data['motivo_reemplazo'] ?? null))
-                : null,
-            'foto_path' => $data['foto'] ?? null,
-            'observacion' => $data['observacion'] ?? null,
-        ]);
+        try {
+            EntregaDespacho::create([
+                'user_id' => auth()->id(),
+                'local_id' => $localId,
+                'local_nombre' => $fila['local_nombre'],
+                'fecha_hora' => $ahora,
+                'dia_semana' => $ahora->dayOfWeekIso,
+                'rol_entrega' => $fila['rol'],
+                'es_reemplazo' => $fila['es_reemplazo'],
+                'motivo_reemplazo' => $fila['es_reemplazo']
+                    ? ($fila['motivo_auto'] ?: ($data['motivo_reemplazo'] ?? null))
+                    : null,
+                'foto_path' => $data['foto'] ?? null,
+                'observacion' => $data['observacion'] ?? null,
+            ]);
+        } catch (QueryException $exception) {
+            // La restricción de base de datos es la protección definitiva
+            // frente a dos confirmaciones simultáneas del mismo local.
+            if ((string) $exception->getCode() === '23505') {
+                Notification::make()->warning()
+                    ->title('Entrega ya registrada')
+                    ->body("{$fila['local_nombre']} ya tiene una entrega marcada hoy.")
+                    ->send();
+
+                return;
+            }
+
+            throw $exception;
+        }
 
         Notification::make()->success()->title('Entrega registrada')
             ->body("{$fila['local_nombre']} -- ".$ahora->format('d/m/Y H:i'))->send();
