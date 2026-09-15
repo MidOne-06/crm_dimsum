@@ -37,6 +37,7 @@ class RegistrarEntrega extends Page
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-truck';
     protected static ?string $navigationLabel = 'Registrar entrega';
     protected static ?string $title = 'Registrar entrega de despacho';
+    protected static string|\UnitEnum|null $navigationGroup = 'Entregas';
     protected static ?int $navigationSort = 1;
     protected static ?string $slug = 'entregas/registrar';
     protected string $view = 'filament.pages.entregas.registrar-entrega';
