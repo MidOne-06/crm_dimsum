@@ -21,7 +21,7 @@ class ConfiguracionProrrateo extends Page
     protected static ?string $navigationLabel = 'Prorrateo ante escasez';
     protected static ?string $title = 'Configuración de prorrateo';
     protected static string|\UnitEnum|null $navigationGroup = 'Configuración DT';
-    protected static ?int $navigationSort = 29;
+    protected static ?int $navigationSort = 31;
     protected static ?string $slug = 'requerimientos-stock/prorrateo';
     protected string $view = 'filament.pages.requerimientos-stock.configuracion-prorrateo';
 

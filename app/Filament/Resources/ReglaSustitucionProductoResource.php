@@ -25,7 +25,7 @@ class ReglaSustitucionProductoResource extends Resource
     protected static ?string $modelLabel = 'Regla de sustitución';
     protected static ?string $pluralModelLabel = 'Sustitución de productos';
     protected static string|\UnitEnum|null $navigationGroup = 'Configuración DT';
-    protected static ?int $navigationSort = 26;
+    protected static ?int $navigationSort = 28;
 
     public static function canViewAny(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }
     public static function canCreate(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }

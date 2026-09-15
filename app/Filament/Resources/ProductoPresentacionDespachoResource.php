@@ -34,8 +34,8 @@ class ProductoPresentacionDespachoResource extends Resource
     protected static ?string $navigationLabel = 'Presentación de despacho';
     protected static ?string $modelLabel = 'Presentación de despacho';
     protected static ?string $pluralModelLabel = 'Presentaciones de despacho';
-    protected static string|\UnitEnum|null $navigationGroup = 'Stock Inicial';
-    protected static ?int $navigationSort = 4;
+    protected static string|\UnitEnum|null $navigationGroup = 'Configuración DT';
+    protected static ?int $navigationSort = 34;
 
     public static function canViewAny(): bool
     {

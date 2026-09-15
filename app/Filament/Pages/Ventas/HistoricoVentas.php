@@ -30,7 +30,7 @@ class HistoricoVentas extends Page implements HasTable
 
     protected static string|\UnitEnum|null $navigationGroup = 'Ventas';
 
-    protected static ?int $navigationSort = 23;
+    protected static ?int $navigationSort = 25;
 
     protected static ?string $slug = 'ventas/historico';
 

@@ -36,7 +36,7 @@ class LocalDiaSinDtResource extends Resource
     protected static ?string $modelLabel = 'Día sin DT';
     protected static ?string $pluralModelLabel = 'Días sin DT';
     protected static string|\UnitEnum|null $navigationGroup = 'Configuración DT';
-    protected static ?int $navigationSort = 25;
+    protected static ?int $navigationSort = 27;
 
     public static function canViewAny(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }
     public static function canCreate(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }

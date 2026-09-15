@@ -52,8 +52,8 @@ class DirectivaTransferenciaConsolidado extends Page implements HasTable
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-truck';
     protected static ?string $navigationLabel = 'Directiva de transferencia';
     protected static ?string $title = 'Directiva de Transferencia -- Cantidad sugerida';
-    protected static string|\UnitEnum|null $navigationGroup = 'Stock Inicial';
-    protected static ?int $navigationSort = 5;
+    protected static string|\UnitEnum|null $navigationGroup = 'Directiva de Transferencia';
+    protected static ?int $navigationSort = 2;
     protected static ?string $slug = 'stock-inicial/directiva-transferencia';
     protected string $view = 'filament.pages.stock.directiva-transferencia-consolidado';
 

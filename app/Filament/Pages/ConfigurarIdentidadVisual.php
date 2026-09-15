@@ -17,7 +17,7 @@ class ConfigurarIdentidadVisual extends Page
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-photo';
     protected static ?string $navigationLabel = 'Apariencia';
     protected static ?string $title = 'Apariencia';
-    protected static string|\UnitEnum|null $navigationGroup = 'Configuración';
+    protected static string|\UnitEnum|null $navigationGroup = 'Seguridad';
     protected static ?int $navigationSort = 93;
     protected string $view = 'filament.pages.configurar-identidad-visual';
 

@@ -24,7 +24,7 @@ class ReporteVentas extends Page implements HasTable
 
     protected static string|\UnitEnum|null $navigationGroup = 'Ventas';
 
-    protected static ?int $navigationSort = 20;
+    protected static ?int $navigationSort = 21;
 
     protected static ?string $slug = 'ventas/reporte';
 

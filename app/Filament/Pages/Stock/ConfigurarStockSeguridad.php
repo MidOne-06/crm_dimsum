@@ -23,8 +23,8 @@ class ConfigurarStockSeguridad extends Page
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-adjustments-horizontal';
     protected static ?string $navigationLabel = 'Stock de seguridad';
     protected static ?string $title = 'Stock de seguridad';
-    protected static string|\UnitEnum|null $navigationGroup = 'Stock Inicial';
-    protected static ?int $navigationSort = 46;
+    protected static string|\UnitEnum|null $navigationGroup = 'Configuración DT';
+    protected static ?int $navigationSort = 35;
     protected static ?string $slug = 'stock-inicial/stock-seguridad';
     protected string $view = 'filament.pages.stock.configurar-stock-seguridad';
 

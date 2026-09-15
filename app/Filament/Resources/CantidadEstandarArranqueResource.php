@@ -24,7 +24,7 @@ class CantidadEstandarArranqueResource extends Resource
     protected static ?string $modelLabel = 'Cantidad de arranque';
     protected static ?string $pluralModelLabel = 'Cantidad de arranque';
     protected static string|\UnitEnum|null $navigationGroup = 'Configuración DT';
-    protected static ?int $navigationSort = 28;
+    protected static ?int $navigationSort = 30;
 
     public static function canViewAny(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }
     public static function canCreate(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }

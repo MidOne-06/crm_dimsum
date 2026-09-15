@@ -22,7 +22,7 @@ class ConsolidadoProduccion extends Page implements HasTable
     protected static ?string $navigationLabel = 'Consolidado de producción';
     protected static ?string $title = 'Consolidado de producción';
     protected static string|\UnitEnum|null $navigationGroup = 'Producción';
-    protected static ?int $navigationSort = 3;
+    protected static ?int $navigationSort = 4;
     protected static ?string $slug = 'produccion/consolidado';
     protected string $view = 'filament.pages.produccion.consolidado-produccion';
 

@@ -43,8 +43,8 @@ class CargarSugeridoLocal extends Page implements HasTable
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-hand-raised';
     protected static ?string $navigationLabel = 'Cargar mi sugerido';
     protected static ?string $title = 'Cargar mi sugerido';
-    protected static string|\UnitEnum|null $navigationGroup = 'Stock Inicial';
-    protected static ?int $navigationSort = 7;
+    protected static string|\UnitEnum|null $navigationGroup = 'Directiva de Transferencia';
+    protected static ?int $navigationSort = 4;
     protected static ?string $slug = 'stock-inicial/cargar-sugerido';
     protected string $view = 'filament.pages.stock.cargar-sugerido-local';
 

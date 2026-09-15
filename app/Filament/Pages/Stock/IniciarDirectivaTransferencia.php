@@ -82,8 +82,8 @@ class IniciarDirectivaTransferencia extends Page
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-play';
     protected static ?string $navigationLabel = 'Iniciar Directiva de Transferencia';
     protected static ?string $title = 'Iniciar Directiva de Transferencia';
-    protected static string|\UnitEnum|null $navigationGroup = 'Stock Inicial';
-    protected static ?int $navigationSort = 4;
+    protected static string|\UnitEnum|null $navigationGroup = 'Directiva de Transferencia';
+    protected static ?int $navigationSort = 1;
     protected static ?string $slug = 'stock-inicial/iniciar-directiva';
     protected string $view = 'filament.pages.stock.iniciar-directiva-transferencia';
 

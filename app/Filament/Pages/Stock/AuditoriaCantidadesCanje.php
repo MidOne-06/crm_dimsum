@@ -27,7 +27,7 @@ class AuditoriaCantidadesCanje extends Page implements HasTable
     protected static ?string $navigationLabel = 'Auditoría de cantidades';
     protected static ?string $title = 'Auditoría de cantidades editadas en canje';
     protected static string|\UnitEnum|null $navigationGroup = 'Guías internas';
-    protected static ?int $navigationSort = 13;
+    protected static ?int $navigationSort = 14;
     protected static ?string $slug = 'guias-internas/auditoria-cantidades';
     protected string $view = 'filament.pages.stock.auditoria-cantidades-canje';
 

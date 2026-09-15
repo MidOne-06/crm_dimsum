@@ -35,7 +35,7 @@ class CostosRecetasComerciales extends Page implements HasTable
 
     protected static string|\UnitEnum|null $navigationGroup = 'Ventas';
 
-    protected static ?int $navigationSort = 21;
+    protected static ?int $navigationSort = 23;
 
     protected static ?string $slug = 'ventas/costos-recetas';
 

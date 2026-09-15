@@ -75,7 +75,7 @@ class NuevaGuiaInterna extends Page
     protected static ?string $navigationLabel = 'Nueva guía interna';
     protected static ?string $title = 'Nueva guía interna';
     protected static string|\UnitEnum|null $navigationGroup = 'Guías internas';
-    protected static ?int $navigationSort = 12;
+    protected static ?int $navigationSort = 13;
     protected static ?string $slug = 'guias-internas/nueva';
     protected string $view = 'filament.pages.stock.nueva-guia-interna';
 

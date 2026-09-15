@@ -11,10 +11,13 @@ use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use Filament\Navigation\NavigationGroup;
 use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
+use Filament\View\PanelsRenderHook;
+use Illuminate\Support\Facades\Blade;
 use Filament\Widgets\AccountWidget;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
@@ -46,6 +49,63 @@ class AdminPanelProvider extends PanelProvider
             ->brandLogoHeight(fn (): string => BrandingSetting::current()->logoHeight())
             ->favicon(fn (): string => BrandingSetting::current()->faviconUrl())
             ->sidebarCollapsibleOnDesktop()
+            // Orden real de operación, pedido explícito del usuario tras
+            // auditar los 72 módulos del sistema (2026-09-15): "Stock
+            // Inicial" mezclaba la carga de stock con la Directiva de
+            // Transferencia completa y con parámetros de configuración de
+            // su fórmula -- separado en 3 grupos reales. "Configuración" (solo
+            // Apariencia) y "Sincronización" (solo Panel de sincronización)
+            // eran grupos de un único ítem, fusionados dentro de "Seguridad".
+            // Los 12 grupos quedan registrados acá (en vez de dejar que
+            // Filament los infiera por orden de aparición) para controlar el
+            // orden real Y para que todos arranquen colapsados -- ver
+            // ->collapsed() de cada uno.
+            ->navigationGroups([
+                NavigationGroup::make('Stock Inicial')->collapsed(),
+                NavigationGroup::make('Directiva de Transferencia')->collapsed(),
+                NavigationGroup::make('Requerimientos de Stock')->collapsed(),
+                NavigationGroup::make('Guías internas')->collapsed(),
+                NavigationGroup::make('Movimientos entre almacenes')->collapsed(),
+                NavigationGroup::make('Stock Actual')->collapsed(),
+                NavigationGroup::make('Kardex')->collapsed(),
+                NavigationGroup::make('Ventas')->collapsed(),
+                NavigationGroup::make('Producción')->collapsed(),
+                NavigationGroup::make('Entregas')->collapsed(),
+                NavigationGroup::make('Configuración DT')->collapsed(),
+                NavigationGroup::make('Seguridad')->collapsed(),
+            ])
+            // Pedido explícito del usuario (2026-09-15): el menú lateral y
+            // cada categoría deben arrancar ocultos/colapsados en cada
+            // carga real de la página (login, refrescar, pestaña nueva),
+            // no solo en el primer render de Filament -- Filament no trae
+            // una opción nativa para esto porque el estado abierto/cerrado
+            // se persiste en el propio navegador (Alpine $persist, vía
+            // localStorage), no en el servidor. Se fuerza acá con un
+            // script mínimo que corre en <head>, antes de que Alpine
+            // arranque, sobre las mismas claves que usa
+            // vendor/filament/filament/resources/js/stores/sidebar.js.
+            // Al navegar DENTRO del panel (Livewire wire:navigate) el
+            // <head> no se vuelve a cargar, así que abrir el menú a mano
+            // sigue funcionando con normalidad mientras se navega -- solo
+            // una carga de página realmente nueva lo vuelve a ocultar.
+            ->renderHook(
+                PanelsRenderHook::HEAD_END,
+                fn (): string => Blade::render(<<<'BLADE'
+                    <script>
+                        (function () {
+                            try {
+                                localStorage.setItem('isOpen', 'false');
+                                localStorage.setItem('isOpenDesktop', 'false');
+                                localStorage.setItem('collapsedGroups', JSON.stringify([
+                                    'Stock Inicial', 'Directiva de Transferencia', 'Requerimientos de Stock',
+                                    'Guías internas', 'Movimientos entre almacenes', 'Stock Actual', 'Kardex',
+                                    'Ventas', 'Producción', 'Entregas', 'Configuración DT', 'Seguridad',
+                                ]));
+                            } catch (e) {}
+                        })();
+                    </script>
+                    BLADE),
+            )
             // El modo claro, oscuro y "según el sistema" lo controla Filament.
             ->darkMode()
             ->themeSwitcher()

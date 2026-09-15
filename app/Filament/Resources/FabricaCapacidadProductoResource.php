@@ -29,7 +29,7 @@ class FabricaCapacidadProductoResource extends Resource
     protected static ?string $modelLabel = 'Capacidad de FABRICA';
     protected static ?string $pluralModelLabel = 'Capacidad de FABRICA';
     protected static string|\UnitEnum|null $navigationGroup = 'Configuración DT';
-    protected static ?int $navigationSort = 25;
+    protected static ?int $navigationSort = 26;
 
     public static function canViewAny(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }
     public static function canCreate(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }

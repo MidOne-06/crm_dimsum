@@ -48,7 +48,7 @@ class ReporteGuiasInternas extends Page implements HasTable
     protected static ?string $navigationLabel = 'Reporte de guías';
     protected static ?string $title = 'Reporte de guías internas';
     protected static string|\UnitEnum|null $navigationGroup = 'Guías internas';
-    protected static ?int $navigationSort = 13;
+    protected static ?int $navigationSort = 15;
     protected static ?string $slug = 'guias-internas/reporte';
     protected string $view = 'filament.pages.stock.reporte-guias-internas';
 

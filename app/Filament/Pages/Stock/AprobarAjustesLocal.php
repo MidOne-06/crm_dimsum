@@ -37,8 +37,8 @@ class AprobarAjustesLocal extends Page implements HasTable
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-check-badge';
     protected static ?string $navigationLabel = 'Aprobar ajustes de locales';
     protected static ?string $title = 'Aprobar ajustes de locales';
-    protected static string|\UnitEnum|null $navigationGroup = 'Stock Inicial';
-    protected static ?int $navigationSort = 8;
+    protected static string|\UnitEnum|null $navigationGroup = 'Directiva de Transferencia';
+    protected static ?int $navigationSort = 5;
     protected static ?string $slug = 'stock-inicial/aprobar-ajustes-locales';
     protected string $view = 'filament.pages.stock.aprobar-ajustes-local';
 

@@ -28,7 +28,7 @@ class PrioridadLocalProrrateoResource extends Resource
     protected static ?string $modelLabel = 'Prioridad de local';
     protected static ?string $pluralModelLabel = 'Prioridad manual de reparto';
     protected static string|\UnitEnum|null $navigationGroup = 'Configuración DT';
-    protected static ?int $navigationSort = 30;
+    protected static ?int $navigationSort = 32;
 
     public static function canViewAny(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }
     public static function canCreate(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }

@@ -21,8 +21,8 @@ class PanelSincronizacion extends Page
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-signal';
     protected static ?string $navigationLabel = 'Panel de sincronización';
     protected static ?string $title = 'Panel de sincronización';
-    protected static string|\UnitEnum|null $navigationGroup = 'Sincronización';
-    protected static ?int $navigationSort = 1;
+    protected static string|\UnitEnum|null $navigationGroup = 'Seguridad';
+    protected static ?int $navigationSort = 94;
     protected static ?string $slug = 'sincronizacion';
     protected string $view = 'filament.pages.panel-sincronizacion';
 

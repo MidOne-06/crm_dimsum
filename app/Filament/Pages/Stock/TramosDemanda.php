@@ -37,8 +37,8 @@ class TramosDemanda extends Page implements HasTable
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-clock';
     protected static ?string $navigationLabel = 'Tramos de Demanda';
     protected static ?string $title = 'Tramos de Demanda';
-    protected static string|\UnitEnum|null $navigationGroup = 'Stock Inicial';
-    protected static ?int $navigationSort = 6;
+    protected static string|\UnitEnum|null $navigationGroup = 'Directiva de Transferencia';
+    protected static ?int $navigationSort = 3;
     protected static ?string $slug = 'stock-inicial/tramos-demanda';
     protected string $view = 'filament.pages.stock.tramos-demanda';
 

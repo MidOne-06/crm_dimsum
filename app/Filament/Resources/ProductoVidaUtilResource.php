@@ -24,7 +24,7 @@ class ProductoVidaUtilResource extends Resource
     protected static ?string $modelLabel = 'Vida útil';
     protected static ?string $pluralModelLabel = 'Vida útil de productos';
     protected static string|\UnitEnum|null $navigationGroup = 'Configuración DT';
-    protected static ?int $navigationSort = 24;
+    protected static ?int $navigationSort = 25;
 
     public static function canViewAny(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }
     public static function canCreate(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }

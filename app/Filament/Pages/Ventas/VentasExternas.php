@@ -37,7 +37,7 @@ class VentasExternas extends Page implements HasTable
 
     protected static string|\UnitEnum|null $navigationGroup = 'Ventas';
 
-    protected static ?int $navigationSort = 24;
+    protected static ?int $navigationSort = 26;
 
     protected static ?string $slug = 'ventas/externas';
 

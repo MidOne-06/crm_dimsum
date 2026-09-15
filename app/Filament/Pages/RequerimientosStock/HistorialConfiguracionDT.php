@@ -24,7 +24,7 @@ class HistorialConfiguracionDT extends Page implements HasTable
     protected static ?string $navigationLabel = 'Historial de cambios';
     protected static ?string $title = 'Historial de cambios — Directiva de Transferencia';
     protected static string|\UnitEnum|null $navigationGroup = 'Configuración DT';
-    protected static ?int $navigationSort = 31;
+    protected static ?int $navigationSort = 33;
     protected static ?string $slug = 'configuracion-dt/historial';
     protected string $view = 'filament.pages.requerimientos-stock.historial-configuracion-dt';
 

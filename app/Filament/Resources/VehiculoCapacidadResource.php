@@ -22,7 +22,7 @@ class VehiculoCapacidadResource extends Resource
     protected static ?string $modelLabel = 'Vehículo';
     protected static ?string $pluralModelLabel = 'Capacidad de vehículos';
     protected static string|\UnitEnum|null $navigationGroup = 'Configuración DT';
-    protected static ?int $navigationSort = 27;
+    protected static ?int $navigationSort = 29;
 
     public static function canViewAny(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }
     public static function canCreate(): bool { return (bool) auth()->user()?->hasPermission('tapers.manage'); }
