@@ -476,7 +476,18 @@ class ReporteGuiasInternas extends Page implements HasTable
             return $ids;
         }
 
-        return app(DirectivaTransferenciaService::class)->localesActivos($candidatos);
+        // Bug real encontrado revalidando de nuevo este mismo fix: el
+        // origen/destino de una guía interna no siempre es un local retail
+        // -- FABRICA y los centros de distribución (CD DSE, CD JAP) también
+        // emiten/reciben guías y nunca tienen fila en
+        // stock_iniciales_locales, así que "Locales Activos" no puede
+        // juzgarlos. Sin este ajuste desaparecían del reporte por defecto.
+        // Se conservan siempre; solo se excluyen los locales retail
+        // confirmados que SÍ están inactivos.
+        $noRetail = array_values(array_diff($ids, $confirmados));
+        $activos = app(DirectivaTransferenciaService::class)->localesActivos($candidatos);
+
+        return array_values(array_unique(array_merge($activos, $noRetail)));
     }
 
     /**

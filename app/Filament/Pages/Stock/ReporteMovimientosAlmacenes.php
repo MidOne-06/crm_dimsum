@@ -359,7 +359,20 @@ class ReporteMovimientosAlmacenes extends Page implements HasTable
             return $ids;
         }
 
-        return app(\App\Services\DirectivaTransferenciaService::class)->localesActivos($candidatos);
+        // A diferencia de Guías internas/Requerimientos (donde todo
+        // participante es un local retail), acá "Locales de origen/destino"
+        // también incluye nodos que NO son tiendas (FABRICA, centros de
+        // distribución como CD DSE/CD JAP) -- nunca tienen fila en
+        // stock_iniciales_locales porque nunca fueron pensados como un
+        // local retail, así que "Locales Activos" no puede juzgarlos.
+        // Bug real encontrado revalidando este mismo fix: sin este ajuste,
+        // FABRICA/CD DSE/CD JAP desaparecían del reporte por defecto.
+        // Se conservan siempre; solo se excluyen los locales retail
+        // confirmados que SÍ están inactivos.
+        $noRetail = array_values(array_diff($ids, $confirmados));
+        $activos = app(\App\Services\DirectivaTransferenciaService::class)->localesActivos($candidatos);
+
+        return array_values(array_unique(array_merge($activos, $noRetail)));
     }
 
     /** @return array<int, string> */
