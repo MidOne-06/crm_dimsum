@@ -41,7 +41,7 @@ class HistoricoEntregas extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->query(EntregaDespacho::query())
+            ->query(EntregaDespacho::query()->with('transportista'))
             ->columns([
                 TextColumn::make('fecha_hora')->label('Fecha y hora')->dateTime('d/m/Y H:i')->sortable(),
                 TextColumn::make('dia_semana')->label('Día')
