@@ -41,13 +41,21 @@ class SalesGatewayClient
 
     private function get(string $path, array $query = []): array
     {
-        $response = Http::baseUrl($this->baseUrl)->timeout(120)->get($path, $query);
-        $body = $response->json();
+        // Auditoría 2026-09-15: este cliente era el único de los gateway
+        // clients de lectura sin reintento -- un blip transitorio del
+        // gateway (reconexión de sesión Playwright, ver comentario en
+        // MovimientosAlmacenesGatewayClient) tumbaba en el primer intento
+        // cualquier job de ventas que lo llamara (21 jobs fallidos el
+        // 2026-09-15). Mismo patrón que StockGatewayClient/GuiasInternas/etc.
+        return retry(3, function () use ($path, $query): array {
+            $response = Http::baseUrl($this->baseUrl)->timeout(120)->get($path, $query);
+            $body = $response->json();
 
-        if ($response->failed()) {
-            throw new RuntimeException($body['error'] ?? 'No se pudo consultar el servicio de ventas.');
-        }
+            if ($response->failed()) {
+                throw new RuntimeException($body['error'] ?? 'No se pudo consultar el servicio de ventas.');
+            }
 
-        return is_array($body) ? $body : [];
+            return is_array($body) ? $body : [];
+        }, 2000);
     }
 }

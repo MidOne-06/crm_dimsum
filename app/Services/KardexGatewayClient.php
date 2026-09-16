@@ -79,14 +79,21 @@ class KardexGatewayClient
 
     private function get(string $path, array $query = []): array
     {
-        $response = Http::baseUrl($this->baseUrl)->timeout(60)->get($path, $query);
+        // Auditoría 2026-09-15: sin reintento, un blip transitorio del
+        // gateway tumbaba locals()/almacenes()/motivos() en el primer
+        // intento -- mismo patrón que StockGatewayClient. No se toca
+        // reporte(): esa sí reintenta, pero a nivel de Job (ver su propio
+        // comentario), a propósito por lo largo que puede tardar cada intento.
+        return retry(3, function () use ($path, $query): array {
+            $response = Http::baseUrl($this->baseUrl)->timeout(60)->get($path, $query);
 
-        $body = $response->json();
+            $body = $response->json();
 
-        if ($response->failed()) {
-            throw new RuntimeException($body['error'] ?? 'No se pudo consultar el servicio de kardex.');
-        }
+            if ($response->failed()) {
+                throw new RuntimeException($body['error'] ?? 'No se pudo consultar el servicio de kardex.');
+            }
 
-        return is_array($body) ? $body : [];
+            return is_array($body) ? $body : [];
+        }, 2000);
     }
 }

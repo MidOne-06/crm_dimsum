@@ -131,14 +131,19 @@ class StockFinalGatewayClient
 
     private function get(string $path, array $query = []): array
     {
-        $response = Http::baseUrl($this->baseUrl)->timeout(120)->get($path, $query);
+        // Auditoría 2026-09-15: mismo patrón que StockGatewayClient -- sin
+        // esto, un blip transitorio del gateway tumbaba cualquier lectura en
+        // el primer intento.
+        return retry(3, function () use ($path, $query): array {
+            $response = Http::baseUrl($this->baseUrl)->timeout(120)->get($path, $query);
 
-        $body = $response->json();
+            $body = $response->json();
 
-        if ($response->failed()) {
-            throw new RuntimeException($body['error'] ?? 'No se pudo consultar el servicio de carga de stock.');
-        }
+            if ($response->failed()) {
+                throw new RuntimeException($body['error'] ?? 'No se pudo consultar el servicio de carga de stock.');
+            }
 
-        return is_array($body) ? $body : [];
+            return is_array($body) ? $body : [];
+        }, 2000);
     }
 }
