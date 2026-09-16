@@ -102,18 +102,7 @@ class DirectivaTransferenciaExportService
             foreach ($locales as $index => $local) {
                 $sugerencia = $mapa->get("{$local->local_id}|{$producto->item_id}|{$producto->item_tipo}");
                 $cantidad = (float) ($sugerencia?->cantidad_sugerida ?? 0);
-                $celda = Coordinate::stringFromColumnIndex($index + 3).$rowNumber;
                 $sheet->setCellValue([$index + 3, $rowNumber], $cantidad);
-                // Riesgo de quiebre (tramo 1 ya supera el stock proyectado) --
-                // pedido explícito del usuario (2026-09-11, barrida de
-                // huecos): antes esta alerta solo vivía en pantalla, nunca
-                // llegaba al Excel que de verdad circula. Fondo rojo claro,
-                // mismo criterio que el badge "¿Riesgo de quiebre?" del
-                // Consolidado -- ver hoja "Detalle" para el resto de
-                // columnas (desviación, stock de seguridad, etc).
-                if ($sugerencia?->riesgo_quiebre) {
-                    $sheet->getStyle($celda)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FDE2E1');
-                }
                 $totalFila += $cantidad;
                 $totalesColumna[$index] += $cantidad;
             }
@@ -138,12 +127,8 @@ class DirectivaTransferenciaExportService
 
         $sheet->getColumnDimension('A')->setWidth(30);
         $sheet->getColumnDimension('B')->setWidth(10);
-        foreach (range(3, $lastColumn) as $index) $sheet->getColumnDimensionByColumn($index)->setWidth(9);
+        foreach (range(3, $lastColumn) as $index) $sheet->getColumnDimensionByColumn($index)->setWidth(6);
         $sheet->freezePane('C'.($headerRow + 1));
-
-        $leyendaFila = $filaTotal + 2;
-        $sheet->setCellValue("A{$leyendaFila}", 'Fondo rojo: riesgo de quiebre antes de mañana (ver hoja "Detalle").');
-        $sheet->getStyle("A{$leyendaFila}")->getFont()->setItalic(true)->setSize(8);
 
         $this->agregarHojaDetalle($spreadsheet, $mapa->values());
 
@@ -196,9 +181,6 @@ class DirectivaTransferenciaExportService
             $sheet->setCellValue([11, $fila], (float) $s->cantidad_bruta);
             $sheet->setCellValue([12, $fila], (float) $s->porcentaje_ajuste_aplicado);
             $sheet->setCellValue([13, $fila], (float) $s->cantidad_sugerida);
-            if ($s->riesgo_quiebre) {
-                $sheet->getStyle("A{$fila}:M{$fila}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FDE2E1');
-            }
             $fila++;
         }
 

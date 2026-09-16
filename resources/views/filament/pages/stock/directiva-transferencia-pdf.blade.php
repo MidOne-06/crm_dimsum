@@ -12,17 +12,15 @@
     .meta p { margin: 0 0 2px; }
     .meta .despacho { text-transform: capitalize; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    th, td { border: 1px solid #d1d5db; padding: 4px 3px; vertical-align: middle; }
+    th, td { border: 1px solid #d1d5db; padding: 2px 1px; vertical-align: middle; }
     th { background: #dce6f1; font-weight: bold; text-align: center; }
     th.local { height: 125px; font-size: 7px; padding: 2px 0; }
     th.local .giro { display: inline-block; transform: rotate(-90deg); white-space: nowrap; }
-    td.num { text-align: right; }
+    td.num { text-align: right; font-size: 7px; }
     tbody tr:nth-child(even) td { background: #f3f4f6; }
     tr.total td, td.total { font-weight: bold; background: #dce6f1 !important; }
-    .producto { width: 11%; } .sku { width: 3%; }
-    td.riesgo { background: #fde2e1 !important; }
+    .producto { width: 9%; } .sku { width: 3%; }
     .leyenda { margin-top: 6px; font-size: 7px; color: #6b7280; }
-    .leyenda .marca { display: inline-block; width: 8px; height: 8px; background: #fde2e1; border: 1px solid #d1d5db; vertical-align: middle; margin-right: 3px; }
     .pie-pagina {
         position: fixed;
         bottom: -22px;
@@ -67,7 +65,7 @@
                     <td>{{ $fila['nombre'] }}</td>
                     <td>{{ $fila['codigo'] }}</td>
                     @foreach($fila['celdas'] as $celda)
-                        <td class="num {{ $celda['riesgo'] ? 'riesgo' : '' }}">{{ number_format($celda['cantidad'], 0) }}</td>
+                        <td class="num">{{ number_format($celda['cantidad'], 0) }}</td>
                     @endforeach
                     <td class="num total">{{ number_format($fila['total'], 0) }}</td>
                 </tr>
@@ -85,6 +83,5 @@
             @endif
         </tbody>
     </table>
-    <div class="leyenda"><span class="marca"></span>Riesgo de quiebre antes de mañana (la demanda del tramo 1 ya supera el stock proyectado de ese local para ese producto).</div>
 </body>
 </html>
