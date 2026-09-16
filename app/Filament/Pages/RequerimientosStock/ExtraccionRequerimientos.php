@@ -257,7 +257,20 @@ class ExtraccionRequerimientos extends Page implements HasTable
             ->warning()->send();
     }
 
-    /** Mata el proceso OS por PID. Soporta Linux (contenedor de producción) y Windows (desarrollo local). */
+    /**
+     * Mata el proceso OS por PID. Soporta Linux (contenedor de producción) y
+     * Windows (desarrollo local).
+     *
+     * Auditoría 2026-09-16: en el flujo real hoy (job en el worker
+     * compartido, ver el comentario "NO se registra proceso_pid" en
+     * SincronizarReporteRequerimientos.php) esta rama nunca se ejecuta de
+     * verdad -- `proceso_pid` siempre llega null. Se agrega igual una
+     * verificación de identidad antes del kill -9 (que el PID sea
+     * realmente un proceso artisan, no cualquier proceso que el SO haya
+     * reasignado a ese número) como defensa ante datos viejos o un futuro
+     * camino que sí registre el pid -- sin esto, un PID reusado por el OS
+     * mataría un proceso arbitrario del servidor.
+     */
     private function matarProceso(?int $pid): bool
     {
         if (! $pid) {
@@ -267,6 +280,11 @@ class ExtraccionRequerimientos extends Page implements HasTable
         try {
             if (function_exists('posix_kill')) {
                 if (! posix_kill($pid, 0)) {
+                    return false;
+                }
+
+                $cmdline = @file_get_contents("/proc/{$pid}/cmdline");
+                if ($cmdline === false || ! str_contains($cmdline, 'artisan')) {
                     return false;
                 }
 
