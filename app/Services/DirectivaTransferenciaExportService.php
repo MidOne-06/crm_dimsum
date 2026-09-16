@@ -249,7 +249,12 @@ class DirectivaTransferenciaExportService
         $options = new DompdfOptions();
         $options->set('isRemoteEnabled', false);
         $pdf = new Dompdf($options);
-        $pdf->setPaper('a3', 'landscape');
+        // A4 en vez de A3 -- a la escala de fuente legible que necesita el
+        // pivote (producto/SKU + hasta 32 locales), el contenido real nunca
+        // llega a llenar una A3 completa y queda con mucho espacio en
+        // blanco. Comprobado en vivo: con A4 la misma tabla ocupa la hoja
+        // de forma natural sin necesidad de forzar anchos artificiales.
+        $pdf->setPaper('a4', 'landscape');
         $pdf->loadHtml(view('filament.pages.stock.directiva-transferencia-pdf', [
             'fecha' => Carbon::parse($fechaMinima)->locale('es')->isoFormat('dddd D [de] MMMM [de] YYYY'),
             'locales' => $locales,

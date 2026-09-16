@@ -12,7 +12,7 @@
     .meta p { margin: 0 0 2px; }
     .meta .despacho { text-transform: capitalize; }
     table { border-collapse: collapse; table-layout: fixed; }
-    th, td { border: 1px solid #d1d5db; padding: 2px 1px; vertical-align: middle; }
+    th, td { border: 1px solid #d1d5db; padding: 4px 2px; vertical-align: middle; font-size: 12px; }
     th { background: #dce6f1; font-weight: bold; text-align: center; }
     {{--
         overflow:hidden + position:relative en th.local, con el span rotado
@@ -25,13 +25,14 @@
         no cuenta para el ancho de la columna -- comprobado en vivo probando
         varias variantes (bottom-anchor recortaba el nombre, top:100% con
         transform-origin no renderizaba nada). El margin-left negativo tiene
-        que ser la MITAD del ancho real del texto (aprox. 4.5px por
-        carácter, DejaVu Sans Bold 7px) para que el centrado post-rotación
-        quede exacto -- por eso se calcula por local, no un valor fijo.
+        que ser la MITAD del ancho real del texto (aprox. 7px por carácter a
+        11px DejaVu Sans Bold, escalado desde el 4.5px/carácter medido a
+        7px) para que el centrado post-rotación quede exacto -- por eso se
+        calcula por local, no un valor fijo.
     --}}
-    th.local { height: 150px; font-size: 7px; padding: 0; overflow: hidden; position: relative; }
-    th.local .giro { position: absolute; top: 50%; left: 50%; margin-top: -4px; white-space: nowrap; transform: rotate(-90deg); text-align: right; }
-    td.num { text-align: right; font-size: 7px; }
+    th.local { height: 230px; font-size: 11px; padding: 0; overflow: hidden; position: relative; }
+    th.local .giro { position: absolute; top: 50%; left: 50%; margin-top: -6px; white-space: nowrap; transform: rotate(-90deg); text-align: right; }
+    td.num { text-align: right; font-size: 12px; }
     tbody tr:nth-child(even) td { background: #f3f4f6; }
     tr.total td, td.total { font-weight: bold; background: #dce6f1 !important; }
     .leyenda { margin-top: 6px; font-size: 7px; color: #6b7280; }
@@ -74,19 +75,19 @@
     --}}
     <table>
         <colgroup>
-            <col style="width: 110px;">
-            <col style="width: 34px;">
+            <col style="width: 170px;">
+            <col style="width: 55px;">
             @foreach($locales as $local)
-                <col style="width: 15px;">
+                <col style="width: 24px;">
             @endforeach
-            <col style="width: 15px;">
+            <col style="width: 24px;">
         </colgroup>
         @php
-            // Ancho real aproximado del texto rotado (4.5px/carácter a 7px
-            // DejaVu Sans Bold + 6px de margen) -- la mitad como
+            // Ancho real aproximado del texto rotado (7px/carácter a 11px
+            // DejaVu Sans Bold + 12px de margen) -- la mitad como
             // margin-left negativo centra el span ya rotado dentro de la
             // columna angosta. Ver comentario de th.local .giro arriba.
-            $anchoGiro = fn (string $texto): float => strlen($texto) * 4.5 + 6;
+            $anchoGiro = fn (string $texto): float => strlen($texto) * 7 + 12;
         @endphp
         <thead>
             <tr>
