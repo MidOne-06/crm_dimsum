@@ -21,6 +21,7 @@ use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Throwable;
 
@@ -58,9 +59,16 @@ class UserResource extends Resource
 
     public static function canDelete(Model $record): bool
     {
+        // Un transportista es un User -- borrarlo dispara el CASCADE de
+        // local_transportistas/transportista_ausencias/entregas_despacho
+        // (ver esas migraciones), destruyendo irreversiblemente todo su
+        // historial de entregas. TransportistaResource ya bloquea el borrado
+        // desde su propia pantalla; esta comprobación cierra el mismo hueco
+        // cuando se borra desde Usuarios en vez de Transportistas.
         return static::canManageUsers()
             && static::canManageUserRecord($record)
-            && ! $record->is(auth()->user());
+            && ! $record->is(auth()->user())
+            && ! ($record instanceof User && $record->esTransportista());
     }
 
     private static function canManageUsers(): bool
@@ -206,8 +214,8 @@ class UserResource extends Resource
                                     ->dehydrated(false)
                                     ->copyable(),
                                 TextInput::make('password_preview')
-                                    ->label('Nueva contraseña')
-                                    ->default(fn (User $record): string => static::terminalPasswordFor($record))
+                                    ->label('Contraseña actual')
+                                    ->default(fn (User $record): string => $record->terminal_password ?? 'Sin credenciales generadas -- usa "Restablecer contraseña" para crear una.')
                                     ->password()
                                     ->revealable()
                                     ->disabled()
@@ -218,8 +226,21 @@ class UserResource extends Resource
                     ->action(function (User $record): void {
                         abort_unless(static::canManageUsers() && static::canManageUserRecord($record), 403);
 
+                        // Auditoría de seguridad 2026-09-16: antes esta
+                        // contraseña se derivaba de forma determinística del
+                        // nombre del local (calculable por cualquiera que lo
+                        // conociera) y "Restablecer" recalculaba el mismo
+                        // valor -- no rotaba nada. Ahora se genera al azar en
+                        // cada reset real y se guarda en texto plano en
+                        // `terminal_password` (además de la hasheada en
+                        // `password`) solo para poder mostrarla de vuelta en
+                        // este modal -- es la credencial de un dispositivo
+                        // físico compartido, no de una cuenta personal.
+                        $nueva = static::nuevaContrasenaTerminal();
+
                         $record->forceFill([
-                            'password' => static::terminalPasswordFor($record),
+                            'password' => $nueva,
+                            'terminal_password' => $nueva,
                         ])->save();
 
                         Notification::make()
@@ -241,13 +262,14 @@ class UserResource extends Resource
         ];
     }
 
-    private static function terminalPasswordFor(User $user): string
+    /**
+     * Contraseña real y aleatoria (no derivada de ningún dato público como
+     * el nombre del local) -- cada llamada genera un valor distinto, así que
+     * un "Restablecer" real invalida cualquier credencial filtrada
+     * anteriormente.
+     */
+    private static function nuevaContrasenaTerminal(): string
     {
-        $localName = (string) ($user->locals()->value('local_nombre') ?? 'Terminal');
-        $base = preg_replace('/^DIM\s+SUM\s+/iu', '', trim($localName)) ?? $localName;
-        $ascii = iconv('UTF-8', 'ASCII//TRANSLIT', $base) ?: $base;
-        $words = preg_replace('/[^A-Za-z0-9]+/', ' ', $ascii) ?? $ascii;
-
-        return str_replace(' ', '', ucwords(strtolower(trim($words)))) . '#Terminal2026!';
+        return Str::password(16, symbols: false);
     }
 }
