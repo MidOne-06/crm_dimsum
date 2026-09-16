@@ -87,7 +87,21 @@ class RoleResource extends Resource
                 ->schema([
                     Select::make('permissions')
                         ->label('Permisos asignados')
-                        ->relationship('permissions', 'name')
+                        ->relationship(
+                            'permissions',
+                            'name',
+                            // Auditoría 2026-09-16: sin esto, cualquier titular de
+                            // roles.manage podía asignar users.manage/roles.manage/
+                            // permissions.manage a un rol no-system existente y
+                            // luego asignarse ese rol (con users.manage) -- una
+                            // escalación de privilegios en 2 pasos. Mismo criterio
+                            // que ya protege el rol superadministrador en
+                            // UserResource: sin acceso de superadministrador, estos
+                            // 3 permisos ni siquiera se ofrecen como opción.
+                            modifyQueryUsing: fn ($query) => (auth()->user()?->isPanelAdministrator() || auth()->user()?->roles()->where('slug', 'superadministrador')->exists())
+                                ? $query
+                                : $query->whereNotIn('slug', ['users.manage', 'roles.manage', 'permissions.manage']),
+                        )
                         ->getOptionLabelFromRecordUsing(fn (Permission $record): string => trim(($record->module ? $record->module.' · ' : '').$record->name))
                         ->multiple()
                         ->searchable()
