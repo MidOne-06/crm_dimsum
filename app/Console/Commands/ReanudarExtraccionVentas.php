@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\ExtraerVentasJob;
 use App\Jobs\ProcesarLoteVentasDetalleJob;
 use App\Jobs\ProcesarPaginaVentasJob;
 use App\Models\VentaExtraccion;
@@ -66,6 +67,26 @@ class ReanudarExtraccionVentas extends Command
         // iniciar una nueva extracción para siempre.
         if ($paginaIds->isNotEmpty() || $ventaIds->isNotEmpty()) {
             $extraccion->update(['estado' => 'en_progreso']);
+            $this->info("Reencoladas {$paginaIds->count()} página(s) y {$ventaIds->count()} venta(s).");
+
+            return self::SUCCESS;
+        }
+
+        // Auditoría 2026-09-16: si el worker murió ANTES de crear ninguna
+        // página (extracción todavía 'pendiente'/'planificando' cuando
+        // arrancó este comando), no hay nada que reencolar acá -- la
+        // extracción quedaba huérfana para siempre, bloqueando la
+        // automatización de ventas cada 30 min (ver
+        // ProcesarAutomatizacionesVentas, que solo avanza si la corrida
+        // anterior llegó a 'completado'). ExtraerVentasJob::handle() ya sabe
+        // rehacer la planificación completa cuando el estado sigue en
+        // 'pendiente'/'planificando', así que alcanza con volver a
+        // despacharlo.
+        if (in_array($extraccion->estado, ['pendiente', 'planificando'], true)) {
+            ExtraerVentasJob::dispatch($id);
+            $this->info("Extracción #{$id} seguía en '{$extraccion->estado}' sin páginas creadas -- se relanzó la planificación completa.");
+
+            return self::SUCCESS;
         }
 
         $this->info("Reencoladas {$paginaIds->count()} página(s) y {$ventaIds->count()} venta(s).");
