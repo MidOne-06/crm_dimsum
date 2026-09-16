@@ -38,6 +38,7 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
      */
     protected $hidden = [
         'password',
+        'terminal_password',
         'remember_token',
     ];
 
@@ -117,6 +118,23 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
         }
 
         return $this->locals()->pluck('local_id')->all();
+    }
+
+    /**
+     * Igual que assignedLocalIds() pero por nombre de local -- para las
+     * tablas que no guardan un local_id propio (ej.
+     * requerimientos_stock_historicos, que solo tiene local_produccion como
+     * texto plano cacheado del gateway, ver migración de user_locals).
+     *
+     * @return array<int, string> vacío = sin restricción (ve todos los locales)
+     */
+    public function assignedLocalNames(): array
+    {
+        if (! $this->isRestrictedToLocals()) {
+            return [];
+        }
+
+        return $this->locals()->pluck('local_nombre')->filter()->all();
     }
 
     public function getFilamentAvatarUrl(): ?string

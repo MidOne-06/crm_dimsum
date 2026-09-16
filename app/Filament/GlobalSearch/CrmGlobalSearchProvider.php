@@ -60,6 +60,10 @@ class CrmGlobalSearchProvider implements GlobalSearchProvider
 
         $guias = GuiaInterna::query()
             ->where('restaurant_id', 'ilike', "%{$query}%")
+            ->when(auth()->user()->isRestrictedToLocals(), function ($q): void {
+                $locales = auth()->user()->assignedLocalIds();
+                $q->where(fn ($q2) => $q2->whereIn('local_origen_id', $locales)->orWhereIn('local_destino_id', $locales));
+            })
             ->orderByDesc('fecha_emision')
             ->limit(self::LIMITE)
             ->get();
@@ -87,7 +91,17 @@ class CrmGlobalSearchProvider implements GlobalSearchProvider
         }
 
         $requerimientos = RequerimientoStockHistorico::query()
-            ->where('erp_id', 'ilike', "%{$query}%")
+            // `erp_id` es bigint -- ilike no existe para ese tipo sin cast
+            // explícito a texto (rompía la búsqueda con SQLSTATE 42883 ante
+            // cualquier término no vacío).
+            ->whereRaw('erp_id::text ilike ?', ["%{$query}%"])
+            ->when(auth()->user()->isRestrictedToLocals(), function ($q): void {
+                // requerimientos_stock_historicos no guarda un local_id
+                // propio, solo local_produccion como texto plano (ver
+                // migración user_locals) -- se filtra por nombre en vez de
+                // por id, igual que assignedLocalNames().
+                $q->whereIn('local_produccion', auth()->user()->assignedLocalNames());
+            })
             ->orderByDesc('fecha_registro')
             ->limit(self::LIMITE)
             ->get();
@@ -116,6 +130,10 @@ class CrmGlobalSearchProvider implements GlobalSearchProvider
 
         $movimientos = MovimientoAlmacenHistorico::query()
             ->where('restaurant_id', 'ilike', "%{$query}%")
+            ->when(auth()->user()->isRestrictedToLocals(), function ($q): void {
+                $locales = auth()->user()->assignedLocalIds();
+                $q->where(fn ($q2) => $q2->whereIn('local_origen_id', $locales)->orWhereIn('local_destino_id', $locales));
+            })
             ->orderByDesc('fecha')
             ->limit(self::LIMITE)
             ->get();
