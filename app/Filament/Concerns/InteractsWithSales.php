@@ -220,6 +220,19 @@ trait InteractsWithSales
         // pero se revalida aquí el valor efectivamente recibido.
         $selectedLocals = $this->restrictLocalIdsToUser($state['selectedLocals'] ?? []);
 
+        // Auditoría 2026-09-16: `locales` vacío NO significa "todos" para el
+        // gateway -- cae silenciosamente al local de la sesión de login
+        // (confirmado en /opt/API-TI modules/ventas/service.js: `locales:
+        // filters.locales || session.localId`). Si el usuario destildó todo
+        // (o quedó vacío tras restringir por local), se completa
+        // explícitamente con los locales permitidos -- mismo patrón ya
+        // corregido en Stock Actual/Guías Internas, aplicado aquí también.
+        if ($selectedLocals === []) {
+            $selectedLocals = auth()->user()?->isRestrictedToLocals()
+                ? auth()->user()->assignedLocalIds()
+                : array_column($this->availableLocals, 'id');
+        }
+
         return [
             'locales' => implode('-', $selectedLocals),
             'moneda' => (string) ($state['currency'] ?? '1'),
