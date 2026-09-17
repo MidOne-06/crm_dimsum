@@ -49,7 +49,7 @@ return [
         // verificar la evidencia por hash antes de cualquier retención futura.
         'ventas_archivo_local' => [
             'driver' => 'local',
-            'root' => env('VENTAS_PAYLOAD_ARCHIVE_PATH', storage_path('app/ventas-payloads')),
+            'root' => env('VENTAS_PAYLOAD_ARCHIVE_PATH', storage_path('app')),
             'throw' => true,
         ],
 
