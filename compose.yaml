@@ -55,6 +55,9 @@ services:
       NODE_EXECUTABLE: node
       RUN_MIGRATIONS: "true"
       STOCK_GATEWAY_URL: http://gateway:3000
+      # Archivo local permitido únicamente para copias verificadas; el
+      # comando bloquea la eliminación de raw mientras el destino sea local.
+      VENTAS_PAYLOAD_ALLOW_LOCAL_ARCHIVE: ${VENTAS_PAYLOAD_ALLOW_LOCAL_ARCHIVE:-true}
     volumes:
       - app_storage:/var/www/html/storage
       - public_assets:/var/www/html/public
