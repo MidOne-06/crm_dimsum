@@ -4,7 +4,7 @@
             <x-filament::section :heading="$categoria" compact>
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     @foreach ($productos as $producto)
-                        @if ($this->puedeRegistrar() && ! $this->soloLectura())
+                        @if (($this->puedeRegistrar() || $this->puedeRegistrarTanda()) && ! $this->soloLectura())
                             <div class="min-h-28 w-full rounded-xl border border-gray-200 p-3 dark:border-white/10">
                                 <div class="text-xs text-gray-500 dark:text-gray-400">{{ $producto['codigo'] ?: 'Sin código' }}</div>
                                 <div class="font-semibold text-gray-950 dark:text-white">{{ $producto['nombre'] }}</div>
@@ -24,15 +24,17 @@
                                         wire:loading.attr="disabled"
                                         wire:target="mountAction"
                                     >Tanda</x-filament::button>
-                                    <x-filament::button
-                                        type="button"
-                                        color="gray"
-                                        size="sm"
-                                        class="flex-1 !justify-center"
-                                        wire:click="mountAction('registrarSalidaProducto', { productoId: {{ $producto['id'] }} })"
-                                        wire:loading.attr="disabled"
-                                        wire:target="mountAction"
-                                    >Salida</x-filament::button>
+                                    @if ($this->puedeRegistrar())
+                                        <x-filament::button
+                                            type="button"
+                                            color="gray"
+                                            size="sm"
+                                            class="flex-1 !justify-center"
+                                            wire:click="mountAction('registrarSalidaProducto', { productoId: {{ $producto['id'] }} })"
+                                            wire:loading.attr="disabled"
+                                            wire:target="mountAction"
+                                        >Salida</x-filament::button>
+                                    @endif
                                 </div>
                             </div>
                         @else

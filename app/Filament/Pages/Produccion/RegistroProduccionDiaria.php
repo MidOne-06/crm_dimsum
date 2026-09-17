@@ -55,7 +55,9 @@ class RegistroProduccionDiaria extends Page
     public static function canAccess(): bool
     {
         $user = auth()->user();
-        return (bool) ($user?->hasPermission('produccion-diaria.view') || $user?->hasPermission('produccion-diaria.registrar') || $user?->hasPermission('produccion-diaria.aprobar'));
+
+        return (bool) ($user?->hasPermission('produccion-diaria.view') || $user?->hasPermission('produccion-diaria.registrar')
+            || $user?->hasPermission('produccion-diaria.registrar-tanda') || $user?->hasPermission('produccion-diaria.aprobar'));
     }
 
     public function mount(): void { $this->cargarHoy(); }
@@ -110,7 +112,7 @@ class RegistroProduccionDiaria extends Page
         return Action::make('registrarTandaProducto')
             ->label('Registrar tanda')
             ->icon('heroicon-o-plus')
-            ->visible(fn (): bool => $this->puedeRegistrar() && ! $this->soloLectura())
+            ->visible(fn (): bool => $this->puedeRegistrarTanda() && ! $this->soloLectura())
             ->modalHeading(fn (Action $action): string => 'Registrar tanda · '.$this->productoDeAccion($action)->nombre)
             ->modalWidth('5xl')
             ->stickyModalHeader()
@@ -143,7 +145,7 @@ class RegistroProduccionDiaria extends Page
                 ]),
             ])
             ->action(function (array $data): void {
-                abort_unless($this->puedeRegistrar(), 403);
+                abort_unless($this->puedeRegistrarTanda(), 403);
                 $producto = ProduccionProducto::query()->where('activo', true)->find($data['producto_id'] ?? null);
                 $cantidad = is_numeric($data['cantidad'] ?? null) ? (float) $data['cantidad'] : 0;
                 $nota = trim((string) ($data['nota'] ?? '')) ?: null;
@@ -223,6 +225,11 @@ class RegistroProduccionDiaria extends Page
 
     private function guardarSalida(ProduccionProducto $producto, float $cantidad, string $destino, ?string $nota): void
     {
+        // Defensa en profundidad -- barrida de permisos (2026-09-17): la
+        // Action ya oculta el botón y valida antes de llamar acá, pero este
+        // método privado no debe confiar en que SIEMPRE se invoque desde
+        // ahí. Mismo patrón que guardar()/aprobar() en esta misma clase.
+        abort_unless($this->puedeRegistrar(), 403);
         DB::transaction(function () use ($producto, $cantidad, $destino, $nota): void {
             $cierre = ProduccionDiariaCierre::query()->whereDate('fecha', $this->fechaOperativa())->lockForUpdate()->first();
             if ($cierre?->estado === 'aprobado') throw ValidationException::withMessages(['data.salida.producto_id' => 'El cierre de hoy ya está aprobado.']);
@@ -249,6 +256,8 @@ class RegistroProduccionDiaria extends Page
 
     private function guardarTanda(ProduccionProducto $producto, float $cantidad, ?string $nota): void
     {
+        // Defensa en profundidad -- ver comentario equivalente en guardarSalida().
+        abort_unless($this->puedeRegistrarTanda(), 403);
         DB::transaction(function () use ($producto, $cantidad, $nota): void {
             $cierre = ProduccionDiariaCierre::query()->whereDate('fecha', $this->fechaOperativa())->lockForUpdate()->first();
             if ($cierre?->estado === 'aprobado') throw ValidationException::withMessages(['data.tanda.producto_id' => 'El cierre de hoy ya está aprobado.']);
@@ -312,7 +321,18 @@ class RegistroProduccionDiaria extends Page
 
     public function puedeRegistrar(): bool { return (bool) auth()->user()?->hasPermission('produccion-diaria.registrar'); }
     public function puedeAprobar(): bool { return (bool) auth()->user()?->hasPermission('produccion-diaria.aprobar'); }
-    public function soloLectura(): bool { return ! $this->puedeRegistrar() || $this->estado === 'aprobado'; }
+    /**
+     * Nivel angosto -- pedido explícito del usuario (2026-09-17): un
+     * operario debe poder registrar SOLO tandas, sin salida ni cierre
+     * físico. El nivel completo (puedeRegistrar) también cubre tandas --
+     * un jefe con el permiso completo no pierde nada.
+     */
+    public function puedeRegistrarTanda(): bool { return $this->puedeRegistrar() || (bool) auth()->user()?->hasPermission('produccion-diaria.registrar-tanda'); }
+    // soloLectura() se relaja para CUALQUIERA de los dos niveles de
+    // registro (completo o solo-tanda) -- si solo mirara puedeRegistrar(),
+    // un operario con el permiso angosto vería todo deshabilitado,
+    // incluida la propia tanda que sí debería poder registrar.
+    public function soloLectura(): bool { return ! ($this->puedeRegistrar() || $this->puedeRegistrarTanda()) || $this->estado === 'aprobado'; }
     public function etiquetaEstado(): string { return match ($this->estado) { 'borrador' => 'Borrador', 'enviado' => 'Enviado', 'aprobado' => 'Aprobado', default => 'Nuevo' }; }
     private function fechaOperativa(): string { return Carbon::now('America/Lima')->toDateString(); }
 
