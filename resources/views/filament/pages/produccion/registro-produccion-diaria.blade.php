@@ -78,21 +78,9 @@
         </div>
     @endif
 
-    <x-filament::section heading="Producción acumulada de hoy">
-        @if (count($resumenProduccion))
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                @foreach ($resumenProduccion as $resumen)
-                    <div class="rounded-xl border border-gray-200 p-4 dark:border-white/10">
-                        <div class="text-sm font-medium text-gray-950 dark:text-white">{{ $resumen['nombre'] }}</div>
-                        <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ $resumen['codigo'] ?: 'Sin código' }} · {{ $resumen['tandas'] }} {{ $resumen['tandas'] === 1 ? 'tanda' : 'tandas' }}</div>
-                        <div class="mt-3 text-2xl font-bold text-primary-600 dark:text-primary-400">{{ number_format($resumen['cantidad'], 2) }} <span class="text-sm font-medium">{{ $resumen['unidad'] }}</span></div>
-                    </div>
-                @endforeach
-            </div>
-        @else
-            <p class="text-sm text-gray-500 dark:text-gray-400">Sin registros.</p>
-        @endif
-    </x-filament::section>
+    <div class="flex justify-end">
+        <x-filament::button type="button" color="gray" icon="heroicon-o-chart-bar" wire:click="mountAction('produccionAcumulada')" wire:loading.attr="disabled" wire:target="mountAction">Producción acumulada de hoy</x-filament::button>
+    </div>
 
     @if (count($tandasRecientes))
         <x-filament::section heading="Últimas tandas">

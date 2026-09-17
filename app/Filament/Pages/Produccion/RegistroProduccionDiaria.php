@@ -15,6 +15,9 @@ use Filament\Forms\Components\Repeater\TableColumn;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
+use Filament\Infolists\Components\RepeatableEntry;
+use Filament\Infolists\Components\RepeatableEntry\TableColumn as InfolistTableColumn;
+use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Grid;
@@ -108,6 +111,44 @@ class RegistroProduccionDiaria extends Page
                     ]),
             ]),
         ];
+    }
+
+    /**
+     * "Producción acumulada de hoy" en modal -- pedido explícito del
+     * usuario (2026-09-17): antes era una sección siempre visible en la
+     * página; se convierte en Action con Infolist dentro del modal (mismo
+     * estándar nativo de Filament que ya usa "Ver" en Salidas de Stock,
+     * ver SalidasStock.php) en vez de un modal armado a mano.
+     */
+    public function produccionAcumuladaAction(): Action
+    {
+        return Action::make('produccionAcumulada')
+            ->label('Producción acumulada de hoy')
+            ->icon('heroicon-o-chart-bar')
+            ->color('gray')
+            ->modalHeading('Producción acumulada de hoy')
+            ->modalWidth('4xl')
+            ->modalSubmitAction(false)
+            ->modalCancelActionLabel('Cerrar')
+            ->fillForm(fn (): array => ['resumen' => $this->resumenProduccion])
+            ->schema([
+                RepeatableEntry::make('resumen')->label('')
+                    ->table([
+                        InfolistTableColumn::make('Producto'),
+                        InfolistTableColumn::make('Código'),
+                        InfolistTableColumn::make('Tandas')->alignEnd(),
+                        InfolistTableColumn::make('Cantidad')->alignEnd(),
+                        InfolistTableColumn::make('Unidad'),
+                    ])
+                    ->schema([
+                        TextEntry::make('nombre')->label('')->weight('medium'),
+                        TextEntry::make('codigo')->label('')->placeholder('—'),
+                        TextEntry::make('tandas')->label(''),
+                        TextEntry::make('cantidad')->label('')->numeric(2),
+                        TextEntry::make('unidad')->label(''),
+                    ])
+                    ->contained(false),
+            ]);
     }
 
     public function registrarTandaProductoAction(): Action
