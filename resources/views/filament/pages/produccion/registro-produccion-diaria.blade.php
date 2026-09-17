@@ -62,6 +62,12 @@
         </div>
     @endif
 
+    @if ($this->puedeReabrir())
+        <div class="flex justify-end">
+            <x-filament::button type="button" color="warning" wire:click="reabrir" wire:confirm="Vuelve a borrador: se podrán corregir tandas, salidas y el stock final antes de aprobarlo de nuevo. ¿Continuar?" wire:loading.attr="disabled" wire:target="reabrir">Reabrir cierre</x-filament::button>
+        </div>
+    @endif
+
     <x-filament::section heading="Producción acumulada de hoy">
         @if (count($resumenProduccion))
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -89,9 +95,17 @@
                                 <div class="text-sm text-gray-500 dark:text-gray-400">{{ $tanda['nota'] }}</div>
                             @endif
                         </div>
-                        <div class="text-right">
-                            <div class="font-semibold text-gray-950 dark:text-white">{{ number_format($tanda['cantidad'], 2) }} {{ $tanda['unidad'] }}</div>
-                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ $tanda['hora'] }}@if ($tanda['usuario']) · {{ $tanda['usuario'] }}@endif</div>
+                        <div class="flex items-center gap-3">
+                            <div class="text-right">
+                                <div class="font-semibold text-gray-950 dark:text-white">{{ number_format($tanda['cantidad'], 2) }} {{ $tanda['unidad'] }}</div>
+                                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $tanda['hora'] }}@if ($tanda['usuario']) · {{ $tanda['usuario'] }}@endif</div>
+                            </div>
+                            @if ($estado === 'borrador' && $this->puedeRegistrarTanda())
+                                <div class="flex gap-1">
+                                    <x-filament::icon-button icon="heroicon-o-pencil-square" label="Editar" wire:click="mountAction('editarTanda', { tandaId: {{ $tanda['id'] }} })" wire:loading.attr="disabled" wire:target="mountAction" />
+                                    <x-filament::icon-button icon="heroicon-o-trash" color="danger" label="Eliminar" wire:click="mountAction('eliminarTanda', { tandaId: {{ $tanda['id'] }} })" wire:loading.attr="disabled" wire:target="mountAction" />
+                                </div>
+                            @endif
                         </div>
                     </div>
                 @endforeach
@@ -111,9 +125,17 @@
                                 @if ($salida['nota']) · {{ $salida['nota'] }} @endif
                             </div>
                         </div>
-                        <div class="text-right">
-                            <div class="font-semibold text-gray-950 dark:text-white">−{{ number_format($salida['cantidad'], 2) }} {{ $salida['unidad'] }}</div>
-                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ $salida['hora'] }}@if ($salida['usuario']) · {{ $salida['usuario'] }}@endif</div>
+                        <div class="flex items-center gap-3">
+                            <div class="text-right">
+                                <div class="font-semibold text-gray-950 dark:text-white">−{{ number_format($salida['cantidad'], 2) }} {{ $salida['unidad'] }}</div>
+                                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $salida['hora'] }}@if ($salida['usuario']) · {{ $salida['usuario'] }}@endif</div>
+                            </div>
+                            @if ($estado === 'borrador' && $this->puedeRegistrar())
+                                <div class="flex gap-1">
+                                    <x-filament::icon-button icon="heroicon-o-pencil-square" label="Editar" wire:click="mountAction('editarSalida', { salidaId: {{ $salida['id'] }} })" wire:loading.attr="disabled" wire:target="mountAction" />
+                                    <x-filament::icon-button icon="heroicon-o-trash" color="danger" label="Eliminar" wire:click="mountAction('eliminarSalida', { salidaId: {{ $salida['id'] }} })" wire:loading.attr="disabled" wire:target="mountAction" />
+                                </div>
+                            @endif
                         </div>
                     </div>
                 @endforeach
