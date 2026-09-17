@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages\Produccion;
 
+use App\Filament\Concerns\ExportaTablaExcel;
 use App\Models\ProduccionDiariaTanda;
 use App\Models\ProduccionProducto;
 use Filament\Forms\Components\Select;
@@ -17,6 +18,28 @@ use Illuminate\Support\Carbon;
 class ConsolidadoProduccion extends Page implements HasTable
 {
     use InteractsWithTable;
+    use ExportaTablaExcel;
+
+    protected function getHeaderActions(): array
+    {
+        $dias = range(1, $this->periodo()->daysInMonth);
+
+        return [
+            $this->exportarExcelAction(
+                'consolidado-produccion-'.$this->mesSeleccionado().'.xlsx',
+                ['Código', 'Producto', 'Unidad', ...array_map(fn (int $d): string => (string) $d, $dias), 'Total'],
+                function (ProduccionProducto $producto) use ($dias): array {
+                    $cantidades = $this->cantidades($producto->id);
+
+                    return [
+                        $producto->codigo, $producto->nombre, $producto->unidad,
+                        ...array_map(fn (int $d): float => (float) ($cantidades[$d] ?? 0), $dias),
+                        array_sum($cantidades),
+                    ];
+                },
+            ),
+        ];
+    }
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-table-cells';
     protected static ?string $navigationLabel = 'Consolidado de producción';

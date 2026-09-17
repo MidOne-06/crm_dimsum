@@ -3,7 +3,7 @@
 namespace App\Filament\Pages\Produccion;
 
 use App\Filament\Concerns\ExportaTablaExcel;
-use App\Models\ProduccionDiariaSalida;
+use App\Models\ProduccionDiariaTanda;
 use App\Models\ProduccionProducto;
 use Filament\Forms\Components\DatePicker;
 use Filament\Pages\Page;
@@ -13,17 +13,20 @@ use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 
 /**
- * Historial de "Registrar salida" de Producción -- pedido explícito del
- * usuario (2026-09-17): no había ningún lugar para ver salidas de días
- * anteriores, solo "Últimas salidas" (día actual, últimas 8) dentro del
- * registro diario. Independiente de Restaurant, igual que el resto del
- * módulo -- lee directo de produccion_diaria_salidas, nunca de Guías
- * Internas ni de Salidas de Stock (esos son circuitos reales con
- * Restaurant, completamente aparte).
+ * Historial de "Registrar tanda" de Producción -- pedido explícito del
+ * usuario (2026-09-17): necesita saber cuántas tandas hubo por producto
+ * en el día (hasta el cierre físico) y a qué hora fue cada una. "Últimas
+ * tandas" en el registro diario solo muestra las últimas 8 del día
+ * actual, sin filtro por producto ni por fecha pasada -- mismo hueco ya
+ * resuelto para salidas con HistorialSalidasProduccion, ahora replicado
+ * para tandas. Filtrando por producto y fecha, la tabla ya responde
+ * "cuántas" (paginación/conteo) y "a qué hora" (columna Hora) para ese
+ * producto ese día.
  */
-class HistorialSalidasProduccion extends Page implements HasTable
+class HistorialTandasProduccion extends Page implements HasTable
 {
     use InteractsWithTable;
     use ExportaTablaExcel;
@@ -32,25 +35,23 @@ class HistorialSalidasProduccion extends Page implements HasTable
     {
         return [
             $this->exportarExcelAction(
-                'historial-salidas-'.now()->format('Y-m-d').'.xlsx',
-                ['Fecha', 'Hora', 'Código', 'Producto', 'Cantidad', 'Unidad', 'Destino', 'Nota', 'Registrado por'],
-                fn (ProduccionDiariaSalida $s): array => [
-                    $s->cierre?->fecha?->format('d/m/Y'), $s->created_at?->timezone('America/Lima')->format('H:i'),
-                    $s->item_codigo, $s->item_nombre, (float) $s->cantidad, $s->unidad,
-                    match ($s->destino) { 'despacho' => 'Área de despacho', 'merma' => 'Merma / descarte', 'ajuste' => 'Ajuste de conteo', default => 'Otro' },
-                    $s->nota, $s->registrador?->name,
+                'historial-tandas-'.now()->format('Y-m-d').'.xlsx',
+                ['Fecha', 'Hora', 'Código', 'Producto', 'Cantidad', 'Unidad', 'Nota', 'Registrado por'],
+                fn (ProduccionDiariaTanda $t): array => [
+                    $t->cierre?->fecha?->format('d/m/Y'), $t->created_at?->timezone('America/Lima')->format('H:i'),
+                    $t->item_codigo, $t->item_nombre, (float) $t->cantidad, $t->unidad, $t->nota, $t->registrador?->name,
                 ],
             ),
         ];
     }
 
-    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-arrow-up-tray';
-    protected static ?string $navigationLabel = 'Historial de salidas';
-    protected static ?string $title = 'Historial de salidas de producción';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-clock';
+    protected static ?string $navigationLabel = 'Historial de tandas';
+    protected static ?string $title = 'Historial de tandas de producción';
     protected static string|\UnitEnum|null $navigationGroup = 'Producción';
-    protected static ?int $navigationSort = 5;
-    protected static ?string $slug = 'produccion/historial-salidas';
-    protected string $view = 'filament.pages.produccion.historial-salidas-produccion';
+    protected static ?int $navigationSort = 6;
+    protected static ?string $slug = 'produccion/historial-tandas';
+    protected string $view = 'filament.pages.produccion.historial-tandas-produccion';
 
     public static function canAccess(): bool
     {
@@ -62,7 +63,7 @@ class HistorialSalidasProduccion extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->query(fn (): Builder => ProduccionDiariaSalida::query()->with(['cierre', 'registrador']))
+            ->query(fn (): Builder => ProduccionDiariaTanda::query()->with(['cierre', 'registrador']))
             ->columns([
                 Tables\Columns\TextColumn::make('cierre.fecha')->label('Fecha')->date('d/m/Y')->sortable(),
                 Tables\Columns\TextColumn::make('created_at')->label('Hora')->time('H:i')->sortable(),
@@ -70,32 +71,13 @@ class HistorialSalidasProduccion extends Page implements HasTable
                 Tables\Columns\TextColumn::make('item_nombre')->label('Producto')->searchable()->wrap(),
                 Tables\Columns\TextColumn::make('cantidad')->label('Cantidad')->numeric(2)->alignEnd(),
                 Tables\Columns\TextColumn::make('unidad')->label('Unidad'),
-                Tables\Columns\TextColumn::make('destino')->label('Destino')->badge()
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
-                        'despacho' => 'Área de despacho',
-                        'merma' => 'Merma / descarte',
-                        'ajuste' => 'Ajuste de conteo',
-                        default => 'Otro',
-                    })
-                    ->color(fn (string $state): string => match ($state) {
-                        'despacho' => 'success',
-                        'merma' => 'danger',
-                        'ajuste' => 'warning',
-                        default => 'gray',
-                    }),
                 Tables\Columns\TextColumn::make('nota')->label('Nota')->limit(50)
-                    ->tooltip(fn (ProduccionDiariaSalida $record): ?string => filled($record->nota) ? $record->nota : null)
+                    ->tooltip(fn (ProduccionDiariaTanda $record): ?string => filled($record->nota) ? $record->nota : null)
                     ->toggleable()
                     ->placeholder('—'),
                 Tables\Columns\TextColumn::make('registrador.name')->label('Registrado por')->toggleable()->placeholder('—'),
             ])
             ->filters([
-                Tables\Filters\SelectFilter::make('destino')->label('Destino')->options([
-                    'despacho' => 'Área de despacho',
-                    'merma' => 'Merma / descarte',
-                    'ajuste' => 'Ajuste de conteo',
-                    'otro' => 'Otro',
-                ]),
                 Tables\Filters\SelectFilter::make('producto_id')->label('Producto')
                     ->options(fn (): array => ProduccionProducto::query()->orderBy('nombre')->pluck('nombre', 'id')->all())
                     ->searchable(),
@@ -122,6 +104,6 @@ class HistorialSalidasProduccion extends Page implements HasTable
             ->defaultSort('created_at', 'desc')
             ->paginated([10, 25, 50, 100])
             ->defaultPaginationPageOption(25)
-            ->emptyStateHeading('Sin salidas registradas.');
+            ->emptyStateHeading('Sin tandas registradas.');
     }
 }

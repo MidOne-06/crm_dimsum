@@ -6,6 +6,7 @@ use App\Filament\GlobalSearch\CrmGlobalSearchProvider;
 use App\Filament\Pages\EditProfile;
 use App\Filament\Pages\Login;
 use App\Filament\Pages\Stock\NuevaSalidaStock;
+use App\Http\Middleware\RedirectProduccionOnlyToRegistro;
 use App\Http\Middleware\RedirectTerminalToNewStockExit;
 use App\Models\BrandingSetting;
 use Filament\Http\Middleware\Authenticate;
@@ -155,6 +156,7 @@ class AdminPanelProvider extends PanelProvider
             ->authMiddleware([
                 Authenticate::class,
                 RedirectTerminalToNewStockExit::class,
+                RedirectProduccionOnlyToRegistro::class,
             ]);
     }
 }

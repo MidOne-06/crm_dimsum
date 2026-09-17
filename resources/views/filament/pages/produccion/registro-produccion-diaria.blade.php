@@ -1,10 +1,20 @@
 <x-filament-panels::page>
+    @if ($diaAnteriorSinCerrar || $diaAnteriorSinAprobar)
+        <div class="rounded-xl border border-danger-300 bg-danger-50 p-4 text-sm text-danger-700 dark:border-danger-500/30 dark:bg-danger-500/10 dark:text-danger-300">
+            @if ($diaAnteriorSinCerrar)
+                <strong>Atención:</strong> el {{ \Illuminate\Support\Carbon::parse($diaAnteriorFecha)->format('d/m/Y') }} no se registró ningún cierre de producción.
+            @else
+                <strong>Atención:</strong> el cierre del {{ \Illuminate\Support\Carbon::parse($diaAnteriorFecha)->format('d/m/Y') }} quedó sin aprobar.
+            @endif
+        </div>
+    @endif
+
     @if (count($productosParaRegistro))
         @foreach ($productosPorCategoria as $categoria => $productos)
             <x-filament::section :heading="$categoria" compact>
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     @foreach ($productos as $producto)
-                        @if ($this->puedeRegistrar() && ! $this->soloLectura())
+                        @if (($this->puedeRegistrar() || $this->puedeRegistrarTanda()) && ! $this->soloLectura())
                             <div class="min-h-28 w-full rounded-xl border border-gray-200 p-3 dark:border-white/10">
                                 <div class="text-xs text-gray-500 dark:text-gray-400">{{ $producto['codigo'] ?: 'Sin código' }}</div>
                                 <div class="font-semibold text-gray-950 dark:text-white">{{ $producto['nombre'] }}</div>
@@ -24,15 +34,17 @@
                                         wire:loading.attr="disabled"
                                         wire:target="mountAction"
                                     >Tanda</x-filament::button>
-                                    <x-filament::button
-                                        type="button"
-                                        color="gray"
-                                        size="sm"
-                                        class="flex-1 !justify-center"
-                                        wire:click="mountAction('registrarSalidaProducto', { productoId: {{ $producto['id'] }} })"
-                                        wire:loading.attr="disabled"
-                                        wire:target="mountAction"
-                                    >Salida</x-filament::button>
+                                    @if ($this->puedeRegistrar())
+                                        <x-filament::button
+                                            type="button"
+                                            color="gray"
+                                            size="sm"
+                                            class="flex-1 !justify-center"
+                                            wire:click="mountAction('registrarSalidaProducto', { productoId: {{ $producto['id'] }} })"
+                                            wire:loading.attr="disabled"
+                                            wire:target="mountAction"
+                                        >Salida</x-filament::button>
+                                    @endif
                                 </div>
                             </div>
                         @else
@@ -60,21 +72,15 @@
         </div>
     @endif
 
-    <x-filament::section heading="Producción acumulada de hoy">
-        @if (count($resumenProduccion))
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                @foreach ($resumenProduccion as $resumen)
-                    <div class="rounded-xl border border-gray-200 p-4 dark:border-white/10">
-                        <div class="text-sm font-medium text-gray-950 dark:text-white">{{ $resumen['nombre'] }}</div>
-                        <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ $resumen['codigo'] ?: 'Sin código' }} · {{ $resumen['tandas'] }} {{ $resumen['tandas'] === 1 ? 'tanda' : 'tandas' }}</div>
-                        <div class="mt-3 text-2xl font-bold text-primary-600 dark:text-primary-400">{{ number_format($resumen['cantidad'], 2) }} <span class="text-sm font-medium">{{ $resumen['unidad'] }}</span></div>
-                    </div>
-                @endforeach
-            </div>
-        @else
-            <p class="text-sm text-gray-500 dark:text-gray-400">Sin registros.</p>
-        @endif
-    </x-filament::section>
+    @if ($this->puedeReabrir())
+        <div class="flex justify-end">
+            <x-filament::button type="button" color="warning" wire:click="reabrir" wire:confirm="Vuelve a borrador: se podrán corregir tandas, salidas y el stock final antes de aprobarlo de nuevo. ¿Continuar?" wire:loading.attr="disabled" wire:target="reabrir">Reabrir cierre</x-filament::button>
+        </div>
+    @endif
+
+    <div class="flex justify-end">
+        <x-filament::button type="button" color="gray" icon="heroicon-o-chart-bar" wire:click="mountAction('produccionAcumulada')" wire:loading.attr="disabled" wire:target="mountAction">Producción acumulada de hoy</x-filament::button>
+    </div>
 
     @if (count($tandasRecientes))
         <x-filament::section heading="Últimas tandas">
@@ -87,9 +93,17 @@
                                 <div class="text-sm text-gray-500 dark:text-gray-400">{{ $tanda['nota'] }}</div>
                             @endif
                         </div>
-                        <div class="text-right">
-                            <div class="font-semibold text-gray-950 dark:text-white">{{ number_format($tanda['cantidad'], 2) }} {{ $tanda['unidad'] }}</div>
-                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ $tanda['hora'] }}@if ($tanda['usuario']) · {{ $tanda['usuario'] }}@endif</div>
+                        <div class="flex items-center gap-3">
+                            <div class="text-right">
+                                <div class="font-semibold text-gray-950 dark:text-white">{{ number_format($tanda['cantidad'], 2) }} {{ $tanda['unidad'] }}</div>
+                                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $tanda['hora'] }}@if ($tanda['usuario']) · {{ $tanda['usuario'] }}@endif</div>
+                            </div>
+                            @if ($estado === 'borrador' && $this->puedeRegistrarTanda())
+                                <div class="flex gap-1">
+                                    <x-filament::icon-button icon="heroicon-o-pencil-square" label="Editar" wire:click="mountAction('editarTanda', { tandaId: {{ $tanda['id'] }} })" wire:loading.attr="disabled" wire:target="mountAction" />
+                                    <x-filament::icon-button icon="heroicon-o-trash" color="danger" label="Eliminar" wire:click="mountAction('eliminarTanda', { tandaId: {{ $tanda['id'] }} })" wire:loading.attr="disabled" wire:target="mountAction" />
+                                </div>
+                            @endif
                         </div>
                     </div>
                 @endforeach
@@ -109,9 +123,17 @@
                                 @if ($salida['nota']) · {{ $salida['nota'] }} @endif
                             </div>
                         </div>
-                        <div class="text-right">
-                            <div class="font-semibold text-gray-950 dark:text-white">−{{ number_format($salida['cantidad'], 2) }} {{ $salida['unidad'] }}</div>
-                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ $salida['hora'] }}@if ($salida['usuario']) · {{ $salida['usuario'] }}@endif</div>
+                        <div class="flex items-center gap-3">
+                            <div class="text-right">
+                                <div class="font-semibold text-gray-950 dark:text-white">−{{ number_format($salida['cantidad'], 2) }} {{ $salida['unidad'] }}</div>
+                                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $salida['hora'] }}@if ($salida['usuario']) · {{ $salida['usuario'] }}@endif</div>
+                            </div>
+                            @if ($estado === 'borrador' && $this->puedeRegistrar())
+                                <div class="flex gap-1">
+                                    <x-filament::icon-button icon="heroicon-o-pencil-square" label="Editar" wire:click="mountAction('editarSalida', { salidaId: {{ $salida['id'] }} })" wire:loading.attr="disabled" wire:target="mountAction" />
+                                    <x-filament::icon-button icon="heroicon-o-trash" color="danger" label="Eliminar" wire:click="mountAction('eliminarSalida', { salidaId: {{ $salida['id'] }} })" wire:loading.attr="disabled" wire:target="mountAction" />
+                                </div>
+                            @endif
                         </div>
                     </div>
                 @endforeach
