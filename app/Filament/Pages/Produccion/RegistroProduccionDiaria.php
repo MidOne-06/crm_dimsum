@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages\Produccion;
 
+use App\Models\DirectivaTransferenciaSugerencia;
 use App\Models\ProduccionDiariaAuditoria;
 use App\Models\ProduccionDiariaCierre;
 use App\Models\ProduccionDiariaDetalle;
@@ -583,11 +584,13 @@ class RegistroProduccionDiaria extends Page
                 'unidad' => $item['unidad'] ?? $tanda->unidad ?: 'UNIDAD', 'cantidad' => (float) $tanda->cantidad, 'tandas' => (int) $tanda->tandas];
         })->sortByDesc('cantidad')->values()->all();
         $tandasPorProducto = $grupos->keyBy('producto_id');
-        $productos = $catalogo->map(function (array $item, int $productoId) use ($tandasPorProducto): array {
+        $solicitadoDirectiva = $this->solicitadoPorDirectiva();
+        $productos = $catalogo->map(function (array $item, int $productoId) use ($tandasPorProducto, $solicitadoDirectiva): array {
             $tanda = $tandasPorProducto->get($productoId);
+            $codigo = $item['item_codigo'] ?? '';
             return [
                 'id' => $productoId,
-                'codigo' => $item['item_codigo'] ?? '',
+                'codigo' => $codigo,
                 'nombre' => $item['item_nombre'],
                 'categoria' => $item['categoria'] ?? 'Sin categoría',
                 'orden_categoria' => $item['orden_categoria'] ?? PHP_INT_MAX,
@@ -597,6 +600,7 @@ class RegistroProduccionDiaria extends Page
                 'salidas_hoy' => (float) ($item['salidas_hoy'] ?? 0),
                 'disponible' => (float) ($item['stock_esperado'] ?? 0),
                 'tandas' => (int) ($tanda?->tandas ?? 0),
+                'solicitado_directiva' => (float) ($solicitadoDirectiva[$codigo] ?? 0),
             ];
         })->sortBy([['orden_categoria', 'asc'], ['nombre', 'asc']])->values();
         $this->productosParaRegistro = $productos->all();
@@ -687,6 +691,31 @@ class RegistroProduccionDiaria extends Page
     private function totalSalidas(string $fecha, int $productoId): float
     {
         return (float) ProduccionDiariaSalida::query()->whereHas('cierre', fn ($q) => $q->whereDate('fecha', $fecha))->where('producto_id', $productoId)->sum('cantidad');
+    }
+
+    /**
+     * Cuánto pide despachar la Directiva de Transferencia, por SKU, en su
+     * próxima corrida real -- pedido explícito del usuario (2026-09-17):
+     * Producción y Directiva de Transferencia son dos sistemas totalmente
+     * aislados; Producción no tenía forma de saber si "hoy hace falta más
+     * Siu Mai" según la demanda real de los locales. Se suma
+     * cantidad_sugerida de TODOS los locales para la fecha de despacho más
+     * próxima (>= hoy) que exista en la tabla -- confirmado en vivo que el
+     * cruce por item_codigo (SKU) es 1 a 1 entre ambos catálogos, aunque
+     * usan taxonomías internas de item_id/item_tipo distintas. Puramente
+     * informativo: nunca escribe nada en Directiva de Transferencia, solo
+     * lee.
+     *
+     * @return array<string, float> SKU => cantidad total solicitada
+     */
+    private function solicitadoPorDirectiva(): array
+    {
+        $proximaFecha = DirectivaTransferenciaSugerencia::query()->where('fecha_despacho', '>=', $this->fechaOperativa())->min('fecha_despacho');
+        if (! $proximaFecha) return [];
+
+        return DirectivaTransferenciaSugerencia::query()->whereDate('fecha_despacho', $proximaFecha)->whereNotNull('item_codigo')
+            ->selectRaw('item_codigo, SUM(cantidad_sugerida) as total')->groupBy('item_codigo')->pluck('total', 'item_codigo')
+            ->map(fn ($v) => (float) $v)->all();
     }
 
     private function stockInicialAnterior(string $fecha, int $productoId): ?float

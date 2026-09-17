@@ -14,6 +14,14 @@
                                         · salió {{ number_format($producto['salidas_hoy'], 2) }}
                                     @endif
                                 </div>
+                                @if ($producto['solicitado_directiva'] > 0)
+                                    <div class="mt-1 text-xs font-medium {{ $producto['disponible'] < $producto['solicitado_directiva'] ? 'text-danger-600 dark:text-danger-400' : 'text-gray-500 dark:text-gray-400' }}">
+                                        Directiva pide: {{ number_format($producto['solicitado_directiva'], 2) }}
+                                        @if ($producto['disponible'] < $producto['solicitado_directiva'])
+                                            · falta {{ number_format($producto['solicitado_directiva'] - $producto['disponible'], 2) }}
+                                        @endif
+                                    </div>
+                                @endif
                                 <div class="mt-2 flex gap-2">
                                     <x-filament::button
                                         type="button"
