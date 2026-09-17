@@ -18,7 +18,7 @@ class VentaPayloadArchivoService
      */
     public function archivar(Venta $venta, string $disk): array
     {
-        $this->validarDiscoExterno($disk);
+        $this->validarDisco($disk);
 
         if (! is_array($venta->raw)) {
             throw new RuntimeException("La venta {$venta->venta_id} no tiene un payload JSON para archivar.");
@@ -73,15 +73,27 @@ class VentaPayloadArchivoService
         ];
     }
 
-    private function validarDiscoExterno(string $disk): void
+    public function esDiscoLocal(string $disk): bool
+    {
+        return (config("filesystems.disks.{$disk}.driver") ?? null) === 'local';
+    }
+
+    private function validarDisco(string $disk): void
     {
         $configuracion = config("filesystems.disks.{$disk}");
         if (! is_array($configuracion)) {
             throw new RuntimeException("El disco '{$disk}' no está configurado.");
         }
 
-        if (($configuracion['driver'] ?? null) === 'local') {
-            throw new RuntimeException("El disco '{$disk}' es local al VPS y no sirve como respaldo verificable.");
+        if (($configuracion['driver'] ?? null) !== 'local') {
+            return;
+        }
+
+        $esArchivoLocalAutorizado = $disk === config('ventas.payload_archive.local_disk')
+            && (bool) config('ventas.payload_archive.allow_local_disk');
+
+        if (! $esArchivoLocalAutorizado) {
+            throw new RuntimeException("El disco '{$disk}' no está autorizado para archivar payloads locales.");
         }
     }
 }

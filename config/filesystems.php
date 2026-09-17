@@ -44,6 +44,15 @@ return [
             'throw' => false,
         ],
 
+        // Archivo persistente en el volumen del CRM. No se usa como respaldo
+        // fuera del VPS: solo permite descomprimir la base sin dejar de
+        // verificar la evidencia por hash antes de cualquier retención futura.
+        'ventas_archivo_local' => [
+            'driver' => 'local',
+            'root' => env('VENTAS_PAYLOAD_ARCHIVE_PATH', storage_path('app/ventas-payloads')),
+            'throw' => true,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

@@ -36,6 +36,12 @@ class ArchivarPayloadsVentas extends Command
             return self::FAILURE;
         }
 
+        if ($this->option('eliminar-raw') && $archivos->esDiscoLocal($disk)) {
+            $this->error('No se permite eliminar raw cuando el archivo está en este mismo VPS. Use un disco externo verificado.');
+
+            return self::FAILURE;
+        }
+
         try {
             $desde = $this->option('desde') ? Carbon::parse((string) $this->option('desde'))->startOfDay() : null;
             $hasta = $this->option('hasta') ? Carbon::parse((string) $this->option('hasta'))->endOfDay() : null;
