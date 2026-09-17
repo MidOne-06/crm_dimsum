@@ -1,4 +1,14 @@
 <x-filament-panels::page>
+    @if ($diaAnteriorSinCerrar || $diaAnteriorSinAprobar)
+        <div class="rounded-xl border border-danger-300 bg-danger-50 p-4 text-sm text-danger-700 dark:border-danger-500/30 dark:bg-danger-500/10 dark:text-danger-300">
+            @if ($diaAnteriorSinCerrar)
+                <strong>Atención:</strong> el {{ \Illuminate\Support\Carbon::parse($diaAnteriorFecha)->format('d/m/Y') }} no se registró ningún cierre de producción.
+            @else
+                <strong>Atención:</strong> el cierre del {{ \Illuminate\Support\Carbon::parse($diaAnteriorFecha)->format('d/m/Y') }} quedó sin aprobar.
+            @endif
+        </div>
+    @endif
+
     @if (count($productosParaRegistro))
         @foreach ($productosPorCategoria as $categoria => $productos)
             <x-filament::section :heading="$categoria" compact>
@@ -14,14 +24,6 @@
                                         · salió {{ number_format($producto['salidas_hoy'], 2) }}
                                     @endif
                                 </div>
-                                @if ($producto['solicitado_directiva'] > 0)
-                                    <div class="mt-1 text-xs font-medium {{ $producto['disponible'] < $producto['solicitado_directiva'] ? 'text-danger-600 dark:text-danger-400' : 'text-gray-500 dark:text-gray-400' }}">
-                                        Directiva pide: {{ number_format($producto['solicitado_directiva'], 2) }}
-                                        @if ($producto['disponible'] < $producto['solicitado_directiva'])
-                                            · falta {{ number_format($producto['solicitado_directiva'] - $producto['disponible'], 2) }}
-                                        @endif
-                                    </div>
-                                @endif
                                 <div class="mt-2 flex gap-2">
                                     <x-filament::button
                                         type="button"
