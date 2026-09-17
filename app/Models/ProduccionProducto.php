@@ -16,5 +16,6 @@ class ProduccionProducto extends Model
 
     public function categoria(): BelongsTo { return $this->belongsTo(ProduccionCategoria::class, 'produccion_categoria_id'); }
     public function tandas(): HasMany { return $this->hasMany(ProduccionDiariaTanda::class, 'producto_id'); }
+    public function salidas(): HasMany { return $this->hasMany(ProduccionDiariaSalida::class, 'producto_id'); }
     public function detalles(): HasMany { return $this->hasMany(ProduccionDiariaDetalle::class, 'producto_id'); }
 }

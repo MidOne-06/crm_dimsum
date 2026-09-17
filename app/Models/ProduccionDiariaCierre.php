@@ -22,4 +22,5 @@ class ProduccionDiariaCierre extends Model
     public function aprobador(): BelongsTo { return $this->belongsTo(User::class, 'aprobado_por'); }
     public function auditorias(): HasMany { return $this->hasMany(ProduccionDiariaAuditoria::class, 'cierre_id'); }
     public function tandas(): HasMany { return $this->hasMany(ProduccionDiariaTanda::class, 'cierre_id'); }
+    public function salidas(): HasMany { return $this->hasMany(ProduccionDiariaSalida::class, 'cierre_id'); }
 }

@@ -5,12 +5,14 @@ namespace App\Filament\Pages\Produccion;
 use App\Models\ProduccionDiariaAuditoria;
 use App\Models\ProduccionDiariaCierre;
 use App\Models\ProduccionDiariaDetalle;
+use App\Models\ProduccionDiariaSalida;
 use App\Models\ProduccionDiariaTanda;
 use App\Models\ProduccionProducto;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Repeater\TableColumn;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
@@ -40,6 +42,8 @@ class RegistroProduccionDiaria extends Page
     public array $resumenProduccion = [];
     /** @var array<int, array<string, mixed>> */
     public array $tandasRecientes = [];
+    /** @var array<int, array<string, mixed>> */
+    public array $salidasRecientes = [];
     /** @var array<int, array<string, mixed>> */
     public array $productosParaRegistro = [];
     /** @var array<string, array<int, array<string, mixed>>> */
@@ -73,6 +77,7 @@ class RegistroProduccionDiaria extends Page
                         TableColumn::make('Unidad')->width('6.5rem'),
                         TableColumn::make('Inicial')->width('7rem'),
                         TableColumn::make('Producido')->width('7rem'),
+                        TableColumn::make('Salidas')->width('7rem'),
                         TableColumn::make('Esperado')->width('7rem'),
                         TableColumn::make('Final físico')->width('8rem'),
                         TableColumn::make('Diferencia')->width('7rem'),
@@ -87,6 +92,7 @@ class RegistroProduccionDiaria extends Page
                         TextInput::make('stock_inicial')->hiddenLabel()->numeric()->minValue(0)->required()->live()->readOnly(fn (Get $get): bool => $get('origen_inicial') === 'cierre_anterior')
                             ->disabled(fn (): bool => $this->soloLectura())->afterStateUpdated(fn (Get $get, Set $set) => $this->actualizarCalculos($get, $set)),
                         TextInput::make('producido_hoy')->hiddenLabel()->numeric()->readOnly()->dehydrated(),
+                        TextInput::make('salidas_hoy')->hiddenLabel()->numeric()->readOnly()->dehydrated(),
                         TextInput::make('stock_esperado')->hiddenLabel()->numeric()->readOnly()->dehydrated(),
                         TextInput::make('stock_final')->hiddenLabel()->numeric()->minValue(0)->inputMode('decimal')->live()->required(fn (): bool => $this->intentoGuardar === 'enviado')
                             ->disabled(fn (): bool => $this->soloLectura())->afterStateUpdated(fn (Get $get, Set $set) => $this->actualizarCalculos($get, $set)),
@@ -148,6 +154,97 @@ class RegistroProduccionDiaria extends Page
                 Notification::make()->success()->title('Tanda registrada')->body(number_format($cantidad, 2).' '.$producto->unidad.' de '.$producto->nombre)->send();
                 $this->cargarHoy();
             });
+    }
+
+    /**
+     * Salida nativa de Producción -- pedido explícito del usuario (2026-09-17):
+     * la salida real de Fábrica hacia despacho existe en Restaurant (Guías
+     * Internas), pero ese módulo no tiene por qué depender de Restaurant
+     * para llevar su propio conteo. Mismo patrón que "Registrar tanda"
+     * (misma tabla de cierre, mismo candado por fecha), pero resta en vez
+     * de sumar -- valida contra "disponible" (inicial + producido - ya
+     * salido), nunca deja que la salida deje el disponible en negativo.
+     */
+    public function registrarSalidaProductoAction(): Action
+    {
+        return Action::make('registrarSalidaProducto')
+            ->label('Registrar salida')
+            ->icon('heroicon-o-arrow-up-tray')
+            ->color('gray')
+            ->visible(fn (): bool => $this->puedeRegistrar() && ! $this->soloLectura())
+            ->modalHeading(fn (Action $action): string => 'Registrar salida · '.$this->productoDeAccion($action)->nombre)
+            ->modalWidth('5xl')
+            ->stickyModalHeader()
+            ->stickyModalFooter()
+            ->modalSubmitActionLabel('Registrar salida')
+            ->modalCancelActionLabel('Cancelar')
+            ->fillForm(function (Action $action): array {
+                $producto = $this->productoDeAccion($action);
+                $resumen = $this->resumenProducto($producto->id);
+
+                return [
+                    'producto_id' => $producto->id,
+                    'producto' => trim(($producto->codigo ? $producto->codigo.' · ' : '').$producto->nombre),
+                    'disponible' => $this->formatearCantidad($resumen['disponible']),
+                    'cantidad' => null,
+                    'destino' => 'despacho',
+                    'nota' => null,
+                ];
+            })
+            ->schema([
+                Grid::make(['default' => 1, 'md' => 4])->columnSpanFull()->schema([
+                    Hidden::make('producto_id')->required(),
+                    TextInput::make('producto')->label('Producto')->readOnly()->dehydrated(false)->columnSpanFull(),
+                    TextInput::make('disponible')->label('Disponible ahora')->readOnly()->dehydrated(false)->columnSpan(['md' => 2]),
+                    TextInput::make('cantidad')->label('Cantidad de salida')->numeric()->inputMode('decimal')->minValue(0.0001)->required()->columnSpan(['md' => 2]),
+                    Select::make('destino')->label('Destino')->native(false)->required()->default('despacho')->options([
+                        'despacho' => 'Área de despacho',
+                        'merma' => 'Merma / descarte',
+                        'ajuste' => 'Ajuste de conteo',
+                        'otro' => 'Otro',
+                    ])->columnSpan(['md' => 2]),
+                    Textarea::make('nota')->label('Nota')->rows(2)->maxLength(500)->columnSpanFull(),
+                ]),
+            ])
+            ->action(function (array $data): void {
+                abort_unless($this->puedeRegistrar(), 403);
+                $producto = ProduccionProducto::query()->where('activo', true)->find($data['producto_id'] ?? null);
+                $cantidad = is_numeric($data['cantidad'] ?? null) ? (float) $data['cantidad'] : 0;
+                $destino = (string) ($data['destino'] ?? 'despacho');
+                $nota = trim((string) ($data['nota'] ?? '')) ?: null;
+                if (! $producto) throw ValidationException::withMessages(['producto_id' => 'El producto no está disponible para registrar.']);
+                if ($cantidad <= 0) throw ValidationException::withMessages(['cantidad' => 'Ingresa una cantidad mayor que cero.']);
+
+                $this->guardarSalida($producto, $cantidad, $destino, $nota);
+                Notification::make()->success()->title('Salida registrada')->body(number_format($cantidad, 2).' '.$producto->unidad.' de '.$producto->nombre)->send();
+                $this->cargarHoy();
+            });
+    }
+
+    private function guardarSalida(ProduccionProducto $producto, float $cantidad, string $destino, ?string $nota): void
+    {
+        DB::transaction(function () use ($producto, $cantidad, $destino, $nota): void {
+            $cierre = ProduccionDiariaCierre::query()->whereDate('fecha', $this->fechaOperativa())->lockForUpdate()->first();
+            if ($cierre?->estado === 'aprobado') throw ValidationException::withMessages(['data.salida.producto_id' => 'El cierre de hoy ya está aprobado.']);
+            if ($cierre?->estado === 'enviado') throw ValidationException::withMessages(['data.salida.producto_id' => 'El cierre está enviado; no se pueden agregar salidas.']);
+
+            $fecha = $this->fechaOperativa();
+            $inicial = $this->stockInicialAnterior($fecha, $producto->id) ?? 0.0;
+            $producido = $this->totalProducido($fecha, $producto->id);
+            $salidoYa = $this->totalSalidas($fecha, $producto->id);
+            $disponible = round($inicial + $producido - $salidoYa, 4);
+            if ($cantidad > $disponible + 0.0001) {
+                throw ValidationException::withMessages(['data.salida.cantidad' => "No hay suficiente disponible: quedan {$this->formatearCantidad($disponible)} {$producto->unidad}."]);
+            }
+
+            $cierre ??= new ProduccionDiariaCierre(['fecha' => $fecha, 'area' => 'FABRICA', 'estado' => 'borrador', 'creado_por' => auth()->id()]);
+            $cierre->save();
+            $salidaCreada = $cierre->salidas()->create([
+                'producto_id' => $producto->id, 'item_id' => (string) $producto->id, 'item_tipo' => 'produccion', 'item_codigo' => $producto->codigo,
+                'item_nombre' => $producto->nombre, 'unidad' => $producto->unidad, 'cantidad' => $cantidad, 'destino' => $destino, 'nota' => $nota, 'registrado_por' => auth()->id(),
+            ]);
+            $this->auditar($cierre, 'salida_registrada', null, ['salida' => ['id' => $salidaCreada->id, 'producto_id' => $producto->id, 'cantidad' => $cantidad, 'destino' => $destino, 'nota' => $nota]]);
+        });
     }
 
     private function guardarTanda(ProduccionProducto $producto, float $cantidad, ?string $nota): void
@@ -237,9 +334,10 @@ class RegistroProduccionDiaria extends Page
         foreach ($cierre?->detalles ?? [] as $detalle) {
             if (! $detalle->producto_id || ! $items->has($detalle->producto_id)) continue;
             $producido = $this->totalProducido($fecha, $detalle->producto_id);
+            $salidas = $this->totalSalidas($fecha, $detalle->producto_id);
             $items->put($detalle->producto_id, ['producto_id' => $detalle->producto_id, 'item_codigo' => $detalle->item_codigo, 'item_nombre' => $detalle->item_nombre,
-                'unidad' => $detalle->unidad, 'stock_inicial' => $detalle->stock_inicial, 'producido_hoy' => $producido,
-                'stock_esperado' => round((float) $detalle->stock_inicial + $producido, 4), 'stock_final' => $detalle->stock_final,
+                'unidad' => $detalle->unidad, 'stock_inicial' => $detalle->stock_inicial, 'producido_hoy' => $producido, 'salidas_hoy' => $salidas,
+                'stock_esperado' => round((float) $detalle->stock_inicial + $producido - $salidas, 4), 'stock_final' => $detalle->stock_final,
                 'diferencia' => $detalle->diferencia, 'observacion' => $detalle->observacion, 'origen_inicial' => 'registro_guardado']);
         }
         return $items->values()->all();
@@ -251,9 +349,10 @@ class RegistroProduccionDiaria extends Page
         return ProduccionProducto::query()->with('categoria')->where('activo', true)->orderBy('nombre')->get()->map(function (ProduccionProducto $producto) use ($fecha): array {
             $inicial = $this->stockInicialAnterior($fecha, $producto->id);
             $producido = $this->totalProducido($fecha, $producto->id);
+            $salidas = $this->totalSalidas($fecha, $producto->id);
             return ['producto_id' => $producto->id, 'item_codigo' => $producto->codigo, 'item_nombre' => $producto->nombre, 'unidad' => $producto->unidad,
                 'categoria' => $producto->categoria?->nombre ?? 'Sin categoría', 'orden_categoria' => $producto->categoria?->orden ?? PHP_INT_MAX,
-                'stock_inicial' => $inicial ?? 0, 'producido_hoy' => $producido, 'stock_esperado' => round(($inicial ?? 0) + $producido, 4),
+                'stock_inicial' => $inicial ?? 0, 'producido_hoy' => $producido, 'salidas_hoy' => $salidas, 'stock_esperado' => round(($inicial ?? 0) + $producido - $salidas, 4),
                 'stock_final' => null, 'diferencia' => null, 'observacion' => null, 'origen_inicial' => $inicial === null ? 'apertura' : 'cierre_anterior'];
         })->all();
     }
@@ -281,6 +380,7 @@ class RegistroProduccionDiaria extends Page
                 'unidad' => $item['unidad'] ?? 'UNIDAD',
                 'stock_inicial' => (float) ($item['stock_inicial'] ?? 0),
                 'producido_hoy' => (float) ($item['producido_hoy'] ?? 0),
+                'salidas_hoy' => (float) ($item['salidas_hoy'] ?? 0),
                 'disponible' => (float) ($item['stock_esperado'] ?? 0),
                 'tandas' => (int) ($tanda?->tandas ?? 0),
             ];
@@ -290,6 +390,9 @@ class RegistroProduccionDiaria extends Page
         $this->tandasRecientes = ProduccionDiariaTanda::query()->with('registrador')->whereHas('cierre', fn ($q) => $q->whereDate('fecha', $fecha))->latest('created_at')->limit(8)->get()
             ->map(fn (ProduccionDiariaTanda $t): array => ['producto' => $t->item_nombre, 'cantidad' => (float) $t->cantidad, 'unidad' => $t->unidad ?: 'UNIDAD',
                 'nota' => $t->nota, 'hora' => $t->created_at?->timezone('America/Lima')->format('H:i'), 'usuario' => $t->registrador?->name])->all();
+        $this->salidasRecientes = ProduccionDiariaSalida::query()->with('registrador')->whereHas('cierre', fn ($q) => $q->whereDate('fecha', $fecha))->latest('created_at')->limit(8)->get()
+            ->map(fn (ProduccionDiariaSalida $s): array => ['producto' => $s->item_nombre, 'cantidad' => (float) $s->cantidad, 'unidad' => $s->unidad ?: 'UNIDAD',
+                'destino' => $s->destino, 'nota' => $s->nota, 'hora' => $s->created_at?->timezone('America/Lima')->format('H:i'), 'usuario' => $s->registrador?->name])->all();
     }
 
     /** @return array{stock_inicial: float, producido_hoy: float, disponible: float} */
@@ -349,14 +452,15 @@ class RegistroProduccionDiaria extends Page
             $inicialAnterior = $this->stockInicialAnterior($fecha, $producto->id);
             $inicial = $inicialAnterior ?? (float) ($item['stock_inicial'] ?? 0);
             $producido = $this->totalProducido($fecha, $producto->id);
+            $salidas = $this->totalSalidas($fecha, $producto->id);
             $final = filled($item['stock_final'] ?? null) ? (float) $item['stock_final'] : null;
             if ($inicial < 0 || ($final !== null && $final < 0)) throw ValidationException::withMessages(['items' => 'Las cantidades no pueden ser negativas.']);
             if ($requiereFinal && $final === null) throw ValidationException::withMessages(['items' => "{$producto->nombre}: registra el stock final físico."]);
-            $esperado = round($inicial + $producido, 4); $diferencia = $final === null ? null : round($final - $esperado, 4);
+            $esperado = round($inicial + $producido - $salidas, 4); $diferencia = $final === null ? null : round($final - $esperado, 4);
             $observacion = trim((string) ($item['observacion'] ?? '')) ?: null;
             if ($requiereFinal && $diferencia !== null && abs($diferencia) > 0.0001 && $observacion === null) throw ValidationException::withMessages(['items' => "{$producto->nombre}: indica el motivo de la diferencia."]);
             return ['producto_id' => $producto->id, 'item_id' => (string) $producto->id, 'item_tipo' => 'produccion', 'item_codigo' => $producto->codigo,
-                'item_nombre' => $producto->nombre, 'unidad' => $producto->unidad, 'stock_inicial' => $inicial, 'producido_hoy' => $producido,
+                'item_nombre' => $producto->nombre, 'unidad' => $producto->unidad, 'stock_inicial' => $inicial, 'producido_hoy' => $producido, 'salidas_hoy' => $salidas,
                 'stock_esperado' => $esperado, 'stock_final' => $final, 'diferencia' => $diferencia, 'observacion' => $observacion];
         })->values()->all();
     }
@@ -364,6 +468,11 @@ class RegistroProduccionDiaria extends Page
     private function totalProducido(string $fecha, int $productoId): float
     {
         return (float) ProduccionDiariaTanda::query()->whereHas('cierre', fn ($q) => $q->whereDate('fecha', $fecha))->where('producto_id', $productoId)->sum('cantidad');
+    }
+
+    private function totalSalidas(string $fecha, int $productoId): float
+    {
+        return (float) ProduccionDiariaSalida::query()->whereHas('cierre', fn ($q) => $q->whereDate('fecha', $fecha))->where('producto_id', $productoId)->sum('cantidad');
     }
 
     private function stockInicialAnterior(string $fecha, int $productoId): ?float
@@ -376,14 +485,14 @@ class RegistroProduccionDiaria extends Page
 
     private function actualizarCalculos(Get $get, Set $set): void
     {
-        $esperado = round((float) ($get('stock_inicial') ?? 0) + (float) ($get('producido_hoy') ?? 0), 4); $final = $get('stock_final');
+        $esperado = round((float) ($get('stock_inicial') ?? 0) + (float) ($get('producido_hoy') ?? 0) - (float) ($get('salidas_hoy') ?? 0), 4); $final = $get('stock_final');
         $set('stock_esperado', $esperado); $set('diferencia', filled($final) ? round((float) $final - $esperado, 4) : null);
     }
 
     private function snapshot(ProduccionDiariaCierre $cierre): array
     {
         return ['fecha' => $cierre->fecha?->toDateString(), 'estado' => $cierre->estado, 'observacion' => $cierre->observacion,
-            'detalles' => $cierre->detalles->map(fn (ProduccionDiariaDetalle $d): array => $d->only(['producto_id', 'stock_inicial', 'producido_hoy', 'stock_esperado', 'stock_final', 'diferencia', 'observacion']))->all()];
+            'detalles' => $cierre->detalles->map(fn (ProduccionDiariaDetalle $d): array => $d->only(['producto_id', 'stock_inicial', 'producido_hoy', 'salidas_hoy', 'stock_esperado', 'stock_final', 'diferencia', 'observacion']))->all()];
     }
 
     private function auditar(ProduccionDiariaCierre $cierre, string $accion, ?array $antes, array $despues): void

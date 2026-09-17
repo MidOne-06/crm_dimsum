@@ -5,20 +5,36 @@
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     @foreach ($productos as $producto)
                         @if ($this->puedeRegistrar() && ! $this->soloLectura())
-                            <x-filament::button
-                                type="button"
-                                color="gray"
-                                class="min-h-28 w-full !justify-start text-left"
-                                wire:click="mountAction('registrarTandaProducto', { productoId: {{ $producto['id'] }} })"
-                                wire:loading.attr="disabled"
-                                wire:target="mountAction"
-                            >
-                                <span class="flex w-full flex-col items-start gap-1">
-                                    <span class="text-xs text-gray-500 dark:text-gray-400">{{ $producto['codigo'] ?: 'Sin código' }}</span>
-                                    <span class="font-semibold text-gray-950 dark:text-white">{{ $producto['nombre'] }}</span>
-                                    <span class="text-xs text-gray-500 dark:text-gray-400">{{ number_format($producto['disponible'], 2) }} {{ $producto['unidad'] }} · {{ $producto['tandas'] }} {{ $producto['tandas'] === 1 ? 'tanda' : 'tandas' }}</span>
-                                </span>
-                            </x-filament::button>
+                            <div class="min-h-28 w-full rounded-xl border border-gray-200 p-3 dark:border-white/10">
+                                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $producto['codigo'] ?: 'Sin código' }}</div>
+                                <div class="font-semibold text-gray-950 dark:text-white">{{ $producto['nombre'] }}</div>
+                                <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                    Disponible: {{ number_format($producto['disponible'], 2) }} {{ $producto['unidad'] }}
+                                    @if ($producto['salidas_hoy'] > 0)
+                                        · salió {{ number_format($producto['salidas_hoy'], 2) }}
+                                    @endif
+                                </div>
+                                <div class="mt-2 flex gap-2">
+                                    <x-filament::button
+                                        type="button"
+                                        color="primary"
+                                        size="sm"
+                                        class="flex-1 !justify-center"
+                                        wire:click="mountAction('registrarTandaProducto', { productoId: {{ $producto['id'] }} })"
+                                        wire:loading.attr="disabled"
+                                        wire:target="mountAction"
+                                    >Tanda</x-filament::button>
+                                    <x-filament::button
+                                        type="button"
+                                        color="gray"
+                                        size="sm"
+                                        class="flex-1 !justify-center"
+                                        wire:click="mountAction('registrarSalidaProducto', { productoId: {{ $producto['id'] }} })"
+                                        wire:loading.attr="disabled"
+                                        wire:target="mountAction"
+                                    >Salida</x-filament::button>
+                                </div>
+                            </div>
                         @else
                             <div class="min-h-28 rounded-xl border border-gray-200 p-4 dark:border-white/10">
                                 <div class="text-xs text-gray-500 dark:text-gray-400">{{ $producto['codigo'] ?: 'Sin código' }}</div>
@@ -74,6 +90,28 @@
                         <div class="text-right">
                             <div class="font-semibold text-gray-950 dark:text-white">{{ number_format($tanda['cantidad'], 2) }} {{ $tanda['unidad'] }}</div>
                             <div class="text-xs text-gray-500 dark:text-gray-400">{{ $tanda['hora'] }}@if ($tanda['usuario']) · {{ $tanda['usuario'] }}@endif</div>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </x-filament::section>
+    @endif
+
+    @if (count($salidasRecientes))
+        <x-filament::section heading="Últimas salidas">
+            <div class="divide-y divide-gray-200 dark:divide-white/10">
+                @foreach ($salidasRecientes as $salida)
+                    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3">
+                        <div>
+                            <div class="font-medium text-gray-950 dark:text-white">{{ $salida['producto'] }}</div>
+                            <div class="text-sm text-gray-500 dark:text-gray-400">
+                                {{ match ($salida['destino']) { 'despacho' => 'Área de despacho', 'merma' => 'Merma / descarte', 'ajuste' => 'Ajuste de conteo', default => 'Otro' } }}
+                                @if ($salida['nota']) · {{ $salida['nota'] }} @endif
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="font-semibold text-gray-950 dark:text-white">−{{ number_format($salida['cantidad'], 2) }} {{ $salida['unidad'] }}</div>
+                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ $salida['hora'] }}@if ($salida['usuario']) · {{ $salida['usuario'] }}@endif</div>
                         </div>
                     </div>
                 @endforeach
