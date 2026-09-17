@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages\Produccion;
 
+use App\Filament\Concerns\ExportaTablaExcel;
 use App\Models\ProduccionDiariaTanda;
 use App\Models\ProduccionProducto;
 use Filament\Forms\Components\DatePicker;
@@ -12,6 +13,7 @@ use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 
 /**
  * Historial de "Registrar tanda" de Producción -- pedido explícito del
@@ -27,6 +29,21 @@ use Illuminate\Database\Eloquent\Builder;
 class HistorialTandasProduccion extends Page implements HasTable
 {
     use InteractsWithTable;
+    use ExportaTablaExcel;
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            $this->exportarExcelAction(
+                'historial-tandas-'.now()->format('Y-m-d').'.xlsx',
+                ['Fecha', 'Hora', 'Código', 'Producto', 'Cantidad', 'Unidad', 'Nota', 'Registrado por'],
+                fn (ProduccionDiariaTanda $t): array => [
+                    $t->cierre?->fecha?->format('d/m/Y'), $t->created_at?->timezone('America/Lima')->format('H:i'),
+                    $t->item_codigo, $t->item_nombre, (float) $t->cantidad, $t->unidad, $t->nota, $t->registrador?->name,
+                ],
+            ),
+        ];
+    }
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-clock';
     protected static ?string $navigationLabel = 'Historial de tandas';

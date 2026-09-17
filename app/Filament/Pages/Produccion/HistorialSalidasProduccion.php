@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages\Produccion;
 
+use App\Filament\Concerns\ExportaTablaExcel;
 use App\Models\ProduccionDiariaSalida;
 use App\Models\ProduccionProducto;
 use Filament\Forms\Components\DatePicker;
@@ -25,6 +26,23 @@ use Illuminate\Database\Eloquent\Builder;
 class HistorialSalidasProduccion extends Page implements HasTable
 {
     use InteractsWithTable;
+    use ExportaTablaExcel;
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            $this->exportarExcelAction(
+                'historial-salidas-'.now()->format('Y-m-d').'.xlsx',
+                ['Fecha', 'Hora', 'Código', 'Producto', 'Cantidad', 'Unidad', 'Destino', 'Nota', 'Registrado por'],
+                fn (ProduccionDiariaSalida $s): array => [
+                    $s->cierre?->fecha?->format('d/m/Y'), $s->created_at?->timezone('America/Lima')->format('H:i'),
+                    $s->item_codigo, $s->item_nombre, (float) $s->cantidad, $s->unidad,
+                    match ($s->destino) { 'despacho' => 'Área de despacho', 'merma' => 'Merma / descarte', 'ajuste' => 'Ajuste de conteo', default => 'Otro' },
+                    $s->nota, $s->registrador?->name,
+                ],
+            ),
+        ];
+    }
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-arrow-up-tray';
     protected static ?string $navigationLabel = 'Historial de salidas';
