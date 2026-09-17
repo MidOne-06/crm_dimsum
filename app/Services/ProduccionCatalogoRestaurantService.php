@@ -102,13 +102,20 @@ class ProduccionCatalogoRestaurantService
         ];
     }
 
-    /** @param array<string, mixed> $item */
+    /**
+     * Pedido explícito del usuario (2026-09-17): el filtro original solo
+     * dejaba pasar item_tipo='1', pensado nada más para los 22 códigos
+     * iniciales -- pero esa taxonomía de Restaurant es una bolsa mezclada
+     * (tipo 1 incluye desde cajas de torta hasta piedras de afilar) y
+     * excluía categorías reales de producción, como postres (bizcochuelo
+     * vive en tipo='2'). Se abre a TODOS los tipos -- la selección sigue
+     * siendo manual (el operario busca y elige el ítem exacto), así que un
+     * resultado irrelevante en la lista es solo ruido, no un dato que se
+     * guarde sin revisar. Se mantiene la única exclusión de negocio ya
+     * pedida antes: nunca gaseosas.
+     */
     private function esProductoProduccion(array $item): bool
     {
-        if ((string) ($item['item_tipo'] ?? '') !== '1') {
-            return false;
-        }
-
         $nombre = Str::upper((string) ($item['descripcion'] ?? ''));
 
         return filled($nombre) && ! str_contains($nombre, 'GASEOSA')
