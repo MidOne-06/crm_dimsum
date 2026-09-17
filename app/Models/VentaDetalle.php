@@ -13,6 +13,8 @@ class VentaDetalle extends Model
         'venta_id',
         'producto_restaurant_id',
         'composicion_comercial_id',
+        'es_producto_compuesto_restaurant',
+        'componentes_payload_count',
         'item_id',
         'descripcion',
         'cantidad',
@@ -28,6 +30,8 @@ class VentaDetalle extends Model
             'precio' => 'decimal:4',
             'descuento' => 'decimal:2',
             'importe' => 'decimal:2',
+            'es_producto_compuesto_restaurant' => 'boolean',
+            'componentes_payload_count' => 'integer',
         ];
     }
 

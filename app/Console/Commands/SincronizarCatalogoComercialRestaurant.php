@@ -13,6 +13,7 @@ class SincronizarCatalogoComercialRestaurant extends Command
     protected $signature = 'ventas:sincronizar-catalogo-comercial
         {--desde= : Fecha inicial inclusiva (YYYY-MM-DD)}
         {--hasta= : Fecha final inclusiva (YYYY-MM-DD)}
+        {--venta= : ID de una venta para una sincronización controlada}
         {--chunk=200 : Ventas por lote, entre 50 y 500}';
 
     protected $description = 'Normaliza productos y composiciones de Restaurant desde los detalles de ventas ya extraídos.';
@@ -33,10 +34,12 @@ class SincronizarCatalogoComercialRestaurant extends Command
         }
 
         $chunk = min(500, max(50, (int) $this->option('chunk')));
+        $ventaId = trim((string) $this->option('venta'));
         $totales = ['ventas' => 0, 'productos' => 0, 'composiciones' => 0, 'detalles' => 0];
 
         Venta::query()
             ->whereNotNull('raw')
+            ->when($ventaId !== '', fn (Builder $query): Builder => $query->where('venta_id', $ventaId))
             ->when($desde, fn (Builder $query): Builder => $query->where('venta_fecha', '>=', $desde))
             ->when($hasta, fn (Builder $query): Builder => $query->where('venta_fecha', '<=', $hasta))
             ->orderBy('venta_fecha')

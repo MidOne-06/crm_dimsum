@@ -6,6 +6,7 @@ use App\Models\ProductoComercialComponente;
 use App\Models\ProductoComercialComposicion;
 use App\Models\ProductoComercialRestaurant;
 use App\Models\Venta;
+use App\Models\VentaComponenteCombo;
 use App\Models\VentaDetalle;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -36,7 +37,7 @@ class CatalogoComercialRestaurantService
      * tenía Y y esperaba X. Al unir y ordenar los productos de todo el lote,
      * todos los workers adquieren los mismos locks en el mismo orden.
      *
-     * @param array<int, array{payload: array<string, mixed>}> $catalogos
+     * @param  array<int, array{payload: array<string, mixed>}>  $catalogos
      */
     public function bloquearCatalogos(array $catalogos): void
     {
@@ -74,6 +75,12 @@ class CatalogoComercialRestaurantService
             // transacción externa que también persiste la venta y su detalle.
             $this->bloquearProductosDeLineas($lineas);
 
+            // La extracción puede reintentarse o sincronizarse nuevamente.
+            // Se reemplaza únicamente el detalle derivado de esta venta para
+            // que el hecho conserve exactamente el payload Restaurant vigente
+            // y no duplique componentes.
+            VentaComponenteCombo::query()->where('venta_id', $ventaId)->delete();
+
             $resultado = ['productos' => 0, 'composiciones' => 0, 'detalles' => 0];
 
             foreach ($lineas as $linea) {
@@ -103,16 +110,46 @@ class CatalogoComercialRestaurantService
                     $resultado['composiciones']++;
                 }
 
+                $cantidadPadre = max(0.0, $this->numero($linea['detalleventa_cantidad'] ?? $linea['item_cantidad'] ?? 0));
+
                 $actualizado = VentaDetalle::query()
                     ->where('venta_id', $ventaId)
                     ->where('item_id', $detalleId)
                     ->update([
                         'producto_restaurant_id' => $productoId,
                         'composicion_comercial_id' => $composicionId,
+                        'es_producto_compuesto_restaurant' => $componentes !== [],
+                        'componentes_payload_count' => count($componentes),
                         'updated_at' => now(),
                     ]);
 
                 $resultado['detalles'] += $actualizado;
+
+                if ($componentes !== [] && $composicionId !== null) {
+                    $ahora = now();
+                    $filasComponentes = collect($componentes)
+                        ->map(fn (array $componente): array => [
+                            'venta_id' => $ventaId,
+                            'detalle_venta_item_id' => $detalleId,
+                            'producto_compuesto_restaurant_id' => $productoId,
+                            'producto_restaurant_id' => $componente['producto_id'],
+                            'descripcion' => $componente['nombre'] ?? $componente['descripcion_venta'],
+                            'unidad' => $componente['unidad'],
+                            'cantidad_por_combo' => $componente['cantidad_por_producto'],
+                            'cantidad_total' => $componente['cantidad_por_producto'] * $cantidadPadre,
+                            'composicion_comercial_id' => $composicionId,
+                            'origen' => 'payload_restaurant',
+                            'created_at' => $ahora,
+                            'updated_at' => $ahora,
+                        ])
+                        ->all();
+
+                    VentaComponenteCombo::query()->upsert(
+                        $filasComponentes,
+                        ['venta_id', 'detalle_venta_item_id', 'producto_restaurant_id'],
+                        ['producto_compuesto_restaurant_id', 'descripcion', 'unidad', 'cantidad_por_combo', 'cantidad_total', 'composicion_comercial_id', 'origen', 'updated_at'],
+                    );
+                }
             }
 
             return $resultado;
