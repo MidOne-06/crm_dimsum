@@ -13,6 +13,7 @@ class MarcarRespaldosExternosVentas extends Command
         {--origen= : Identificador del respaldo externo verificado}
         {--chunk=100 : Manifiestos por lote, entre 10 y 250}
         {--max=0 : Máximo de manifiestos a marcar; 0 procesa todos}
+        {--recalcular-sha : Vuelve a descomprimir y calcular SHA-256 de cada archivo de staging}
         {--dry-run : Solo informa cuántos manifiestos son candidatos}
         {--confirmar : Confirmación explícita para registrar la evidencia externa}';
 
@@ -50,7 +51,8 @@ class MarcarRespaldosExternosVentas extends Command
         $chunk = min(250, max(10, (int) $this->option('chunk')));
         $maximo = max(0, (int) $this->option('max'));
         $confirmadoEn = now();
-        $totales = ['marcados' => 0, 'verificados' => 0];
+        $recalcularSha = (bool) $this->option('recalcular-sha');
+        $totales = ['marcados' => 0, 'presentes' => 0, 'sha_recalculados' => 0];
 
         try {
             $consulta->orderBy('id')->chunkById($chunk, function ($archivos) use ($filesystem, $origen, $confirmadoEn, $maximo, &$totales): bool {
@@ -65,13 +67,18 @@ class MarcarRespaldosExternosVentas extends Command
                         throw new \RuntimeException("No existe el archivo de staging para la venta {$archivo->venta_id}.");
                     }
 
-                    $contenido = $filesystem->get($archivo->path);
-                    $json = is_string($contenido) ? gzdecode($contenido) : false;
-                    if ($json === false || ! hash_equals($archivo->sha256, hash('sha256', $json))) {
-                        throw new \RuntimeException("El SHA-256 del staging no coincide para la venta {$archivo->venta_id}.");
+                    if ($recalcularSha) {
+                        $contenido = $filesystem->get($archivo->path);
+                        $json = is_string($contenido) ? gzdecode($contenido) : false;
+                        if ($json === false || ! hash_equals($archivo->sha256, hash('sha256', $json))) {
+                            throw new \RuntimeException("El SHA-256 del staging no coincide para la venta {$archivo->venta_id}.");
+                        }
+
+                        $totales['sha_recalculados']++;
                     }
 
                     $idsMarcados[] = $archivo->id;
+                    $totales['presentes']++;
                 }
 
                 if ($idsMarcados !== []) {
@@ -84,7 +91,6 @@ class MarcarRespaldosExternosVentas extends Command
                         ]);
 
                     $totales['marcados'] += count($idsMarcados);
-                    $totales['verificados'] += count($idsMarcados);
                 }
 
                 $this->output->write('.');
@@ -99,7 +105,7 @@ class MarcarRespaldosExternosVentas extends Command
         }
 
         $this->newLine();
-        $this->info("Manifiestos marcados: {$totales['marcados']} | SHA-256 verificados: {$totales['verificados']}");
+        $this->info("Manifiestos marcados: {$totales['marcados']} | staging presente: {$totales['presentes']} | SHA-256 recalculados: {$totales['sha_recalculados']}");
 
         return self::SUCCESS;
     }
