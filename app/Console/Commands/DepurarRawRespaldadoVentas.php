@@ -52,17 +52,29 @@ class DepurarRawRespaldadoVentas extends Command
 
         try {
             $consulta->orderBy('id')->chunkById($chunk, function ($archivos) use ($maximo, &$totales): bool {
-                foreach ($archivos as $archivo) {
-                    if ($maximo > 0 && $totales['eliminados'] >= $maximo) {
-                        return false;
-                    }
+                $pendientes = $maximo > 0
+                    ? $archivos->take(max(0, $maximo - $totales['eliminados']))
+                    : $archivos;
 
-                    DB::transaction(function () use ($archivo, &$totales): void {
-                        $venta = Venta::query()->whereKey($archivo->venta_id)->lockForUpdate()->first();
+                if ($pendientes->isEmpty()) {
+                    return false;
+                }
+
+                $resultado = DB::transaction(function () use ($pendientes): array {
+                    $ventas = Venta::query()
+                        ->whereIn('venta_id', $pendientes->pluck('venta_id'))
+                        ->lockForUpdate()
+                        ->get()
+                        ->keyBy('venta_id');
+                    $idsEliminar = [];
+                    $omitidos = 0;
+
+                    foreach ($pendientes as $archivo) {
+                        $venta = $ventas->get($archivo->venta_id);
                         if (! $venta || ! is_array($venta->raw)) {
-                            $totales['omitidos']++;
+                            $omitidos++;
 
-                            return;
+                            continue;
                         }
 
                         $json = json_encode($venta->raw, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
@@ -70,14 +82,25 @@ class DepurarRawRespaldadoVentas extends Command
                             throw new \RuntimeException("El SHA-256 de raw no coincide para la venta {$archivo->venta_id}.");
                         }
 
-                        $venta->forceFill(['raw' => null])->save();
-                        $totales['eliminados']++;
-                    });
-                }
+                        $idsEliminar[] = $venta->venta_id;
+                    }
+
+                    if ($idsEliminar !== []) {
+                        Venta::query()
+                            ->whereIn('venta_id', $idsEliminar)
+                            ->whereNotNull('raw')
+                            ->update(['raw' => null]);
+                    }
+
+                    return ['eliminados' => count($idsEliminar), 'omitidos' => $omitidos];
+                });
+
+                $totales['eliminados'] += $resultado['eliminados'];
+                $totales['omitidos'] += $resultado['omitidos'];
 
                 $this->output->write('.');
 
-                return true;
+                return $maximo === 0 || $totales['eliminados'] < $maximo;
             });
         } catch (\Throwable $exception) {
             $this->newLine();
