@@ -54,9 +54,11 @@ class MarcarRespaldosExternosVentas extends Command
 
         try {
             $consulta->orderBy('id')->chunkById($chunk, function ($archivos) use ($filesystem, $origen, $confirmadoEn, $maximo, &$totales): bool {
+                $idsMarcados = [];
+
                 foreach ($archivos as $archivo) {
-                    if ($maximo > 0 && $totales['marcados'] >= $maximo) {
-                        return false;
+                    if ($maximo > 0 && ($totales['marcados'] + count($idsMarcados)) >= $maximo) {
+                        break;
                     }
 
                     if (! $filesystem->exists($archivo->path)) {
@@ -69,18 +71,25 @@ class MarcarRespaldosExternosVentas extends Command
                         throw new \RuntimeException("El SHA-256 del staging no coincide para la venta {$archivo->venta_id}.");
                     }
 
-                    $archivo->forceFill([
-                        'respaldo_externo_en' => $confirmadoEn,
-                        'respaldo_externo_origen' => $origen,
-                    ])->save();
+                    $idsMarcados[] = $archivo->id;
+                }
 
-                    $totales['marcados']++;
-                    $totales['verificados']++;
+                if ($idsMarcados !== []) {
+                    VentaPayloadArchivo::query()
+                        ->whereIn('id', $idsMarcados)
+                        ->update([
+                            'respaldo_externo_en' => $confirmadoEn,
+                            'respaldo_externo_origen' => $origen,
+                            'updated_at' => now(),
+                        ]);
+
+                    $totales['marcados'] += count($idsMarcados);
+                    $totales['verificados'] += count($idsMarcados);
                 }
 
                 $this->output->write('.');
 
-                return true;
+                return $maximo === 0 || $totales['marcados'] < $maximo;
             });
         } catch (\Throwable $exception) {
             $this->newLine();
