@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Venta;
+use App\Models\VentaPayloadArchivo;
 use App\Services\VentaPayloadArchivoService;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
