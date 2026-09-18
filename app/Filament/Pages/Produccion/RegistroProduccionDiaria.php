@@ -130,9 +130,8 @@ class RegistroProduccionDiaria extends Page
             ->modalWidth('4xl')
             ->modalSubmitAction(false)
             ->modalCancelActionLabel('Cerrar')
-            ->fillForm(fn (): array => ['resumen' => $this->resumenProduccion])
             ->schema([
-                RepeatableEntry::make('resumen')->label('')
+                RepeatableEntry::make('resumen')->label('')->state(fn (): array => $this->resumenProduccion)
                     ->table([
                         InfolistTableColumn::make('Producto'),
                         InfolistTableColumn::make('Código'),
