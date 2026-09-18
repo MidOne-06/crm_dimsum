@@ -55,7 +55,7 @@ class MarcarRespaldosExternosVentas extends Command
         $totales = ['marcados' => 0, 'presentes' => 0, 'sha_recalculados' => 0];
 
         try {
-            $consulta->orderBy('id')->chunkById($chunk, function ($archivos) use ($filesystem, $origen, $confirmadoEn, $maximo, &$totales): bool {
+            $consulta->orderBy('id')->chunkById($chunk, function ($archivos) use ($filesystem, $origen, $confirmadoEn, $maximo, $recalcularSha, &$totales): bool {
                 $idsMarcados = [];
 
                 foreach ($archivos as $archivo) {
