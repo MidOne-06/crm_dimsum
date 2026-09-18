@@ -31,6 +31,20 @@ Para detener un entorno y conservar su información local:
 .\scripts\Stop-IsolatedEnvironment.ps1 -Environment development
 ```
 
+## Catálogo de Producción para Desarrollo
+
+Para partir de la misma configuración maestra sin traer actividad real, ejecutar:
+
+```powershell
+.\scripts\Sync-ProduccionCatalogToDevelopment.ps1
+```
+
+El proceso consulta en Producción únicamente las categorías y los productos de
+Producción. Los enlaza por identificadores de Restaurant, actualiza el catálogo
+en Desarrollo de forma idempotente y comprueba que no existan cierres, Bachs,
+salidas, detalles ni auditorías importadas. Si Desarrollo ya contiene actividad
+operativa, la depuración del catálogo se rechaza en lugar de alterar registros.
+
 ## Reglas operativas
 
 - No ejecutar `compose.yaml` para pruebas locales: representa el stack operativo
