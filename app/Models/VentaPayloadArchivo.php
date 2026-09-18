@@ -19,6 +19,8 @@ class VentaPayloadArchivo extends Model
         'formato',
         'archivado_en',
         'verificado_en',
+        'respaldo_externo_en',
+        'respaldo_externo_origen',
     ];
 
     protected function casts(): array
@@ -26,6 +28,7 @@ class VentaPayloadArchivo extends Model
         return [
             'archivado_en' => 'datetime',
             'verificado_en' => 'datetime',
+            'respaldo_externo_en' => 'datetime',
         ];
     }
 
