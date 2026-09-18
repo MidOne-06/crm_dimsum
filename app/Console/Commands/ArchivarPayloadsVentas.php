@@ -17,7 +17,8 @@ class ArchivarPayloadsVentas extends Command
         {--chunk=100 : Ventas por lote, entre 10 y 250}
         {--dry-run : Solo informa cuántos payloads son candidatos}
         {--eliminar-raw : Elimina raw únicamente después de archivar y verificar}
-        {--confirmar-eliminacion : Confirmación explícita requerida junto a --eliminar-raw}';
+        {--confirmar-eliminacion : Confirmación explícita requerida junto a --eliminar-raw}
+        {--aceptar-respaldo-local : Autoriza usar el archivo local verificado como fuente de recuperación}';
 
     protected $description = 'Archiva payloads de ventas en almacenamiento externo y los verifica por SHA-256.';
 
@@ -36,8 +37,8 @@ class ArchivarPayloadsVentas extends Command
             return self::FAILURE;
         }
 
-        if ($this->option('eliminar-raw') && $archivos->esDiscoLocal($disk)) {
-            $this->error('No se permite eliminar raw cuando el archivo está en este mismo VPS. Use un disco externo verificado.');
+        if ($this->option('eliminar-raw') && $archivos->esDiscoLocal($disk) && ! $this->option('aceptar-respaldo-local')) {
+            $this->error('El archivo está en este VPS. Para eliminar raw debe incluir --aceptar-respaldo-local además de --confirmar-eliminacion.');
 
             return self::FAILURE;
         }
@@ -72,10 +73,22 @@ class ArchivarPayloadsVentas extends Command
         try {
             $consulta->orderBy('venta_fecha')->orderBy('venta_id')->chunk($chunk, function ($ventas) use ($archivos, $disk, &$totales): void {
                 foreach ($ventas as $venta) {
-                    $archivos->archivar($venta, $disk);
+                    $archivo = $archivos->archivar($venta, $disk);
                     $totales['archivados']++;
 
                     if ($this->option('eliminar-raw')) {
+                        $verificado = VentaPayloadArchivo::query()
+                            ->where('venta_id', $venta->venta_id)
+                            ->where('disk', $disk)
+                            ->where('path', $archivo['path'])
+                            ->where('sha256', $archivo['sha256'])
+                            ->whereNotNull('verificado_en')
+                            ->exists();
+
+                        if (! $verificado) {
+                            throw new \RuntimeException("No existe evidencia verificada para la venta {$venta->venta_id}.");
+                        }
+
                         $venta->forceFill(['raw' => null])->save();
                         $totales['raw_eliminados']++;
                     }
