@@ -60,14 +60,15 @@
         @endforeach
     @endif
 
-    @if ($this->puedeRegistrar() && ! $this->soloLectura())
+    @if ($this->puedeRegistrar() && $this->puedeEditarCierreFisico())
         <div class="flex justify-end">
             <x-filament::button type="button" color="gray" wire:click="mountAction('registrarCierreFisico')" wire:loading.attr="disabled" wire:target="mountAction">Registrar cierre físico</x-filament::button>
         </div>
     @endif
 
     @if ($this->puedeAprobar() && $estado === 'enviado')
-        <div class="flex justify-end">
+        <div class="flex flex-wrap justify-end gap-2">
+            <x-filament::button type="button" color="warning" wire:click="mountAction('devolverACorreccion')" wire:loading.attr="disabled" wire:target="mountAction">Devolver a borrador</x-filament::button>
             <x-filament::button type="button" color="success" wire:click="aprobar" wire:confirm="Se aprobará el cierre y quedará bloqueado. ¿Continuar?" wire:loading.attr="disabled" wire:target="aprobar">Aprobar cierre</x-filament::button>
         </div>
     @endif

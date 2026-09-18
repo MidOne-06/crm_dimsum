@@ -320,7 +320,7 @@ class RegistroProduccionDiaria extends Page
         return Action::make('registrarCierreFisico')
             ->label('Registrar cierre físico')
             ->icon('heroicon-o-clipboard-document-check')
-            ->visible(fn (): bool => $this->puedeRegistrar() && ! $this->soloLectura())
+            ->visible(fn (): bool => $this->puedeRegistrar() && $this->puedeEditarCierreFisico())
             ->modalHeading('Conciliación de cierre')
             ->modalWidth('7xl')
             ->stickyModalHeader()
@@ -360,6 +360,46 @@ class RegistroProduccionDiaria extends Page
         });
         Notification::make()->success()->title('Cierre aprobado')->body('El stock final aprobado alimentará el próximo cierre.')->send();
         $this->cargarHoy();
+    }
+
+    public function devolverACorreccionAction(): Action
+    {
+        return Action::make('devolverACorreccion')
+            ->label('Devolver a borrador')
+            ->icon('heroicon-o-arrow-uturn-left')
+            ->color('warning')
+            ->visible(fn (): bool => $this->puedeDevolverACorreccion())
+            ->modalHeading('Devolver cierre a borrador')
+            ->modalWidth('lg')
+            ->modalSubmitActionLabel('Devolver a borrador')
+            ->modalCancelActionLabel('Cancelar')
+            ->schema([
+                Textarea::make('motivo')->label('Motivo')->rows(3)->maxLength(1000)->required()->columnSpanFull(),
+            ])
+            ->action(function (array $data): void {
+                abort_unless($this->puedeAprobar(), 403);
+                $motivo = trim((string) ($data['motivo'] ?? ''));
+
+                if ($motivo === '') {
+                    throw ValidationException::withMessages(['motivo' => 'Indica el motivo de la devolución.']);
+                }
+
+                DB::transaction(function () use ($motivo): void {
+                    $cierre = ProduccionDiariaCierre::query()->lockForUpdate()->with('detalles')->findOrFail($this->cierreId);
+                    if ($cierre->estado !== 'enviado') {
+                        throw ValidationException::withMessages(['items' => 'Solo se puede devolver un cierre enviado.']);
+                    }
+
+                    $antes = $this->snapshot($cierre);
+                    $cierre->update(['estado' => 'borrador', 'enviado_por' => null, 'enviado_en' => null]);
+                    $despues = $this->snapshot($cierre->fresh('detalles'));
+                    $despues['motivo_devolucion'] = $motivo;
+                    $this->auditar($cierre, 'devuelto_a_borrador', $antes, $despues);
+                });
+
+                Notification::make()->success()->title('Cierre devuelto a borrador')->send();
+                $this->cargarHoy();
+            });
     }
 
     /**
@@ -535,6 +575,8 @@ class RegistroProduccionDiaria extends Page
 
     public function puedeRegistrar(): bool { return (bool) auth()->user()?->hasPermission('produccion-diaria.registrar'); }
     public function puedeAprobar(): bool { return (bool) auth()->user()?->hasPermission('produccion-diaria.aprobar'); }
+    public function puedeEditarCierreFisico(): bool { return in_array($this->estado, ['nuevo', 'borrador'], true); }
+    public function puedeDevolverACorreccion(): bool { return $this->puedeAprobar() && $this->estado === 'enviado'; }
     /**
      * Nivel angosto -- pedido explícito del usuario (2026-09-17): un
      * operario debe poder registrar SOLO tandas, sin salida ni cierre
@@ -697,7 +739,12 @@ class RegistroProduccionDiaria extends Page
     private function guardar(string $destino, ?array $state = null): void
     {
         abort_unless($this->puedeRegistrar(), 403);
-        if ($this->soloLectura()) throw ValidationException::withMessages(['items' => 'El cierre aprobado no puede modificarse.']);
+        if (! in_array($destino, ['borrador', 'enviado'], true)) {
+            throw ValidationException::withMessages(['items' => 'El destino de cierre no es válido.']);
+        }
+        if (! $this->puedeEditarCierreFisico()) {
+            throw ValidationException::withMessages(['items' => 'El cierre enviado o aprobado no puede modificarse.']);
+        }
         try {
             $this->intentoGuardar = $destino;
             $state ??= $this->form->getState();
@@ -708,6 +755,7 @@ class RegistroProduccionDiaria extends Page
         DB::transaction(function () use ($fecha, $state, $items, $destino): void {
             $cierre = ProduccionDiariaCierre::query()->whereDate('fecha', $fecha)->lockForUpdate()->with('detalles')->first();
             if ($cierre?->estado === 'aprobado') throw ValidationException::withMessages(['items' => 'El cierre ya fue aprobado.']);
+            if ($cierre?->estado === 'enviado') throw ValidationException::withMessages(['items' => 'El cierre está enviado; debe devolverse a borrador antes de modificarlo.']);
             $antes = $cierre ? $this->snapshot($cierre) : null;
             $cierre ??= new ProduccionDiariaCierre(['fecha' => $fecha, 'area' => 'FABRICA', 'creado_por' => auth()->id()]);
             $cierre->fill(['estado' => $destino, 'observacion' => $state['observacion'] ?? null]);
