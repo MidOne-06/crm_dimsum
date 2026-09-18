@@ -11,6 +11,8 @@ class DepurarRawRespaldadoVentas extends Command
 {
     protected $signature = 'ventas:depurar-raw-respaldado
         {--disk= : Disco de staging asociado al respaldo externo}
+        {--desde-archivo-id= : Id mínimo inclusivo del manifiesto}
+        {--hasta-archivo-id= : Id máximo inclusivo del manifiesto}
         {--chunk=100 : Manifiestos por lote, entre 10 y 250}
         {--max=0 : Máximo de payloads a depurar; 0 procesa todos}
         {--dry-run : Solo informa cuántos payloads cumplen todas las compuertas}
@@ -28,10 +30,24 @@ class DepurarRawRespaldadoVentas extends Command
             return self::FAILURE;
         }
 
+        $desdeArchivoId = $this->enteroOpcional('desde-archivo-id');
+        $hastaArchivoId = $this->enteroOpcional('hasta-archivo-id');
+        if ($desdeArchivoId === false || $hastaArchivoId === false) {
+            $this->error('Los rangos de manifiesto deben ser enteros positivos.');
+
+            return self::FAILURE;
+        }
+
+        if ($desdeArchivoId && $hastaArchivoId && $hastaArchivoId < $desdeArchivoId) {
+            [$desdeArchivoId, $hastaArchivoId] = [$hastaArchivoId, $desdeArchivoId];
+        }
+
         $consulta = VentaPayloadArchivo::query()
             ->where('disk', $disk)
             ->whereNotNull('verificado_en')
             ->whereNotNull('respaldo_externo_en')
+            ->when($desdeArchivoId, fn ($query) => $query->where('id', '>=', $desdeArchivoId))
+            ->when($hastaArchivoId, fn ($query) => $query->where('id', '<=', $hastaArchivoId))
             ->whereHas('venta', fn ($query) => $query->whereNotNull('raw'));
 
         if ($this->option('dry-run')) {
@@ -113,5 +129,16 @@ class DepurarRawRespaldadoVentas extends Command
         $this->info("Raw eliminados: {$totales['eliminados']} | omitidos: {$totales['omitidos']}");
 
         return self::SUCCESS;
+    }
+
+    private function enteroOpcional(string $opcion): int|false|null
+    {
+        $valor = trim((string) $this->option($opcion));
+
+        if ($valor === '') {
+            return null;
+        }
+
+        return ctype_digit($valor) && (int) $valor > 0 ? (int) $valor : false;
     }
 }
