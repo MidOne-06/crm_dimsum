@@ -33,7 +33,7 @@
                                         wire:click="mountAction('registrarTandaProducto', { productoId: {{ $producto['id'] }} })"
                                         wire:loading.attr="disabled"
                                         wire:target="mountAction"
-                                    >Bash</x-filament::button>
+                                    >Bach</x-filament::button>
                                     @if ($this->puedeRegistrar())
                                         <x-filament::button
                                             type="button"
@@ -51,7 +51,7 @@
                             <div class="min-h-28 rounded-xl border border-gray-200 p-4 dark:border-white/10">
                                 <div class="text-xs text-gray-500 dark:text-gray-400">{{ $producto['codigo'] ?: 'Sin código' }}</div>
                                 <div class="mt-1 font-semibold text-gray-950 dark:text-white">{{ $producto['nombre'] }}</div>
-                                <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ number_format($producto['disponible'], 2) }} {{ $producto['unidad'] }} · {{ $producto['tandas'] }} Bash</div>
+                                <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ number_format($producto['disponible'], 2) }} {{ $producto['unidad'] }} · {{ $producto['tandas'] }} Bach</div>
                             </div>
                         @endif
                     @endforeach
@@ -74,7 +74,7 @@
 
     @if ($this->puedeReabrir())
         <div class="flex justify-end">
-            <x-filament::button type="button" color="warning" wire:click="reabrir" wire:confirm="Vuelve a borrador: se podrán corregir bashes, salidas y el stock final antes de aprobarlo de nuevo. ¿Continuar?" wire:loading.attr="disabled" wire:target="reabrir">Reabrir cierre</x-filament::button>
+            <x-filament::button type="button" color="warning" wire:click="reabrir" wire:confirm="Vuelve a borrador: se podrán corregir bachs, salidas y el stock final antes de aprobarlo de nuevo. ¿Continuar?" wire:loading.attr="disabled" wire:target="reabrir">Reabrir cierre</x-filament::button>
         </div>
     @endif
 
@@ -83,7 +83,7 @@
     </div>
 
     @if (count($tandasRecientes))
-        <x-filament::section heading="Últimos bashes">
+        <x-filament::section heading="Últimos bachs">
             <div class="divide-y divide-gray-200 dark:divide-white/10">
                 @foreach ($tandasRecientes as $tanda)
                     <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3">
