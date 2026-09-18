@@ -35,7 +35,7 @@ class HistorialTandasProduccion extends Page implements HasTable
     {
         return [
             $this->exportarExcelAction(
-                'historial-tandas-'.now()->format('Y-m-d').'.xlsx',
+                'historial-bashes-'.now()->format('Y-m-d').'.xlsx',
                 ['Fecha', 'Hora', 'Código', 'Producto', 'Cantidad', 'Unidad', 'Nota', 'Registrado por'],
                 fn (ProduccionDiariaTanda $t): array => [
                     $t->cierre?->fecha?->format('d/m/Y'), $t->created_at?->timezone('America/Lima')->format('H:i'),
@@ -46,8 +46,8 @@ class HistorialTandasProduccion extends Page implements HasTable
     }
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-clock';
-    protected static ?string $navigationLabel = 'Historial de tandas';
-    protected static ?string $title = 'Historial de tandas de producción';
+    protected static ?string $navigationLabel = 'Historial de bashes';
+    protected static ?string $title = 'Historial de bashes de producción';
     protected static string|\UnitEnum|null $navigationGroup = 'Producción';
     protected static ?int $navigationSort = 6;
     protected static ?string $slug = 'produccion/historial-tandas';
@@ -104,6 +104,6 @@ class HistorialTandasProduccion extends Page implements HasTable
             ->defaultSort('created_at', 'desc')
             ->paginated([10, 25, 50, 100])
             ->defaultPaginationPageOption(25)
-            ->emptyStateHeading('Sin tandas registradas.');
+            ->emptyStateHeading('Sin bashes registrados.');
     }
 }

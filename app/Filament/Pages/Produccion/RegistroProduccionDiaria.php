@@ -136,7 +136,7 @@ class RegistroProduccionDiaria extends Page
                     ->table([
                         InfolistTableColumn::make('Producto'),
                         InfolistTableColumn::make('Código'),
-                        InfolistTableColumn::make('Tandas')->alignEnd(),
+                        InfolistTableColumn::make('Bashes')->alignEnd(),
                         InfolistTableColumn::make('Cantidad')->alignEnd(),
                         InfolistTableColumn::make('Unidad'),
                     ])
@@ -154,14 +154,14 @@ class RegistroProduccionDiaria extends Page
     public function registrarTandaProductoAction(): Action
     {
         return Action::make('registrarTandaProducto')
-            ->label('Registrar tanda')
+            ->label('Registrar bash')
             ->icon('heroicon-o-plus')
             ->visible(fn (): bool => $this->puedeRegistrarTanda() && ! $this->soloLectura())
-            ->modalHeading(fn (Action $action): string => 'Registrar tanda · '.$this->productoDeAccion($action)->nombre)
+            ->modalHeading(fn (Action $action): string => 'Registrar bash · '.$this->productoDeAccion($action)->nombre)
             ->modalWidth('5xl')
             ->stickyModalHeader()
             ->stickyModalFooter()
-            ->modalSubmitActionLabel('Registrar tanda')
+            ->modalSubmitActionLabel('Registrar bash')
             ->modalCancelActionLabel('Cancelar')
             ->fillForm(function (Action $action): array {
                 $producto = $this->productoDeAccion($action);
@@ -197,7 +197,7 @@ class RegistroProduccionDiaria extends Page
                 if ($cantidad <= 0) throw ValidationException::withMessages(['cantidad' => 'Ingresa una cantidad mayor que cero.']);
 
                 $this->guardarTanda($producto, $cantidad, $nota);
-                Notification::make()->success()->title('Tanda registrada')->body(number_format($cantidad, 2).' '.$producto->unidad.' de '.$producto->nombre)->send();
+                Notification::make()->success()->title('Bash registrado')->body(number_format($cantidad, 2).' '.$producto->unidad.' de '.$producto->nombre)->send();
                 $this->cargarHoy();
             });
     }
@@ -305,7 +305,7 @@ class RegistroProduccionDiaria extends Page
         DB::transaction(function () use ($producto, $cantidad, $nota): void {
             $cierre = ProduccionDiariaCierre::query()->whereDate('fecha', $this->fechaOperativa())->lockForUpdate()->first();
             if ($cierre?->estado === 'aprobado') throw ValidationException::withMessages(['data.tanda.producto_id' => 'El cierre de hoy ya está aprobado.']);
-            if ($cierre?->estado === 'enviado') throw ValidationException::withMessages(['data.tanda.producto_id' => 'El cierre está enviado; no se pueden agregar tandas.']);
+            if ($cierre?->estado === 'enviado') throw ValidationException::withMessages(['data.tanda.producto_id' => 'El cierre está enviado; no se pueden agregar bashes.']);
             $cierre ??= new ProduccionDiariaCierre(['fecha' => $this->fechaOperativa(), 'area' => 'FABRICA', 'estado' => 'borrador', 'creado_por' => auth()->id()]);
             $cierre->save();
             $tandaCreada = $cierre->tandas()->create([
@@ -382,7 +382,7 @@ class RegistroProduccionDiaria extends Page
         return Action::make('editarTanda')
             ->label('Editar')->icon('heroicon-o-pencil-square')->color('gray')->size('sm')
             ->visible(fn (): bool => $this->puedeRegistrarTanda() && $this->estado === 'borrador')
-            ->modalHeading('Editar tanda')
+            ->modalHeading('Editar bash')
             ->modalWidth('lg')
             ->fillForm(function (Action $action): array {
                 $tanda = ProduccionDiariaTanda::findOrFail((int) ($action->getArguments()['tandaId'] ?? 0));
@@ -406,7 +406,7 @@ class RegistroProduccionDiaria extends Page
                     $tanda->update(['cantidad' => $cantidad, 'nota' => $nota]);
                     $this->auditar($tanda->cierre, 'tanda_editada', ['tanda' => ['id' => $tanda->id, ...$antes]], ['tanda' => ['id' => $tanda->id, 'cantidad' => $cantidad, 'nota' => $nota]]);
                 });
-                Notification::make()->success()->title('Tanda actualizada')->send();
+                Notification::make()->success()->title('Bash actualizado')->send();
                 $this->cargarHoy();
             });
     }
@@ -417,7 +417,7 @@ class RegistroProduccionDiaria extends Page
             ->label('Eliminar')->icon('heroicon-o-trash')->color('danger')->size('sm')
             ->visible(fn (): bool => $this->puedeRegistrarTanda() && $this->estado === 'borrador')
             ->requiresConfirmation()
-            ->modalHeading('¿Eliminar esta tanda?')
+            ->modalHeading('¿Eliminar este bash?')
             ->action(function (Action $action): void {
                 abort_unless($this->puedeRegistrarTanda(), 403);
                 $tandaId = (int) ($action->getArguments()['tandaId'] ?? 0);
@@ -429,7 +429,7 @@ class RegistroProduccionDiaria extends Page
                     $tanda->delete();
                     $this->auditar($cierre, 'tanda_eliminada', $antes, []);
                 });
-                Notification::make()->success()->title('Tanda eliminada')->send();
+                Notification::make()->success()->title('Bash eliminado')->send();
                 $this->cargarHoy();
             });
     }
