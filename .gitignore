@@ -18,3 +18,13 @@ yarn-error.log
 /.tmp
 /output
 /outputs
+/.env
+/.env.docker
+/.env.docker.local
+/.env.worker
+/.env.development
+/.env.staging
+!/.env.example
+!/.env.docker.example
+!/.env.development.example
+!/.env.staging.example
