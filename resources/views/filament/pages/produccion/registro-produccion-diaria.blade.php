@@ -14,7 +14,7 @@
             <x-filament::section :heading="$categoria" compact>
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     @foreach ($productos as $producto)
-                        @if (($this->puedeRegistrar() || $this->puedeRegistrarTanda()) && ! $this->soloLectura())
+                        @if ($this->puedeRegistrarMovimientos() && ($this->puedeRegistrar() || $this->puedeRegistrarTanda()))
                             <div class="min-h-28 w-full rounded-xl border border-gray-200 p-3 dark:border-white/10">
                                 <div class="text-xs text-gray-500 dark:text-gray-400">{{ $producto['codigo'] ?: 'Sin código' }}</div>
                                 <div class="font-semibold text-gray-950 dark:text-white">{{ $producto['nombre'] }}</div>
@@ -80,7 +80,7 @@
     @endif
 
     <div class="flex justify-end">
-        <x-filament::button type="button" color="gray" icon="heroicon-o-chart-bar" wire:click="mountAction('produccionAcumulada')" wire:loading.attr="disabled" wire:target="mountAction">Producción acumulada de hoy</x-filament::button>
+        <x-filament::button type="button" color="gray" icon="heroicon-o-chart-bar" wire:click="mountAction('produccionAcumulada')" wire:loading.attr="disabled" wire:target="mountAction">{{ $this->esFechaActual() ? 'Producción acumulada de hoy' : 'Producción acumulada' }}</x-filament::button>
     </div>
 
     @if (count($tandasRecientes))
@@ -99,7 +99,7 @@
                                 <div class="font-semibold text-gray-950 dark:text-white">{{ number_format($tanda['cantidad'], 2) }} {{ $tanda['unidad'] }}</div>
                                 <div class="text-xs text-gray-500 dark:text-gray-400">{{ $tanda['hora'] }}@if ($tanda['usuario']) · {{ $tanda['usuario'] }}@endif</div>
                             </div>
-                            @if ($estado === 'borrador' && $this->puedeRegistrarTanda())
+                            @if ($estado === 'borrador' && $this->puedeRegistrarMovimientos() && $this->puedeRegistrarTanda())
                                 <div class="flex gap-1">
                                     <x-filament::icon-button icon="heroicon-o-pencil-square" label="Editar" wire:click="mountAction('editarTanda', { tandaId: {{ $tanda['id'] }} })" wire:loading.attr="disabled" wire:target="mountAction" />
                                     <x-filament::icon-button icon="heroicon-o-trash" color="danger" label="Eliminar" wire:click="mountAction('eliminarTanda', { tandaId: {{ $tanda['id'] }} })" wire:loading.attr="disabled" wire:target="mountAction" />
@@ -129,7 +129,7 @@
                                 <div class="font-semibold text-gray-950 dark:text-white">−{{ number_format($salida['cantidad'], 2) }} {{ $salida['unidad'] }}</div>
                                 <div class="text-xs text-gray-500 dark:text-gray-400">{{ $salida['hora'] }}@if ($salida['usuario']) · {{ $salida['usuario'] }}@endif</div>
                             </div>
-                            @if ($estado === 'borrador' && $this->puedeRegistrar())
+                            @if ($estado === 'borrador' && $this->puedeRegistrarMovimientos() && $this->puedeRegistrar())
                                 <div class="flex gap-1">
                                     <x-filament::icon-button icon="heroicon-o-pencil-square" label="Editar" wire:click="mountAction('editarSalida', { salidaId: {{ $salida['id'] }} })" wire:loading.attr="disabled" wire:target="mountAction" />
                                     <x-filament::icon-button icon="heroicon-o-trash" color="danger" label="Eliminar" wire:click="mountAction('eliminarSalida', { salidaId: {{ $salida['id'] }} })" wire:loading.attr="disabled" wire:target="mountAction" />

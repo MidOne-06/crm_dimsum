@@ -27,6 +27,7 @@ use Filament\Schemas\Schema;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Url;
 
 /** Módulo autónomo: catálogo, tandas y cierres propios de Producción. */
 class RegistroProduccionDiaria extends Page
@@ -52,6 +53,8 @@ class RegistroProduccionDiaria extends Page
     /** @var array<string, array<int, array<string, mixed>>> */
     public array $productosPorCategoria = [];
     public ?int $cierreId = null;
+    #[Url]
+    public ?string $fecha = null;
     public string $estado = 'nuevo';
     public ?string $diaAnteriorFecha = null;
     public bool $diaAnteriorSinCerrar = false;
@@ -66,7 +69,18 @@ class RegistroProduccionDiaria extends Page
             || $user?->hasPermission('produccion-diaria.registrar-tanda') || $user?->hasPermission('produccion-diaria.aprobar'));
     }
 
-    public function mount(): void { $this->cargarHoy(); }
+    public function mount(): void
+    {
+        $this->fecha = $this->fechaOperativa();
+        $this->cargarHoy();
+    }
+
+    public function getTitle(): string
+    {
+        return $this->esFechaActual()
+            ? 'Producción de hoy'
+            : 'Cierre de producción · '.Carbon::parse($this->fechaOperativa(), 'America/Lima')->format('d/m/Y');
+    }
 
     public function form(Schema $schema): Schema
     {
@@ -123,10 +137,10 @@ class RegistroProduccionDiaria extends Page
     public function produccionAcumuladaAction(): Action
     {
         return Action::make('produccionAcumulada')
-            ->label('Producción acumulada de hoy')
+            ->label(fn (): string => $this->esFechaActual() ? 'Producción acumulada de hoy' : 'Producción acumulada')
             ->icon('heroicon-o-chart-bar')
             ->color('gray')
-            ->modalHeading('Producción acumulada de hoy')
+            ->modalHeading(fn (): string => $this->esFechaActual() ? 'Producción acumulada de hoy' : 'Producción acumulada')
             ->modalWidth('4xl')
             ->modalSubmitAction(false)
             ->modalCancelActionLabel('Cerrar')
@@ -155,7 +169,7 @@ class RegistroProduccionDiaria extends Page
         return Action::make('registrarTandaProducto')
             ->label('Registrar bach')
             ->icon('heroicon-o-plus')
-            ->visible(fn (): bool => $this->puedeRegistrarTanda() && ! $this->soloLectura())
+            ->visible(fn (): bool => $this->puedeRegistrarMovimientos() && $this->puedeRegistrarTanda())
             ->modalHeading(fn (Action $action): string => 'Registrar bach · '.$this->productoDeAccion($action)->nombre)
             ->modalWidth('5xl')
             ->stickyModalHeader()
@@ -188,7 +202,7 @@ class RegistroProduccionDiaria extends Page
                 ]),
             ])
             ->action(function (array $data): void {
-                abort_unless($this->puedeRegistrarTanda(), 403);
+                abort_unless($this->puedeRegistrarMovimientos() && $this->puedeRegistrarTanda(), 403);
                 $producto = ProduccionProducto::query()->where('activo', true)->find($data['producto_id'] ?? null);
                 $cantidad = is_numeric($data['cantidad'] ?? null) ? (float) $data['cantidad'] : 0;
                 $nota = trim((string) ($data['nota'] ?? '')) ?: null;
@@ -216,7 +230,7 @@ class RegistroProduccionDiaria extends Page
             ->label('Registrar salida')
             ->icon('heroicon-o-arrow-up-tray')
             ->color('gray')
-            ->visible(fn (): bool => $this->puedeRegistrar() && ! $this->soloLectura())
+            ->visible(fn (): bool => $this->puedeRegistrarMovimientos() && $this->puedeRegistrar())
             ->modalHeading(fn (Action $action): string => 'Registrar salida · '.$this->productoDeAccion($action)->nombre)
             ->modalWidth('5xl')
             ->stickyModalHeader()
@@ -252,7 +266,7 @@ class RegistroProduccionDiaria extends Page
                 ]),
             ])
             ->action(function (array $data): void {
-                abort_unless($this->puedeRegistrar(), 403);
+                abort_unless($this->puedeRegistrarMovimientos() && $this->puedeRegistrar(), 403);
                 $producto = ProduccionProducto::query()->where('activo', true)->find($data['producto_id'] ?? null);
                 $cantidad = is_numeric($data['cantidad'] ?? null) ? (float) $data['cantidad'] : 0;
                 $destino = (string) ($data['destino'] ?? 'despacho');
@@ -272,7 +286,7 @@ class RegistroProduccionDiaria extends Page
         // Action ya oculta el botón y valida antes de llamar acá, pero este
         // método privado no debe confiar en que SIEMPRE se invoque desde
         // ahí. Mismo patrón que guardar()/aprobar() en esta misma clase.
-        abort_unless($this->puedeRegistrar(), 403);
+        abort_unless($this->puedeRegistrarMovimientos() && $this->puedeRegistrar(), 403);
         DB::transaction(function () use ($producto, $cantidad, $destino, $nota): void {
             $cierre = ProduccionDiariaCierre::query()->whereDate('fecha', $this->fechaOperativa())->lockForUpdate()->first();
             if ($cierre?->estado === 'aprobado') throw ValidationException::withMessages(['data.salida.producto_id' => 'El cierre de hoy ya está aprobado.']);
@@ -300,7 +314,7 @@ class RegistroProduccionDiaria extends Page
     private function guardarTanda(ProduccionProducto $producto, float $cantidad, ?string $nota): void
     {
         // Defensa en profundidad -- ver comentario equivalente en guardarSalida().
-        abort_unless($this->puedeRegistrarTanda(), 403);
+        abort_unless($this->puedeRegistrarMovimientos() && $this->puedeRegistrarTanda(), 403);
         DB::transaction(function () use ($producto, $cantidad, $nota): void {
             $cierre = ProduccionDiariaCierre::query()->whereDate('fecha', $this->fechaOperativa())->lockForUpdate()->first();
             if ($cierre?->estado === 'aprobado') throw ValidationException::withMessages(['data.tanda.producto_id' => 'El cierre de hoy ya está aprobado.']);
@@ -350,6 +364,7 @@ class RegistroProduccionDiaria extends Page
         DB::transaction(function (): void {
             $cierre = ProduccionDiariaCierre::query()->lockForUpdate()->with('detalles')->findOrFail($this->cierreId);
             if ($cierre->estado !== 'enviado') throw ValidationException::withMessages(['items' => 'Solo se puede aprobar un cierre enviado.']);
+            $this->asegurarSecuenciaParaAprobar($cierre);
             foreach ($cierre->detalles as $detalle) {
                 if ($detalle->stock_final === null) throw ValidationException::withMessages(['items' => 'Todos los productos requieren stock final físico.']);
                 if (abs((float) $detalle->diferencia) > 0.0001 && blank($detalle->observacion)) throw ValidationException::withMessages(['items' => "{$detalle->item_nombre}: indica el motivo de la diferencia."]);
@@ -389,6 +404,7 @@ class RegistroProduccionDiaria extends Page
                     if ($cierre->estado !== 'enviado') {
                         throw ValidationException::withMessages(['items' => 'Solo se puede devolver un cierre enviado.']);
                     }
+                    $this->asegurarSinCierresAprobadosPosteriores($cierre);
 
                     $antes = $this->snapshot($cierre);
                     $cierre->update(['estado' => 'borrador', 'enviado_por' => null, 'enviado_en' => null]);
@@ -420,7 +436,7 @@ class RegistroProduccionDiaria extends Page
     {
         return Action::make('editarTanda')
             ->label('Editar')->icon('heroicon-o-pencil-square')->color('gray')->size('sm')
-            ->visible(fn (): bool => $this->puedeRegistrarTanda() && $this->estado === 'borrador')
+            ->visible(fn (): bool => $this->puedeRegistrarMovimientos() && $this->puedeRegistrarTanda() && $this->estado === 'borrador')
             ->modalHeading('Editar bach')
             ->modalWidth('lg')
             ->fillForm(function (Action $action): array {
@@ -434,7 +450,7 @@ class RegistroProduccionDiaria extends Page
                 Textarea::make('nota')->label('Nota')->rows(2)->maxLength(500),
             ])
             ->action(function (array $data): void {
-                abort_unless($this->puedeRegistrarTanda(), 403);
+                abort_unless($this->puedeRegistrarMovimientos() && $this->puedeRegistrarTanda(), 403);
                 $cantidad = is_numeric($data['cantidad'] ?? null) ? (float) $data['cantidad'] : 0;
                 if ($cantidad <= 0) throw ValidationException::withMessages(['cantidad' => 'Ingresa una cantidad mayor que cero.']);
                 DB::transaction(function () use ($data, $cantidad): void {
@@ -454,11 +470,11 @@ class RegistroProduccionDiaria extends Page
     {
         return Action::make('eliminarTanda')
             ->label('Eliminar')->icon('heroicon-o-trash')->color('danger')->size('sm')
-            ->visible(fn (): bool => $this->puedeRegistrarTanda() && $this->estado === 'borrador')
+            ->visible(fn (): bool => $this->puedeRegistrarMovimientos() && $this->puedeRegistrarTanda() && $this->estado === 'borrador')
             ->requiresConfirmation()
             ->modalHeading('¿Eliminar este bach?')
             ->action(function (Action $action): void {
-                abort_unless($this->puedeRegistrarTanda(), 403);
+                abort_unless($this->puedeRegistrarMovimientos() && $this->puedeRegistrarTanda(), 403);
                 $tandaId = (int) ($action->getArguments()['tandaId'] ?? 0);
                 DB::transaction(function () use ($tandaId): void {
                     $tanda = ProduccionDiariaTanda::query()->whereHas('cierre', fn ($q) => $q->where('id', $this->cierreId)->where('estado', 'borrador'))
@@ -478,7 +494,7 @@ class RegistroProduccionDiaria extends Page
     {
         return Action::make('editarSalida')
             ->label('Editar')->icon('heroicon-o-pencil-square')->color('gray')->size('sm')
-            ->visible(fn (): bool => $this->puedeRegistrar() && $this->estado === 'borrador')
+            ->visible(fn (): bool => $this->puedeRegistrarMovimientos() && $this->puedeRegistrar() && $this->estado === 'borrador')
             ->modalHeading('Editar salida')
             ->modalWidth('lg')
             ->fillForm(function (Action $action): array {
@@ -495,7 +511,7 @@ class RegistroProduccionDiaria extends Page
                 Textarea::make('nota')->label('Nota')->rows(2)->maxLength(500),
             ])
             ->action(function (array $data): void {
-                abort_unless($this->puedeRegistrar(), 403);
+                abort_unless($this->puedeRegistrarMovimientos() && $this->puedeRegistrar(), 403);
                 $cantidad = is_numeric($data['cantidad'] ?? null) ? (float) $data['cantidad'] : 0;
                 if ($cantidad <= 0) throw ValidationException::withMessages(['cantidad' => 'Ingresa una cantidad mayor que cero.']);
                 DB::transaction(function () use ($data, $cantidad): void {
@@ -528,11 +544,11 @@ class RegistroProduccionDiaria extends Page
     {
         return Action::make('eliminarSalida')
             ->label('Eliminar')->icon('heroicon-o-trash')->color('danger')->size('sm')
-            ->visible(fn (): bool => $this->puedeRegistrar() && $this->estado === 'borrador')
+            ->visible(fn (): bool => $this->puedeRegistrarMovimientos() && $this->puedeRegistrar() && $this->estado === 'borrador')
             ->requiresConfirmation()
             ->modalHeading('¿Eliminar esta salida?')
             ->action(function (Action $action): void {
-                abort_unless($this->puedeRegistrar(), 403);
+                abort_unless($this->puedeRegistrarMovimientos() && $this->puedeRegistrar(), 403);
                 $salidaId = (int) ($action->getArguments()['salidaId'] ?? 0);
                 DB::transaction(function () use ($salidaId): void {
                     $salida = ProduccionDiariaSalida::query()->whereHas('cierre', fn ($q) => $q->where('id', $this->cierreId)->where('estado', 'borrador'))
@@ -565,6 +581,7 @@ class RegistroProduccionDiaria extends Page
         DB::transaction(function (): void {
             $cierre = ProduccionDiariaCierre::query()->lockForUpdate()->with('detalles')->findOrFail($this->cierreId);
             if ($cierre->estado !== 'aprobado') throw ValidationException::withMessages(['items' => 'Solo se puede reabrir un cierre aprobado.']);
+            $this->asegurarSinCierresAprobadosPosteriores($cierre);
             $antes = $this->snapshot($cierre);
             $cierre->update(['estado' => 'borrador', 'aprobado_por' => null, 'aprobado_en' => null, 'enviado_por' => null, 'enviado_en' => null]);
             $this->auditar($cierre, 'reabierto', $antes, $this->snapshot($cierre->fresh('detalles')));
@@ -575,6 +592,7 @@ class RegistroProduccionDiaria extends Page
 
     public function puedeRegistrar(): bool { return (bool) auth()->user()?->hasPermission('produccion-diaria.registrar'); }
     public function puedeAprobar(): bool { return (bool) auth()->user()?->hasPermission('produccion-diaria.aprobar'); }
+    public function puedeRegistrarMovimientos(): bool { return $this->esFechaActual() && ! $this->soloLectura(); }
     public function puedeEditarCierreFisico(): bool { return in_array($this->estado, ['nuevo', 'borrador'], true); }
     public function puedeDevolverACorreccion(): bool { return $this->puedeAprobar() && $this->estado === 'enviado'; }
     /**
@@ -590,7 +608,28 @@ class RegistroProduccionDiaria extends Page
     // incluida la propia tanda que sí debería poder registrar.
     public function soloLectura(): bool { return ! ($this->puedeRegistrar() || $this->puedeRegistrarTanda()) || $this->estado === 'aprobado'; }
     public function etiquetaEstado(): string { return match ($this->estado) { 'borrador' => 'Borrador', 'enviado' => 'Enviado', 'aprobado' => 'Aprobado', default => 'Nuevo' }; }
-    private function fechaOperativa(): string { return Carbon::now('America/Lima')->toDateString(); }
+    public function esFechaActual(): bool
+    {
+        return $this->fechaOperativa() === Carbon::now('America/Lima')->toDateString();
+    }
+
+    private function fechaOperativa(): string
+    {
+        $hoy = Carbon::now('America/Lima')->startOfDay();
+        $valor = $this->fecha ?: $hoy->toDateString();
+
+        try {
+            $fecha = Carbon::createFromFormat('!Y-m-d', $valor, 'America/Lima');
+        } catch (\Throwable) {
+            $fecha = null;
+        }
+
+        if (! $fecha || $fecha->format('Y-m-d') !== $valor || $fecha->greaterThan($hoy)) {
+            return $hoy->toDateString();
+        }
+
+        return $fecha->toDateString();
+    }
 
     private function cargarHoy(): void
     {
@@ -601,7 +640,13 @@ class RegistroProduccionDiaria extends Page
         $items = $this->itemsParaFormulario($fecha, $cierre);
         $this->actualizarResumen($fecha, $items);
         $this->form->fill(['observacion' => $cierre?->observacion, 'items' => $items]);
-        $this->verificarDiaAnterior($fecha);
+        if ($this->esFechaActual()) {
+            $this->verificarDiaAnterior($fecha);
+        } else {
+            $this->diaAnteriorFecha = null;
+            $this->diaAnteriorSinCerrar = false;
+            $this->diaAnteriorSinAprobar = false;
+        }
     }
 
     /**
@@ -807,6 +852,41 @@ class RegistroProduccionDiaria extends Page
             ->where('produccion_diaria_detalles.producto_id', $productoId)->where('cierres.estado', 'aprobado')->whereDate('cierres.fecha', '<', $fecha)
             ->whereNotNull('produccion_diaria_detalles.stock_final')->orderByDesc('cierres.fecha')->value('produccion_diaria_detalles.stock_final');
         return $value === null ? null : (float) $value;
+    }
+
+    /**
+     * Un cierre aprobado alimenta el inicial del siguiente; por eso no se
+     * permite aprobar saltando un cierre existente que siga pendiente.
+     */
+    private function asegurarSecuenciaParaAprobar(ProduccionDiariaCierre $cierre): void
+    {
+        $pendiente = ProduccionDiariaCierre::query()
+            ->whereDate('fecha', '<', $cierre->fecha->toDateString())
+            ->where('estado', '!=', 'aprobado')
+            ->lockForUpdate()
+            ->exists();
+
+        if ($pendiente) {
+            throw ValidationException::withMessages([
+                'items' => 'Regulariza y aprueba primero los cierres anteriores pendientes.',
+            ]);
+        }
+    }
+
+    /** No se altera un cierre que ya sirve como inicial de un día posterior. */
+    private function asegurarSinCierresAprobadosPosteriores(ProduccionDiariaCierre $cierre): void
+    {
+        $posteriorAprobado = ProduccionDiariaCierre::query()
+            ->whereDate('fecha', '>', $cierre->fecha->toDateString())
+            ->where('estado', 'aprobado')
+            ->lockForUpdate()
+            ->exists();
+
+        if ($posteriorAprobado) {
+            throw ValidationException::withMessages([
+                'items' => 'No se puede modificar este cierre porque un cierre posterior ya fue aprobado.',
+            ]);
+        }
     }
 
     private function actualizarCalculos(Get $get, Set $set): void
