@@ -239,7 +239,19 @@ sync_git_state /opt/API-TI "$gatewaySha" "$remoteGatewayBundle"
         $remoteScript += "`n" + @"
 cd /opt/crm-dimsum
 docker compose -p crm-dimsum --env-file .env.docker build app
-docker compose -p crm-dimsum --env-file .env.docker up -d --force-recreate app worker sales-worker scheduler kardex-worker
+# `deploy.replicas` no se aplica en Docker Compose normal (solo Swarm). Si
+# se omite --scale, un release puede recrear la aplicación y dejar el pool
+# de extracción de ventas en cero aunque antes estuviera atendiendo trabajos.
+# Se lee el valor del mismo .env.docker que usa Compose y se valida antes de
+# tocar servicios para preservar el nivel de concurrencia configurado.
+set -a
+. ./.env.docker
+set +a
+ventasWorkerReplicas="`${VENTAS_WORKER_REPLICAS:-0}"
+case "`$ventasWorkerReplicas" in
+  ''|*[!0-9]*) echo "VENTAS_WORKER_REPLICAS inválido" >&2; exit 1 ;;
+esac
+docker compose -p crm-dimsum --env-file .env.docker up -d --force-recreate --scale "sales-worker=`$ventasWorkerReplicas" app worker sales-worker scheduler kardex-worker
 docker compose -p crm-dimsum --env-file .env.docker exec -T app php artisan migrate --force
 "@
         if (-not $SkipGateway) {
