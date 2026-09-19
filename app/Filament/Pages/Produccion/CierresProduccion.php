@@ -3,11 +3,20 @@
 namespace App\Filament\Pages\Produccion;
 
 use App\Models\ProduccionDiariaCierre;
+use App\Services\ProduccionCierreService;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Repeater\TableColumn;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Textarea;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Tables;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
@@ -26,6 +35,7 @@ class CierresProduccion extends Page implements HasTable
     protected static ?int $navigationSort = 4;
     protected static ?string $slug = 'produccion/cierres';
     protected string $view = 'filament.pages.produccion.cierres-produccion';
+    private string $intentoGuardar = 'borrador';
 
     public static function canAccess(): bool
     {
@@ -82,12 +92,40 @@ class CierresProduccion extends Page implements HasTable
                                 'detalles',
                             ]),
                         ])),
-                    Action::make('gestionar')
-                        ->label('Gestionar cierre')
-                        ->icon('heroicon-o-arrow-top-right-on-square')
-                        ->url(fn (ProduccionDiariaCierre $record): string => RegistroProduccionDiaria::getUrl([
-                            'fecha' => $record->fecha->toDateString(),
-                        ])),
+                    Action::make('registrar_cierre_fisico')
+                        ->label('Registrar cierre físico')
+                        ->icon('heroicon-o-clipboard-document-check')
+                        ->color('primary')
+                        ->visible(fn (ProduccionDiariaCierre $record): bool => $this->puedeRegistrarCierre() && $record->estado === 'borrador')
+                        ->modalHeading(fn (ProduccionDiariaCierre $record): string => 'Cierre físico · '.$record->fecha->format('d/m/Y'))
+                        ->modalWidth('7xl')
+                        ->stickyModalHeader()
+                        ->stickyModalFooter()
+                        ->modalSubmitActionLabel('Enviar cierre')
+                        ->modalCancelActionLabel('Cancelar')
+                        ->extraModalFooterActions(fn (Action $action): array => [
+                            $action->makeModalSubmitAction('guardar_borrador', ['destino' => 'borrador'])
+                                ->label('Guardar borrador')
+                                ->color('gray'),
+                        ])
+                        ->fillForm(fn (ProduccionDiariaCierre $record): array => app(ProduccionCierreService::class)->formData($record->fecha->toDateString(), $record))
+                        ->schema($this->cierreFisicoSchema())
+                        ->beforeFormValidated(function (Action $action): void {
+                            $this->intentoGuardar = ($action->getArguments()['destino'] ?? 'enviado') === 'borrador' ? 'borrador' : 'enviado';
+                        })
+                        ->action(function (ProduccionDiariaCierre $record, array $data, Action $action): void {
+                            abort_unless($this->puedeRegistrarCierre(), 403);
+                            $destino = (string) ($action->getArguments()['destino'] ?? 'enviado');
+
+                            try {
+                                app(ProduccionCierreService::class)->guardar($record->fecha->toDateString(), $data, $destino, (int) auth()->id());
+                            } finally {
+                                $this->intentoGuardar = 'borrador';
+                            }
+
+                            $this->resetTable();
+                            Notification::make()->success()->title($destino === 'enviado' ? 'Cierre enviado para aprobación' : 'Borrador guardado')->send();
+                        }),
                 ])
                     ->button()
                     ->label('Opciones')
@@ -120,5 +158,59 @@ class CierresProduccion extends Page implements HasTable
             ->paginated([10, 25, 50, 100])
             ->defaultPaginationPageOption(25)
             ->emptyStateHeading('Sin cierres.');
+    }
+
+    /** @return array<int, mixed> */
+    private function cierreFisicoSchema(): array
+    {
+        return [
+            Grid::make(1)->columnSpanFull()->schema([
+                Textarea::make('observacion')->label('Observación general')->rows(2)->maxLength(1000)->columnSpanFull(),
+                Repeater::make('items')->label('')->hiddenLabel()->addable(false)->deletable(false)->reorderable(false)->itemNumbers(false)->compact()->columnSpanFull()
+                    ->table([
+                        TableColumn::make('Producto')->width('18rem'),
+                        TableColumn::make('Unidad')->width('6.5rem'),
+                        TableColumn::make('Inicial')->width('7rem'),
+                        TableColumn::make('Producido')->width('7rem'),
+                        TableColumn::make('Salidas')->width('7rem'),
+                        TableColumn::make('Esperado')->width('7rem'),
+                        TableColumn::make('Final físico')->width('8rem'),
+                        TableColumn::make('Diferencia')->width('7rem'),
+                        TableColumn::make('Motivo')->width('15rem'),
+                    ])
+                    ->schema([
+                        Hidden::make('producto_id')->dehydrated(),
+                        Hidden::make('origen_inicial')->dehydrated(),
+                        Hidden::make('item_codigo')->dehydrated(),
+                        TextInput::make('item_nombre')->hiddenLabel()->readOnly()->dehydrated(),
+                        TextInput::make('unidad')->hiddenLabel()->readOnly()->dehydrated(),
+                        TextInput::make('stock_inicial')->hiddenLabel()->numeric()->minValue(0)->required()->live()
+                            ->readOnly(fn (Get $get): bool => $get('origen_inicial') === 'cierre_anterior')
+                            ->afterStateUpdated(fn (Get $get, Set $set) => $this->actualizarCalculos($get, $set)),
+                        TextInput::make('producido_hoy')->hiddenLabel()->numeric()->readOnly()->dehydrated(),
+                        TextInput::make('salidas_hoy')->hiddenLabel()->numeric()->readOnly()->dehydrated(),
+                        TextInput::make('stock_esperado')->hiddenLabel()->numeric()->readOnly()->dehydrated(),
+                        TextInput::make('stock_final')->hiddenLabel()->numeric()->minValue(0)->inputMode('decimal')->live()
+                            ->required(fn (): bool => $this->intentoGuardar === 'enviado')
+                            ->afterStateUpdated(fn (Get $get, Set $set) => $this->actualizarCalculos($get, $set)),
+                        TextInput::make('diferencia')->hiddenLabel()->numeric()->readOnly()->dehydrated(),
+                        TextInput::make('observacion')->hiddenLabel()->maxLength(500)
+                            ->required(fn (Get $get): bool => $this->intentoGuardar === 'enviado' && abs((float) ($get('diferencia') ?? 0)) > 0.0001),
+                    ]),
+            ]),
+        ];
+    }
+
+    private function actualizarCalculos(Get $get, Set $set): void
+    {
+        $esperado = round((float) ($get('stock_inicial') ?? 0) + (float) ($get('producido_hoy') ?? 0) - (float) ($get('salidas_hoy') ?? 0), 4);
+        $final = $get('stock_final');
+        $set('stock_esperado', $esperado);
+        $set('diferencia', filled($final) ? round((float) $final - $esperado, 4) : null);
+    }
+
+    private function puedeRegistrarCierre(): bool
+    {
+        return (bool) auth()->user()?->hasPermission('produccion-diaria.registrar');
     }
 }

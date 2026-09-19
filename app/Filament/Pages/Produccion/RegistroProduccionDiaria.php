@@ -8,6 +8,7 @@ use App\Models\ProduccionDiariaDetalle;
 use App\Models\ProduccionDiariaSalida;
 use App\Models\ProduccionDiariaTanda;
 use App\Models\ProduccionProducto;
+use App\Services\ProduccionCierreService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
@@ -671,17 +672,7 @@ class RegistroProduccionDiaria extends Page
     /** @return array<int, array<string, mixed>> */
     private function itemsParaFormulario(string $fecha, ?ProduccionDiariaCierre $cierre): array
     {
-        $items = collect($this->itemsDesdeCatalogo($fecha))->keyBy('producto_id');
-        foreach ($cierre?->detalles ?? [] as $detalle) {
-            if (! $detalle->producto_id || ! $items->has($detalle->producto_id)) continue;
-            $producido = $this->totalProducido($fecha, $detalle->producto_id);
-            $salidas = $this->totalSalidas($fecha, $detalle->producto_id);
-            $items->put($detalle->producto_id, ['producto_id' => $detalle->producto_id, 'item_codigo' => $detalle->item_codigo, 'item_nombre' => $detalle->item_nombre,
-                'unidad' => $detalle->unidad, 'stock_inicial' => $detalle->stock_inicial, 'producido_hoy' => $producido, 'salidas_hoy' => $salidas,
-                'stock_esperado' => round((float) $detalle->stock_inicial + $producido - $salidas, 4), 'stock_final' => $detalle->stock_final,
-                'diferencia' => $detalle->diferencia, 'observacion' => $detalle->observacion, 'origen_inicial' => 'registro_guardado']);
-        }
-        return $items->values()->all();
+        return app(ProduccionCierreService::class)->formData($fecha, $cierre)['items'];
     }
 
     /**
@@ -796,18 +787,7 @@ class RegistroProduccionDiaria extends Page
         } finally {
             $this->intentoGuardar = 'borrador';
         }
-        $fecha = $this->fechaOperativa(); $items = $this->normalizarItems($fecha, (array) ($state['items'] ?? []), $destino === 'enviado');
-        DB::transaction(function () use ($fecha, $state, $items, $destino): void {
-            $cierre = ProduccionDiariaCierre::query()->whereDate('fecha', $fecha)->lockForUpdate()->with('detalles')->first();
-            if ($cierre?->estado === 'aprobado') throw ValidationException::withMessages(['items' => 'El cierre ya fue aprobado.']);
-            if ($cierre?->estado === 'enviado') throw ValidationException::withMessages(['items' => 'El cierre está enviado; debe devolverse a borrador antes de modificarlo.']);
-            $antes = $cierre ? $this->snapshot($cierre) : null;
-            $cierre ??= new ProduccionDiariaCierre(['fecha' => $fecha, 'area' => 'FABRICA', 'creado_por' => auth()->id()]);
-            $cierre->fill(['estado' => $destino, 'observacion' => $state['observacion'] ?? null]);
-            if ($destino === 'enviado') $cierre->fill(['enviado_por' => auth()->id(), 'enviado_en' => now()]);
-            $cierre->save(); $cierre->detalles()->delete(); $cierre->detalles()->createMany($items);
-            $this->auditar($cierre, $antes ? ($destino === 'enviado' ? 'enviado' : 'actualizado') : 'creado', $antes, $this->snapshot($cierre->fresh('detalles')));
-        });
+        app(ProduccionCierreService::class)->guardar($this->fechaOperativa(), $state, $destino, (int) auth()->id());
         Notification::make()->success()->title($destino === 'enviado' ? 'Cierre enviado para aprobación' : 'Borrador guardado')->send(); $this->cargarHoy();
     }
 
