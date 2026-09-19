@@ -9,6 +9,28 @@
         </div>
     @endif
 
+    <div class="flex flex-wrap items-center justify-end gap-2">
+        @if ($this->puedeRegistrar() && $this->puedeEditarCierreFisico())
+            <x-filament::button
+                type="button"
+                color="primary"
+                icon="heroicon-o-clipboard-document-check"
+                wire:click="mountAction('registrarCierreFisico')"
+                wire:loading.attr="disabled"
+                wire:target="mountAction"
+            >Registrar cierre físico</x-filament::button>
+        @endif
+
+        <x-filament::button
+            type="button"
+            color="gray"
+            icon="heroicon-o-chart-bar"
+            wire:click="mountAction('produccionAcumulada')"
+            wire:loading.attr="disabled"
+            wire:target="mountAction"
+        >{{ $this->esFechaActual() ? 'Producción acumulada de hoy' : 'Producción acumulada' }}</x-filament::button>
+    </div>
+
     @if (count($productosParaRegistro))
         @foreach ($productosPorCategoria as $categoria => $productos)
             <x-filament::section :heading="$categoria" compact>
@@ -60,12 +82,6 @@
         @endforeach
     @endif
 
-    @if ($this->puedeRegistrar() && $this->puedeEditarCierreFisico())
-        <div class="flex justify-end">
-            <x-filament::button type="button" color="gray" wire:click="mountAction('registrarCierreFisico')" wire:loading.attr="disabled" wire:target="mountAction">Registrar cierre físico</x-filament::button>
-        </div>
-    @endif
-
     @if ($this->puedeAprobar() && $estado === 'enviado')
         <div class="flex flex-wrap justify-end gap-2">
             <x-filament::button type="button" color="warning" wire:click="mountAction('devolverACorreccion')" wire:loading.attr="disabled" wire:target="mountAction">Devolver a borrador</x-filament::button>
@@ -78,10 +94,6 @@
             <x-filament::button type="button" color="warning" wire:click="reabrir" wire:confirm="Vuelve a borrador: se podrán corregir bachs, salidas y el stock final antes de aprobarlo de nuevo. ¿Continuar?" wire:loading.attr="disabled" wire:target="reabrir">Reabrir cierre</x-filament::button>
         </div>
     @endif
-
-    <div class="flex justify-end">
-        <x-filament::button type="button" color="gray" icon="heroicon-o-chart-bar" wire:click="mountAction('produccionAcumulada')" wire:loading.attr="disabled" wire:target="mountAction">{{ $this->esFechaActual() ? 'Producción acumulada de hoy' : 'Producción acumulada' }}</x-filament::button>
-    </div>
 
     @if (count($tandasRecientes))
         <x-filament::section heading="Últimos bachs">
