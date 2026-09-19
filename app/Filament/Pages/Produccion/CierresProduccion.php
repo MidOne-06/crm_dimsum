@@ -3,6 +3,8 @@
 namespace App\Filament\Pages\Produccion;
 
 use App\Models\ProduccionDiariaCierre;
+use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Grid;
@@ -60,6 +62,38 @@ class CierresProduccion extends Page implements HasTable
                 Tables\Columns\TextColumn::make('creador.name')->label('Registrado por')->placeholder('—')->toggleable(),
                 Tables\Columns\TextColumn::make('updated_at')->label('Actualizado')->dateTime('d/m H:i')->sortable()->toggleable(),
             ])
+            ->recordActions([
+                ActionGroup::make([
+                    Action::make('detalle')
+                        ->label('Ver detalle')
+                        ->icon('heroicon-o-eye')
+                        ->modalHeading(fn (ProduccionDiariaCierre $record): string => 'Cierre · '.$record->fecha->format('d/m/Y'))
+                        ->modalWidth('5xl')
+                        ->modalSubmitAction(false)
+                        ->modalCancelActionLabel('Cerrar')
+                        ->stickyModalHeader()
+                        ->stickyModalFooter()
+                        ->modalContent(fn (ProduccionDiariaCierre $record) => view('filament.pages.produccion.partials.cierre-produccion-detalle', [
+                            'cierre' => $record->load([
+                                'creador',
+                                'aprobador',
+                                'tandas.registrador',
+                                'salidas.registrador',
+                                'detalles',
+                            ]),
+                        ])),
+                    Action::make('gestionar')
+                        ->label('Gestionar cierre')
+                        ->icon('heroicon-o-arrow-top-right-on-square')
+                        ->url(fn (ProduccionDiariaCierre $record): string => RegistroProduccionDiaria::getUrl([
+                            'fecha' => $record->fecha->toDateString(),
+                        ])),
+                ])
+                    ->button()
+                    ->label('Opciones')
+                    ->icon('heroicon-o-ellipsis-horizontal')
+                    ->color('gray'),
+            ])
             ->filters([
                 Tables\Filters\SelectFilter::make('estado')->label('Estado')->options([
                     'borrador' => 'Borrador', 'enviado' => 'Enviado', 'aprobado' => 'Aprobado',
@@ -85,7 +119,6 @@ class CierresProduccion extends Page implements HasTable
             ->defaultSort('fecha', 'desc')
             ->paginated([10, 25, 50, 100])
             ->defaultPaginationPageOption(25)
-            ->recordUrl(fn (ProduccionDiariaCierre $record): string => RegistroProduccionDiaria::getUrl(['fecha' => $record->fecha->toDateString()]))
             ->emptyStateHeading('Sin cierres.');
     }
 }
